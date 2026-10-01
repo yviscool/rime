@@ -218,6 +218,27 @@ inline void settle_from_result(rime::js::Host* host, std::uint64_t token,
   host->complete_async(token, false, code + ":" + message);
 }
 
+// Executes the shared action queue: every queued action runs (its route, if
+// any, decides cancellation) and each routed promise settles from its Result.
+// Queue-pump actions without a route — chord dispatch — execute all the same
+// and skip only the settlement. Shared by run_action's promise task and the
+// chord dispatcher so both drain the same bounded, traced pipeline.
+inline void run_queue_pump(rime::js::Host* host, rime::action::Dispatcher& dispatcher) {
+  const auto results = dispatcher.pump(
+      dispatcher.capacity(),
+      [host](const rime::action::Action& queued) {
+        rime::js::Host::AsyncRoute route;
+        if (host->find_route(queued.id, route)) return route.cancellation;
+        return rime::core::CancellationToken{};
+      });
+  for (const auto& result : results) {
+    rime::js::Host::AsyncRoute route;
+    if (host->take_route(result.id, route)) {
+      settle_from_result(host, route.token, result);
+    }
+  }
+}
+
 // Queues `action` through the dispatcher and settles the promise when a
 // queue pump executes it, so every mutation shares one bounded, inspectable
 // pipeline (capacity, coalescing, trace) instead of racing straight against
@@ -254,19 +275,7 @@ inline JSValue run_action(JSContext* context, rime::action::Dispatcher& dispatch
                         // scheduled task; kernel, dispatcher and host teardown only
                         // run after pending tasks settle.
                         try {
-                          const auto results = dispatcher_ptr->pump(
-                              dispatcher_ptr->capacity(),
-                              [host](const rime::action::Action& queued) {
-                                rime::js::Host::AsyncRoute route;
-                                if (host->find_route(queued.id, route)) return route.cancellation;
-                                return rime::core::CancellationToken{};
-                              });
-                          for (const auto& result : results) {
-                            rime::js::Host::AsyncRoute route;
-                            if (host->take_route(result.id, route)) {
-                              settle_from_result(host, route.token, result);
-                            }
-                          }
+                          run_queue_pump(host, *dispatcher_ptr);
                         } catch (const std::exception& exception) {
                           host->complete_async(
                               token, false,

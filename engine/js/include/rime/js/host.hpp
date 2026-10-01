@@ -151,6 +151,10 @@ class Host final {
   [[nodiscard]] std::size_t error_count() const;
   // Returns the newest message recorded after `mark`, or "" when quiet.
   [[nodiscard]] std::string new_error_since(std::size_t mark) const;
+  // Appends a diagnostic to the host error log (thread-safe); native modules
+  // use it for failures that have no promise to settle, so the same errors
+  // the inspect/debugger interfaces read stay complete.
+  rime::core::Error record(std::string where, std::string message);
 
   [[nodiscard]] std::thread::id owner() const { return owner_; }
 
@@ -178,7 +182,6 @@ class Host final {
 
   void register_runtime_module();
   rime::core::Error check_thread() const;
-  rime::core::Error record(std::string where, std::string message);
   rime::core::Error exception_error(std::string where);
   void apply_completion(const Completion& completion);
   void wake();

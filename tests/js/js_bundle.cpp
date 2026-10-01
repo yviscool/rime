@@ -51,6 +51,8 @@ int main(int argc, char** argv) {
   rime::win32::InputModuleBinding input_binding;
   input_binding.service = &input_service;
   input_binding.kernel = &kernel;
+  input_binding.dispatcher = &dispatcher;
+  input_binding.next_action_id = &next_action_id;
   rime::win32::ProcessModuleBinding process_binding{&process_service, &kernel, &dispatcher,
                                                     &next_action_id};
   rime::win32::ClipboardModuleBinding clipboard_binding{&clipboard_service, &kernel, &dispatcher,
