@@ -1,6 +1,6 @@
 # Keyboard and Mouse API
 
-状态：`specified`；已实现输入订阅、chord 绑定与 `input.send` 结构化键盘注入（contract 见 `tests/native/input_tests.cpp`、`tests/js/input_slice.cpp`）。AHK `Send` 字符串语法、`Mouse*`、`KeyWait`、`BlockInput` 和键状态查询尚未实现。
+状态：`contract-only`；已实现输入订阅、chord 绑定与 `input.send` 结构化键盘注入（contract 见 `tests/native/input_tests.cpp`、`tests/js/input_slice.cpp`）。AHK `Send` 字符串语法、`Mouse*`、`KeyWait`、`BlockInput` 和键状态查询尚未实现。
 
 源码证据：`functions.h` 的 `Send*`、`Mouse*`、`KeyWait`、`GetKey*`、`Set*KeyState`、`BlockInput`；`source/keyboard_mouse.cpp`、`source/keyboard_mouse.h`、`source/input_object.cpp`、`source/hook.cpp`。
 

@@ -5,7 +5,7 @@
 | 来源 | 代表文件 | 暴露内容 | 当前覆盖 |
 |---|---|---|---|
 | 库内建函数 | `source/lib/functions.h`、`source/lib/*.cpp` | 253 个函数的参数和返回值元数据及实现 | 已进入 `coverage.json`；大多数仅 contract-only |
-| 核心内建函数 | `source/script.cpp`、`source/script_func_impl.h` | `BIF1`/`g_BIF` 注册的 41 个数学、字符串、对象、COM、文件和输入函数 | 见 [`core-builtins.md`](./core-builtins.md)，尚未并入逐项矩阵 |
+| 核心内建函数 | `source/script.cpp`、`source/script_func_impl.h` | `g_BIF` 注册的 101 个数学、字符串、对象、COM、声音、注册表和输入函数 | 见 [`core-builtins.md`](./core-builtins.md)，尚未并入逐项矩阵 |
 | 对象原型 | `script_object.cpp/.h` | Object、Array、Map、Func、Buffer、ClipboardAll、RegExMatch 对象的方法/属性 | 未进入 253 项矩阵 |
 | GUI 对象 | `script_gui.cpp/.h`、`Gui.*.cpp` | Gui、GuiCtrl、ListView、TreeView、StatusBar、Edit、Date、Tab 等方法/属性 | 仅领域概览 |
 | Menu 对象 | `script_menu.cpp/.h` | Menu/MenuBar 的 Add、Insert、Delete、Show、Check、Icon、Default、Handle 等 | 仅领域概览 |

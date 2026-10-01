@@ -1,6 +1,6 @@
 # Clipboard API
 
-状态：`specified`，尚未实现。
+状态：`contract-only`；剪贴板文本读写已实现（`clipboard.read`/`clipboard.write`，contract 见 `tests/js/breadth_slice.cpp`）。`ClipWait`、`ClipboardAll` 二进制快照与变化订阅尚未实现。
 
 源码证据：`functions.h` 的 `ClipWait`、`OnClipboardChange`；`source/clipboard.cpp`、`source/clipboard.h`。
 

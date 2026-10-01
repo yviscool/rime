@@ -1,6 +1,6 @@
 # GUI, Menu, Tray and Dialog API
 
-状态：`specified`，尚未实现。
+状态：`contract-only`，尚未实现。
 
 源码证据：`functions.h` 的 `Gui*`、`Menu*`、`Tray*`、`ToolTip`、`MsgBox`、`InputBox`、`Sound*`、`LoadPicture`、`IL_*`；`source/script_gui.cpp`、`source/script_menu.cpp`、`source/lib/sound.cpp`。
 

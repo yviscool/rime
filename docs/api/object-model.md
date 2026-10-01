@@ -1,6 +1,6 @@
 # Object、GUI、COM 与宿主对象模型
 
-状态：`specified`，尚未实现。
+状态：`contract-only`，尚未实现。
 
 ## TS 边界
 

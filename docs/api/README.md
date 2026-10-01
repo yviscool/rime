@@ -10,10 +10,11 @@
 
 当前状态含义：
 
-- `specified`：目标契约已在设计中，但没有完成 Native binding、Action executor 和 contract test。
+- `contract-only`：目标契约已在设计中，但没有完成 Native binding、Action executor 和 contract test（JSON 状态词，与旧文档中的 `specified` 同义）。
 - `sdk-owned`：由 TypeScript/ECMAScript 标准库承担，不进入 Windows Native binding。
 - `unsupported-by-policy`：保留能力边界说明，但默认不向脚本暴露危险的裸指针或任意进程内调用。
-- `implemented`：Native binding、执行器和 contract test 均已完成。当前只有少数 Window 基础操作达到此标准。
+- `excluded`：AHK v1 别名或版本差异条目，不计入分母；理由记录在各自的 `source` 字段。
+- `implemented`：Native binding、执行器和 contract test 均已完成。当前 Window 基础操作、`process.*` 查询与终止、`input.send`、剪贴板读写和 `A_Clipboard` 达到此标准。
 
 当前矩阵的 `sourceFiles` 是基于函数名的源码命中结果，属于研究索引；在进入实现前，必须把它收敛到实际定义函数和关键 Win32 调用，并补充精确的错误和返回值语义。
 
@@ -36,7 +37,7 @@
 | [`runtime-language.md`](./runtime-language.md) | Runtime 生命周期、字符串、日期、正则和 TS 标准能力 |
 | [`runtime.md`](./runtime.md) | `rime:runtime` 模块：delay、cancellation、subscribe、inspect、context |
 | [`source-inventory.md`](./source-inventory.md) | 函数之外的对象、ABI、内置变量和语法来源 |
-| [`core-builtins.md`](./core-builtins.md) | `script.cpp` 独立注册的 41 个核心内建函数 |
+| [`core-builtins.md`](./core-builtins.md) | `script.cpp` 独立注册的 101 个核心内建函数 |
 | [`object-model.md`](./object-model.md) | Object/GUI/Menu/File/InputHook/COM 对象边界 |
 | [`abi-and-language.md`](./abi-and-language.md) | Host ABI、内置变量和语言级行为 |
 | [`audit-gaps.md`](./audit-gaps.md) | 未逐项提取的来源和完成标准 |

@@ -1,6 +1,6 @@
 # File, Directory, Drive and Environment API
 
-状态：`specified`，尚未实现。
+状态：`contract-only`，尚未实现。
 
 源码证据：`functions.h` 的 `File*`、`Dir*`、`Drive*`、`Env*`、`Ini*`、`Download`、`SplitPath`；`source/lib/file.cpp`、`source/lib/drive.cpp`、`source/lib/env.cpp`。
 

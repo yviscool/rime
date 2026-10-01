@@ -1,6 +1,6 @@
 # Process and Shell API
 
-状态：`specified`，尚未实现。
+状态：`contract-only`；`Run` 与 `ProcessClose/ProcessExist/ProcessGetName/ProcessGetParent/ProcessGetPath` 已实现（contract 见 `tests/native/process_tests.cpp`、`tests/js/breadth_slice.cpp`）。`RunWait`/`ProcessWait*`/`RunAs`/`Shutdown`/`ProcessSetPriority` 尚未实现。
 
 源码证据：`functions.h` 的 `Run`、`RunWait`、`RunAs`、`Process*`、`Shutdown`；`source/lib/process.cpp`、`source/application.cpp`。
 

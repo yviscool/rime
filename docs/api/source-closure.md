@@ -4,7 +4,7 @@
 
 ```text
 functions.h/md_func*       -> 253 个库函数
-script.cpp/BIF1            -> 41 个核心 BIF
+script.cpp/g_BIF           -> 101 个核心 BIF
 script_object*.cpp         -> Object/Array/Map/Func/Buffer/Regex 成员和动态属性
 script_gui*.cpp            -> Gui/GuiControl 专用对象
 script_menu.cpp             -> Menu/MenuBar 对象

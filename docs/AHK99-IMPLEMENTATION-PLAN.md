@@ -8,36 +8,36 @@
 2. **GUI 底座 = Win32 通用控件**：`GuiService` 在 UI Thread 拥有真实 HWND + common controls（Button/Edit/ListView/TreeView/…），行为与 AHK 对齐、可逐控件落到 Win32 消息。Rime UI Runtime 继续服务 Rim 自身 UI，两者不冲突；本计划不等待 UI Runtime。
 3. **维持策略裁剪**：DllCall、ComCall、CallbackCreate/Free、ObjPtr/AddRef/Release 系、NumGet/NumPut、StrPtr、ComObj*、Obj*PtrData 等裸互操作保持 `unsupported-by-policy`，补文档与"拒绝行为"测试，计为已决策项（分母中为终态）。调试器、AHK 脚本引擎同样排除。
 
-**99% 公式**：`终态条目 / 范围内条目 ≥ 99%`，终态 = `implemented | sdk-owned | unsupported-by-policy`（均须有测试 ID）。
+**99% 公式**：`终态条目 / 范围内条目 ≥ 99%`，终态 = `implemented | sdk-owned | unsupported-by-policy`（均须有测试 ID）；`excluded`（AHK v1 别名等版本差异条目）不计入范围内分母。
 
 ## 1. 事实基线
 
-### 1.1 分母现状（含审计发现的缺口）
+### 1.1 分母现状（M0 后冻结：只允许状态流转，不允许静默缺项）
 
-| 清单 | 已追踪 | 源码实际 | 缺口 |
-|---|---:|---:|---|
-| `coverage.json`（functions.h `md_func`） | 253 | 253 | — |
-| `core-builtins.json`（script.cpp `g_BIF`） | **41（仅 BIF1）** | **101（BIF1 41 + BIFn 47 + BIFi 13）** | **60 个未追踪**：RegRead/RegWrite/RegDelete/RegCreateKey/RegDeleteKey、WinExist/WinActive、SoundGet/Set 系 6、Trim/RTrim/LTrim/StrLower/StrUpper/StrTitle/StrGet/StrPut、ACos/Ceil/Floor/Max/Min/Sqrt/Ln/Log、Is* 谓词 12、Obj* 裸互操作系、DllCall/ComCall/ComObjFromPtr、GetMethod/HasMethod/IsSetRef |
-| `objects.json`（对象成员） | 213（13 对象） | 13 对象 + **控件专用对象未提取**（ListView 11+ /TreeView 12 /StatusBar 3 /Edit/Date/Tab/ComboBox） | 控件对象成员 |
-| `builtins.json`（`A_*` 变量） | 60 | `g_BIV_A[]` **134** | 需逐个判定：动态可读 44 已标；其余需分类（快照/EventContext/内部排除） |
-| 指令（`IsDirective`） | 11~13 | **22** | 缺口需分类（部分由 TS 承担如 `#Include`→模块导入，部分排除如 `#StructPack`） |
-| 合计已追踪 | **≈567** | — | 修正后分母 ≈ **650~700** |
+| 清单 | 源码实际（=已追踪） | M0 补齐动作 |
+|---|---:|---|
+| `coverage.json`（functions.h `md_func`） | 253 | 立项时已对齐 |
+| `core-builtins.json`（script.cpp `g_BIF`） | **101（BIF1 41 + BIFn 47 + BIFi 13）** | 补齐 60 个未追踪条目：Reg* 5、WinExist/WinActive、SoundGet/Set 系 6、Trim/RTrim/LTrim/StrLower/StrUpper/StrTitle/StrGet/StrPut、ACos/Ceil/Floor/Max/Min/Sqrt/Ln/Log、Is* 谓词 12、Obj* 裸互操作系、DllCall/ComCall/ComObjFromPtr、GetMethod/HasMethod/IsSetRef |
+| `objects.json`（对象成员） | **243（20 对象）** | 提取控件专用对象（ListView 11 /TreeView 12 /StatusBar 3 /Edit/Date/Tab/ComboBox）等 30 成员 |
+| `builtins.json`（`A_*` 变量） | **145 = `g_BIV_A` 134 + 11 个 v1 别名** | 134 逐个分类（快照字段 / EventContext / 动态 async）；11 别名标 `excluded`（不计分母，理由在各自 `source`） |
+| 指令（`IsDirective`） | **22** | 逐项分类：TS 等价 API 4、配置映射 13、排除 5（`directives-and-syntax.md`） |
+| 合计 | **764（有效 753 = 764 − 11 别名）** | 分母冻结；`matrix:check` 漂移检查守住（coverage ≡ `md_func`、core-builtins ≡ `g_BIF`、builtins ⊇ `g_BIV_A`、指令 ≡ `IS_DIRECTIVE_MATCH`） |
 
 ### 1.2 终态现状
 
 | 清单 | implemented | sdk-owned | unsupported | 终态合计 | 剩余 |
 |---|---:|---:|---:|---:|---:|
-| coverage 253 | 13（全 window） | 7 | 5 | 25 | 228 |
-| core-builtins 41 | 0 | 20 | 4 | 24 | 17 |
-| objects 213 | 0 | 0 | 0 | 0 | 213 |
-| builtins 60 | 0 | 0 | 0 | 0 | 60 |
+| coverage 253 | 21（window 13 + process 6 + `Send`/`SendInput` 2） | 7 | 5 | 33 | 220 |
+| core-builtins 101 | 0 | 56 | 16 | 72 | 29 |
+| objects 243 | 0 | 0 | 0 | 0 | 243 |
+| builtins 134（145 − 11 `excluded`） | 1（`A_Clipboard`） | 0 | 0 | 1 | 133 |
 
-注：`coverage.json` 未反映已落地的 `input.send`、`clipboard.write`、`process.*`、`automation.*`（M0 修正）。
+注：已落地能力已回填（M0）：`process.*` 6 项、`Send`/`SendInput`（`input.send`）、`A_Clipboard`（`clipboard.read`/`clipboard.write`）；15 个 action 的真值源在 `contracts/registry/actions.json`（`automation.*` 等无独立 AHK 函数条目，其状态记录在该注册表，`matrix:check` 校验 type 集 == executor 注册集）。当前终态 106 / 731 ≈ 14.5%（四个 JSON，不含指令）。
 
-### 1.3 代码现状（结构事实）
+### 1.3 代码现状（结构事实，M0 之后）
 
-- **已有**：15 个 action type、13 个 capability、5 个 service（window/input/process/clipboard/automation）+ UiThread + Dispatcher/Kernel + TimerService + 完整垂直切片模板（七段式 slice 测试）。
-- **缺失**：Worker lane（`Lane` 枚举只有 Js/Ui/Automation）；registry/screen/fs/通用 COM/GUI/declarative Hotkey/OnMessage 零实现；**生产接线缺失**（唯一完整接线在 `tests/js/js_bundle.cpp`，`hosts/desktop` 是空壳）；**无中央 action/capability 真值源**（15 type 散落在 6 个 module + 5 个 executor + 8 个测试）。
+- **已有**：15 个 action type、16 个 capability（12 `implemented` + 1 `test-only` + 3 `planned`）、5 个 service（window/input/process/clipboard/automation）+ UiThread + Dispatcher/Kernel + TimerService + 完整垂直切片模板（七段式 slice 测试）；`Lane::Worker` + `WorkerService`（异步读/泵与 5 个 executor 的 lane 检查）；中央真值源 `contracts/registry/actions.json` + `matrix:check` 漂移检查；共享 `rime::win32::Bootstrap` 生产接线（`tests/js/js_bundle.cpp` 与 `hosts/desktop` 同源，`rime_host <script>` 走同一生命周期）。
+- **缺失**：registry/screen/fs/通用 COM/GUI/declarative Hotkey/OnMessage 零实现；窗口条件等待（`WinWait*`）、WinGroup、`Send` 字符串语言（M2 语法层，底层 `input.send` 已具备）。
 - **原版规模参考**（`rime-research/AutoHotkey-alpha`，≈103,700 行）：语言核心 ≈30k（排除）、GUI+Menu ≈15.5k、Hook/Hotkey/Send ≈13.3k、BIF 实现面 ≈12.5k、调度内核 ≈3.5k。我们的对应面：GUI/Menu 与 Hook/事件中枢是两个最大战役，BIF 面广而浅。
 
 ## 2. 阶段总览
@@ -152,4 +152,4 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 ## 6. 进度度量（机器可读）
 
 - `bun run matrix:check` + 新增核算脚本：输出各 JSON 终态计数与总百分比；
-- 目标曲线：M0 后分母固定（≈650~700）；M1~M5 每阶段消化 15~25%；M6/M7 消化对象成员大头；M8 收口 ≥99%。
+- 目标曲线：M0 后分母固定（764，有效 753）；M1~M5 每阶段消化 15~25%；M6/M7 消化对象成员大头；M8 收口 ≥99%。

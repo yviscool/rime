@@ -1,6 +1,6 @@
 # Monitor, Screen and Visual API
 
-状态：`specified`，尚未实现。
+状态：`contract-only`，尚未实现。
 
 源码证据：`functions.h` 的 `Monitor*`、`SysGet`、`Pixel*`、`ImageSearch`、`CaretGetPos`；`source/lib/pixel.cpp`、`source/lib/win.cpp`。
 

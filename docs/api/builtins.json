@@ -52,7 +52,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().args",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "excluded"
       },
       {
         "name": "A_FileEncoding",
@@ -195,7 +196,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().tempDir",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "excluded"
       },
       {
         "name": "A_ThisFunc",
@@ -496,7 +498,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().computerName",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "excluded"
       },
       {
         "name": "A_ComputerName",
@@ -762,7 +765,8 @@
         "lane": "ui",
         "capability": "windows.window.read",
         "tsReplacement": "context.snapshot().caret.x",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "excluded"
       },
       {
         "name": "A_CaretY",
@@ -773,7 +777,8 @@
         "lane": "ui",
         "capability": "windows.window.read",
         "tsReplacement": "context.snapshot().caret.y",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "excluded"
       },
       {
         "name": "A_Clipboard",
@@ -784,7 +789,8 @@
         "lane": "ui",
         "capability": "windows.clipboard.read",
         "tsReplacement": "clipboard.text",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "tests/js/breadth_slice.cpp",
+        "status": "implemented"
       },
       {
         "name": "A_EndChar",
@@ -817,7 +823,8 @@
         "lane": "ui",
         "capability": "runtime",
         "tsReplacement": "EventContext.payload.gui",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "excluded"
       },
       {
         "name": "A_GuiControl",
@@ -828,7 +835,8 @@
         "lane": "ui",
         "capability": "runtime",
         "tsReplacement": "EventContext.payload.guiControl",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "excluded"
       },
       {
         "name": "A_KeybdHookInstalled",
@@ -1028,7 +1036,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "for (const entry of fs.list(...)) entry.resolvedPath",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "excluded"
       },
       {
         "name": "A_LoopFileName",
@@ -1116,7 +1125,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "for (const entry of fs.list(...)) entry.modifiedTime",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "excluded"
       },
       {
         "name": "A_LoopFileTimeAccessed",
@@ -1228,7 +1238,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().coordMode",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "excluded"
       },
       {
         "name": "A_CoordModeCaret",
@@ -1492,7 +1503,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "scheduler.state().paused",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "excluded"
       },
       {
         "name": "A_RegView",

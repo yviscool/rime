@@ -1,6 +1,6 @@
 # Runtime and Language Compatibility
 
-状态：部分 `sdk-owned`，部分 `specified`。
+状态：部分 `sdk-owned`，部分 `contract-only`。
 
 源码证据：`functions.h` 的 `RegEx*`、`Str*`、`DateAdd`、`DateDiff`、`IsLabel`、`Sleep`、`Exit*`、`Reload`、`Suspend`、`Pause`、`Persistent`、`Critical`、`Thread`、`CoordMode`、`DetectHidden*`、`SetTitleMatchMode`、`SetWorkingDir`。
 

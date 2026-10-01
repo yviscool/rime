@@ -4,7 +4,7 @@
 
 设计取向：不实现 AHK 兼容层。AHK 源码只用于发现 Windows automation 所需的能力和边界；公共 API 以未来的 TypeScript 语义重新设计。
 
-结论：当前文档已经覆盖 AHK 源码来源、253 个 `functions.h` 函数、41 个核心 BIF、对象/GUI/Menu/InputHook/File/COM 来源、内置变量、指令、状态和错误。但它还没有完全满足“可直接实现的标准库规范”：TS 公共类型、对象成员的逐项映射、内置变量的读取模型、Window Native binding wire contract 和每个 API 的测试 ID 仍需继续收敛。
+结论：当前文档已经覆盖 AHK 源码来源、253 个 `functions.h` 函数、101 个核心 BIF、对象/GUI/Menu/InputHook/File/COM 来源、内置变量、指令、状态和错误。但它还没有完全满足“可直接实现的标准库规范”：TS 公共类型、对象成员的逐项映射、内置变量的读取模型、Window Native binding wire contract 和每个 API 的测试 ID 仍需继续收敛。
 
 ## 五个核心问题的审查
 

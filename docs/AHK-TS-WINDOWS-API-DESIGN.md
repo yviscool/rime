@@ -154,7 +154,7 @@ export const hooks: { keyboard(cb: (e: KeyboardEvent)=>void, o?: HookOptions): S
 原则、架构决策和垂直切片顺序；实现任务必须以领域规范和 `coverage.json` 为准。
 
 第二轮审计进一步确认：`functions.h` 的 253 个函数甚至不是全部函数型 API；`script.cpp`
-还注册了 41 个独立的核心 `BIF1` 函数。对象原型、GUI/Menu/InputHook/File/COM
+还注册了 101 个独立的核心内建函数（`BIF1` 41 + `BIFn` 47 + `BIFi` 13）。对象原型、GUI/Menu/InputHook/File/COM
 对象、内置变量、Host ABI 和语法级事件分别记录在 `docs/api/source-inventory.md`、
 `objects.json`、`builtins.json` 和 `audit-gaps.md`。在这些清单逐项提取完成前，设计仍不能
 称为完备。

@@ -1,6 +1,6 @@
 # Control and UI Automation API
 
-状态：`specified`，尚未实现。
+状态：`contract-only`，尚未实现。
 
 源码证据：`functions.h` 的 `Control*`、`Edit*`、`ListViewGetContent`、`StatusBar*`；`source/script_gui.cpp`、`source/script_gui.h` 及 UIA/COM 相关实现。
 
