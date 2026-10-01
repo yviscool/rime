@@ -8,7 +8,7 @@
 
 ## 测试覆盖（如实）
 
-- `tests/js/vertical_slice.cpp`：11/11 个 JS 调用全覆盖（含查询、状态机与关闭）。`focus` 允许 `SetForegroundWindow` 被前台锁拒绝（合法失败分支）；`move('active')` 仅在我方窗口持有前台时执行，否则整段 SKIP——测试不注入全局输入、不移动任何外来窗口。同文件另覆盖 `deadlineMs:1` 的 `timeout` 拒绝与非法 `deadlineMs` 的同步 `TypeError`。
+- `tests/js/vertical_slice.cpp`：11/11 个 JS 调用全覆盖（含查询、状态机与关闭）。`focus` 允许 `SetForegroundWindow` 被前台锁拒绝（合法失败分支）；`move('active')` 仅在我方窗口持有前台时执行，否则整段 SKIP——测试不注入全局输入、不移动任何外来窗口。同文件另覆盖 `deadlineMs:0` 的 `timeout` 拒绝与非法 `deadlineMs` 的同步 `TypeError`。
 - 8/8 个写类型经 JS → Kernel → Executor → UI lane 端到端验证；`tests/native/win32_tests.cpp` 另覆盖 8/8 写类型的原生分派、空 policy 下逐类型的 capability 拒绝（拒绝后状态不变）与排队超时。
 - `docs/api/coverage.json` 与 `compatibility-matrix.md` 的行是**逐 AHK 函数**状态（已测函数为 `implemented` 并带 contractTest 路径，未测扩展项仍为 `contract-only|missing`），与本页 Rime 原生 API 的状态不构成矛盾：两者粒度不同。
 - cancel（`cancellationId`）：仅 kernel 通用路径有覆盖，window JS 入口尚无取消测试。

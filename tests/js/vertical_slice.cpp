@@ -137,13 +137,15 @@ int main() {
         "slice-bad-placement-check.mjs");
 
   // Segment 2b: an exhausted deadline never reaches the executor -- the
-  // kernel rejects with Timeout (deadlineMs:1 leaves no budget for the
-  // timer hop plus the UI round-trip).
+  // kernel rejects with Timeout before dispatch. deadlineMs:0 pins
+  // deadline_unix_ms at build time so `deadline <= now` holds on every
+  // dispatch; a 1ms budget raced the wall clock (the queue hop plus the
+  // executor can finish inside one millisecond and let the action resolve).
   check(runtime,
         "import { windows } from 'rime:window';\n"
         "globalThis.deadlineOutcome = null;\n"
         "windows.move(" + id_text +
-            ", 'left', { deadlineMs: 1 })\n"
+            ", 'left', { deadlineMs: 0 })\n"
             "  .then(() => { globalThis.deadlineOutcome = 'unexpected resolution'; },\n"
             "        e => { globalThis.deadlineOutcome = (e && e.code) || String(e); });",
         "slice-deadline.mjs");
