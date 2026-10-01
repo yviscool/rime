@@ -110,10 +110,6 @@ struct ProcessHandleGuard {
   return path;
 }
 
-[[nodiscard]] std::string process_image_name(const DWORD process_id) {
-  return to_utf8(process_image_basename_w(process_id));
-}
-
 // Per-enumeration pid -> basename cache. A single query() enum touches every
 // top-level window; without this each window pays OpenProcess plus a 64KB path
 // buffer even when dozens share one pid. The snapshot still reads processName

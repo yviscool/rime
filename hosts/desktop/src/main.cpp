@@ -15,7 +15,8 @@ int main() {
     std::cerr << "desktop host start failed: " << start_result.message << "\n";
     return 1;
   }
-  const auto post_result = runtime.post({0, rime::core::EventKind::Input, "host.ready", ""});
+  const auto post_result =
+      runtime.post({0, rime::core::EventKind::Input, "host.ready", "", ""});
   if (!post_result.ok()) {
     std::cerr << "desktop host post failed: " << post_result.message << "\n";
     // The runtime started above, so stop the host before exiting instead of

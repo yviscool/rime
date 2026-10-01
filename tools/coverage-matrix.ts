@@ -1,7 +1,7 @@
 // Bun all-in-one: compatibility matrix generation from docs/api/coverage.json.
 // `bun tools/coverage-matrix.ts` verifies docs/api/compatibility-matrix.md is
 // in sync; `--write` regenerates it.
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 interface CoverageEntry {
@@ -75,6 +75,21 @@ async function render(): Promise<string> {
         (Array.isArray(value) && value.length === 0);
       if (missing) {
         throw new Error(`coverage entry ${index} (${entry.ahkName ?? "?"}) misses ${field}`);
+      }
+    }
+    // contractTest names real test files (or "missing"): a stale path would
+    // silently advertise coverage that no longer exists on disk.
+    if (entry.contractTest !== "missing") {
+      for (const file of entry.contractTest.split(",")) {
+        const path = file.trim();
+        if (!path) continue;
+        try {
+          await stat(resolve(root, path));
+        } catch {
+          throw new Error(
+            `coverage entry ${index} (${entry.ahkName ?? "?"}) contractTest file not found: ${path}`,
+          );
+        }
       }
     }
   }
