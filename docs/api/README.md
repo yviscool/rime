@@ -34,6 +34,7 @@
 | [`gui-menu.md`](./gui-menu.md) | Gui、Menu、Tray、ToolTip、MsgBox、InputBox、Sound、ImageList |
 | [`native-interop.md`](./native-interop.md) | DllCall、ComCall、Callback、Obj*DataPtr、注册表和隔离策略 |
 | [`runtime-language.md`](./runtime-language.md) | Runtime 生命周期、字符串、日期、正则和 TS 标准能力 |
+| [`runtime.md`](./runtime.md) | `rime:runtime` 模块：delay、cancellation、subscribe、inspect、context |
 | [`source-inventory.md`](./source-inventory.md) | 函数之外的对象、ABI、内置变量和语法来源 |
 | [`core-builtins.md`](./core-builtins.md) | `script.cpp` 独立注册的 41 个核心内建函数 |
 | [`object-model.md`](./object-model.md) | Object/GUI/Menu/File/InputHook/COM 对象边界 |

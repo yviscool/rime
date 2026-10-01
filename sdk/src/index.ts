@@ -26,8 +26,8 @@ export interface RuntimeBridge {
   cancel(cancellationId: number): boolean;
   /** Releases a cancellation id. Returns false when unknown. */
   releaseCancellation(cancellationId: number): boolean;
-  /** Registers a runtime-owned callback. Outstanding subscriptions block unload. */
-  subscribe(callback: () => void): number;
+  /** Registers a runtime-owned callback; receives the host event payload when delivered. Outstanding subscriptions block unload. */
+  subscribe(callback: (event: unknown) => void): number;
   /** Removes a subscription. Returns false when unknown. */
   unsubscribe(subscriptionId: number): boolean;
   /** Reads live host state (modules, functions, subscriptions, tasks, errors). */
