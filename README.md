@@ -32,18 +32,16 @@ Win32 / UIA / COM / Hooks / D3D / DirectComposition
         Windows
 ```
 
-## 当前状态
-
-已落地并全绿验证的垂直切片（R2.0–R2.9）：
+## 仓库组成
 
 - **QuickJS Host**：QuickJS-ng 宿主、模块加载、独立 JS Thread 的 `rime::js::Runtime`、`settle`/关闭语义和 `rime:*` 原生模块注册。
 - **Action Kernel**：Action/Result 编解码（contract v1）、capability check、trace、scheduler/event queue 与 shutdown 阶段。
 - **Win32 层**：Window、Input Hook、Process、Clipboard 四组服务，以及 `rime:window` / `rime:input` / `rime:process` / `rime:clipboard` JS 模块。
-- **SDK 与 Rim**：`@rime/sdk` 公共 API；Rim bundle 在宿主内执行窗口/进程/剪贴板查询，校验 settle 与确定性关闭。
-- **验证**：contract/typecheck/SDK 测试、MSVC CTest（/W4 /WX）、QuickJS 切片与 bundle 执行、MSVC AddressSanitizer，全部由 GitHub Actions 在 `windows-latest` 上执行。
+- **SDK 与 Rim**：`@rime/sdk` 公共 API；Rim bundle 在宿主内执行窗口、进程与剪贴板操作。
+- **验证**：contract/typecheck/SDK 测试、MSVC CTest（/W4 /WX）、QuickJS 切片与 bundle 执行、MSVC AddressSanitizer，由 GitHub Actions 在 `windows-latest` 上执行。
 - **API 规范**：`docs/api/` 是逐领域规范入口；`coverage.json` 登记 `functions.h` 的 253 个函数，`core-builtins.md`/`core-builtins.json` 登记 `script.cpp` 的 41 个核心内建，`objects.json`、`builtins.json`、`abi-and-language.md` 登记对象成员、内置变量和 Host ABI 来源。
 
-实现尚未开始：UIA/MSAA 自动化、UI Runtime（D3D11/DirectComposition/Direct2D）、插件 Manifest 与进程隔离、SQLite 存储、OCR 与 AI。按 `docs/api/coverage.json`，253 个函数目前是 241 项 `contract-only`、7 项 `sdk-owned`、5 项 `unsupported-by-policy`，`functions.h` 函数级条目尚无 `implemented`（AHK 函数的逐函数 TS binding 仍未开始）。Rime 原生 `Window` 垂直切片已完成：`list`（含 WinTitle 查询 `title`/`matchMode`/`ahkClass`/`ahkExe`/`ahkId`/`includeHidden`/`active`）、`active`、`info`、`move`、`focus`、`close`、`hide`、`show`、`minimize`、`maximize`、`restore` 全部经过 TS binding → `windows.window.read`/`windows.window.write` capability 校验 → Action Kernel → UI lane，并由 `window-v1` contract、native 测试与 JS slice 覆盖；读写都接受 `deadlineMs`/`cancellationId`（`AbortSignal`）选项，deadline 过期与 UI 排队超时返回 `timeout` 错误码。
+设计原则、架构决策与阶段顺序见 `docs/`。逐项实现状态不在本文件维护，以 `docs/api/coverage.json` 与 `docs/api/compatibility-matrix.md` 为准。
 
 ## 技术栈
 
