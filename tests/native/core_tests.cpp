@@ -149,6 +149,20 @@ int main() {
       assert(!entry.capability.empty());
       assert(!entry.result_code.empty());
       assert(entry.duration_ms < 60'000);
+    } else if (entry.kind == rime::core::TraceKind::ActionAccepted) {
+      assert(entry.action_id != 0);
+      // Envelope: queued decisions name the capability but have no result
+      // (the action has not run) and no duration.
+      assert(!entry.capability.empty());
+      assert(entry.result_code.empty());
+      assert(entry.duration_ms == 0);
+    } else if (entry.kind == rime::core::TraceKind::ActionRefused) {
+      assert(entry.action_id != 0);
+      // Envelope: refused decisions never reach an executor, so they carry
+      // the capability and contract result code with a zero duration.
+      assert(!entry.capability.empty());
+      assert(!entry.result_code.empty());
+      assert(entry.duration_ms == 0);
     } else {
       assert(entry.action_id == 0);
       // Envelope is action-only: event/state entries never carry it.

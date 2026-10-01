@@ -12,14 +12,21 @@ namespace rime::core {
 
 // EventDispatch* marks Runtime handler dispatch: events are not actions and
 // never carry an action id. ActionStarted/ActionFinished come only from the
-// Action Kernel and always carry the executing action's id.
+// Action Kernel executing an action. ActionAccepted/ActionRefused come from
+// the action Dispatcher's queue decisions: Accepted when an action is
+// queued, Refused when it never reaches an executor (queue full, dispatcher
+// closed, superseded by a newer same-key action, dropped by queue policy or
+// cancelled before execute). StateChanged covers component state flips
+// (runtime start/stop, dispatcher close).
 enum class TraceKind : std::uint8_t {
   EventAccepted,
   EventDispatchStarted,
   EventDispatchFinished,
   ActionStarted,
   ActionFinished,
-  StateChanged
+  StateChanged,
+  ActionAccepted,
+  ActionRefused
 };
 
 // Draws the next process-wide trace sequence number. Every TraceSink draws
@@ -32,16 +39,18 @@ inline Sequence next_trace_sequence() {
 
 // Producers leave `sequence` at 0: the sink assigns it while holding its own
 // lock so `snapshot()` order equals emission order even when producers race
-// on different threads. `action_id` is the Action identity for
-// ActionStarted/ActionFinished entries and 0 for state/event entries.
+// on different threads. `action_id` is the Action identity on every
+// Action* entry (Started/Finished/Accepted/Refused) and 0 for state/event
+// entries.
 //
-// Action envelope (filled by the Action Kernel on action entries; empty/0 on
-// event/state entries): `capability` is the authority the action required;
-// `subject` doubles as the executor registration key (executors register per
-// action type); `result_code` is the contract error-code name of the outcome
-// ("none" for success), empty on Started because no result exists yet;
-// `duration_ms` measures executor wall time (steady_clock) and stays 0 on
-// Started and on pre-dispatch failures that never reach an executor.
+// Action envelope (filled by the Action Kernel and Dispatcher on action
+// entries; empty/0 on event/state entries): `capability` is the authority
+// the action required; `subject` doubles as the executor registration key
+// (executors register per action type); `result_code` is the contract
+// error-code name of the outcome ("none" for success), empty on Started and
+// Accepted because no result exists yet; `duration_ms` measures executor
+// wall time (steady_clock) and stays 0 on Started, Accepted, Refused and on
+// pre-dispatch failures that never reach an executor.
 struct TraceEntry {
   Sequence sequence{0};
   TraceKind kind{TraceKind::EventAccepted};

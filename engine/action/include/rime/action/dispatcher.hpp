@@ -35,13 +35,16 @@ class Dispatcher final {
   // NOTE: requires the caller to already hold mutex_ (called from submit()
   // while the queue lock is held). Name is kept for existing call sites.
   void suppress(Action action, std::string reason);
+  // Trace decisions with the shared action sink (kernel.trace_sink()).
+  // Never called while mutex_ is held: a user sink re-entering the
+  // dispatcher would deadlock on the non-recursive queue lock, and sink
+  // latency must not stall queueing. Throws from the sink are swallowed so
+  // tracing can never fail a dispatch.
+  void record(rime::core::TraceKind kind, std::string subject, rime::core::ActionId id,
+              std::string capability, std::string detail, std::string result_code);
 
   Kernel& kernel_;
   rime::core::SchedulerPolicy policy_;
-  // TODO(trace): record submit/pump/suppress/close decisions (input, Context,
-  // executor, result, error) into TraceSink. Not injected here to avoid a
-  // cross-module constructor/ownership chain; keep Dispatcher trace-free until
-  // the Trace ownership design lands.
   mutable std::mutex mutex_;
   std::deque<Action> pending_;
   std::vector<Result> suppressed_;

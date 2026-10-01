@@ -39,6 +39,11 @@ class Kernel final {
   // Read-only capability probe so native query paths enforce the same policy
   // as the action pipeline without building an Action.
   [[nodiscard]] bool allows(const std::string& capability) const;
+  // The sink every action-side producer (kernel, dispatcher) shares, so
+  // their entries land in one ordered sequence. Immutable after construction.
+  [[nodiscard]] const std::shared_ptr<rime::core::TraceSink>& trace_sink() const {
+    return trace_;
+  }
 
  private:
   Result fail(const Action& action, rime::core::Error::Code code, std::string message);

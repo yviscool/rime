@@ -226,6 +226,40 @@ int main() {
     assert(bounded.submit(make_action(6)) == rime::action::DispatchStatus::Full);
     bounded.close();
     assert(bounded.submit(make_action(7)) == rime::action::DispatchStatus::Closed);
+
+    // Every queue decision lands in the shared sink: queued actions are
+    // Accepted, superseded/dropped/rejected/closed ones are Refused with the
+    // contract result code, and close() flips the dispatcher's traced state.
+    const auto dispatch_trace = trace->snapshot();
+    const auto trace_has = [&](const rime::core::TraceKind kind, const rime::core::ActionId id,
+                               const std::string& detail) {
+      return std::any_of(dispatch_trace.begin(), dispatch_trace.end(),
+                         [&](const rime::core::TraceEntry& entry) {
+                           return entry.kind == kind && entry.action_id == id &&
+                                  entry.detail.find(detail) != std::string::npos;
+                         });
+    };
+    assert(trace_has(rime::core::TraceKind::ActionAccepted, 1, "queued"));
+    assert(trace_has(rime::core::TraceKind::ActionRefused, 1, "superseded by newer action"));
+    assert(trace_has(rime::core::TraceKind::ActionAccepted, 2, "queued"));
+    assert(trace_has(rime::core::TraceKind::ActionRefused, 3, "dropped by queue policy"));
+    assert(trace_has(rime::core::TraceKind::ActionAccepted, 4, "queued"));
+    assert(trace_has(rime::core::TraceKind::ActionAccepted, 5, "queued"));
+    assert(trace_has(rime::core::TraceKind::ActionRefused, 6, "queue full"));
+    assert(trace_has(rime::core::TraceKind::ActionRefused, 7, "dispatcher closed"));
+    const auto refused_full =
+        std::find_if(dispatch_trace.begin(), dispatch_trace.end(),
+                     [](const rime::core::TraceEntry& entry) {
+                       return entry.kind == rime::core::TraceKind::ActionRefused &&
+                              entry.action_id == 6;
+                     });
+    assert(refused_full != dispatch_trace.end());
+    assert(refused_full->result_code == "queue_full");
+    assert(std::any_of(dispatch_trace.begin(), dispatch_trace.end(),
+                       [](const rime::core::TraceEntry& entry) {
+                         return entry.kind == rime::core::TraceKind::StateChanged &&
+                                entry.subject == "dispatcher" && entry.detail == "closed";
+                       }));
   }
 
   return 0;
