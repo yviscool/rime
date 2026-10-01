@@ -176,7 +176,7 @@ void Runtime::run() {
     Host host;
     // NOTE: `data` keeps its void* type to avoid a signature cascade.
     // Ownership stays with the add_native_module caller for the host's
-    // lifetime; never hand the raw pointer to another thread — pass stable
+    // lifetime; never hand the raw pointer to another thread - pass stable
     // ids or serialized snapshots instead.
     for (auto& [name, factory, data] : native_modules_) {
       if (data) host.set_module_data(name, data);
@@ -234,7 +234,7 @@ void Runtime::run() {
             has_eval = true;
           } else if (!inspect_tasks_.empty()) {
             inspect_task = std::move(inspect_tasks_.front());
-            // TODO(perf): see above — vector-as-queue erase(front) is O(N).
+            // TODO(perf): see above - vector-as-queue erase(front) is O(N).
             inspect_tasks_.erase(inspect_tasks_.begin());
             has_inspect = true;
           }

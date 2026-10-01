@@ -220,7 +220,7 @@ inline void settle_from_result(rime::js::Host* host, std::uint64_t token,
 
 // Executes the shared action queue: every queued action runs (its route, if
 // any, decides cancellation) and each routed promise settles from its Result.
-// Queue-pump actions without a route — chord dispatch — execute all the same
+// Queue-pump actions without a route - chord dispatch - execute all the same
 // and skip only the settlement. Shared by run_action's promise task and the
 // chord dispatcher so both drain the same bounded, traced pipeline.
 inline void run_queue_pump(rime::js::Host* host, rime::action::Dispatcher& dispatcher) {

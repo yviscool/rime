@@ -17,9 +17,9 @@ enum class HostAbiState : std::uint8_t { Created, Loaded, Executed, Failed, Unlo
 
 const char* host_abi_state_name(HostAbiState state);
 
-// Synchronous embedding façade over one Host. The creating thread is the JS
+// Synchronous embedding facade over one Host. The creating thread is the JS
 // thread; every method must be called from it.
-// NOTE: owner-thread affinity is documented, not enforced with a mutex —
+// NOTE: owner-thread affinity is documented, not enforced with a mutex -
 // adding one would cascade locking semantics through Host.
 class HostAbi final {
  public:
@@ -47,7 +47,7 @@ class HostAbi final {
   // Unloads the host. Fails with a reason list while subscriptions, JS
   // callbacks or unresolved promises are outstanding. Idempotent.
   [[nodiscard]] rime::core::Error unload();
-  // Records an embedder exit code and fires on_exit. NOTE: not an unload —
+  // Records an embedder exit code and fires on_exit. NOTE: not an unload -
   // resources stay alive until unload() succeeds.
   void exit(int code);
   [[nodiscard]] int exit_code() const { return exit_code_; }

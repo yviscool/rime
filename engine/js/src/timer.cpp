@@ -82,7 +82,7 @@ void TimerService::run() {
       callback();
     } catch (...) {
       // Swallowing here is a worker-boundary requirement: exceptions must not
-      // escape the timer thread. Deliberately no on_error callback — adding
+      // escape the timer thread. Deliberately no on_error callback - adding
       // one would chain new public API through this low-level service.
     }
     lock.lock();

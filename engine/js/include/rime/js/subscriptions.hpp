@@ -11,7 +11,7 @@
 namespace rime::js {
 
 // Tracks runtime-owned callback subscriptions (JS functions, hooks, window
-// procedures). Unload must fail while entries remain — see HostAbi::unload.
+// procedures). Unload must fail while entries remain - see HostAbi::unload.
 class SubscriptionRegistry final {
  public:
   // Registers an entry; fails once the registry is closed.

@@ -2,9 +2,9 @@ import { delimiter } from "node:path";
 import { existsSync, statSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { findVcvars } from "./vcvars";
 
-// Slice/JS tests (tests/js, engine/js, engine/win32/js) only build under the
-// quickjs preset; msvc/dev presets keep RIME_ENABLE_QUICKJS=OFF.
-// ASan presets (asan/msvc-asan) inherit QUICKJS=OFF, so they do not cover the JS binding.
+// Slice/JS tests (tests/js, engine/js, engine/win32/js) build under the quickjs
+// preset and msvc-asan (QUICKJS=ON, so AddressSanitizer covers the JS binding too);
+// msvc/dev presets keep RIME_ENABLE_QUICKJS=OFF for faster native-only runs.
 
 const preset_argument = process.argv.find((argument) => argument.startsWith("--preset="));
 const preset_index = process.argv.indexOf("--preset");

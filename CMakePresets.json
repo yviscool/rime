@@ -42,7 +42,11 @@
       "name": "msvc-asan",
       "inherits": "msvc",
       "binaryDir": "${sourceDir}/build/msvc-asan",
-      "cacheVariables": { "RIME_ENABLE_ASAN": "ON", "RIME_WARNINGS_AS_ERRORS": "OFF" }
+      "cacheVariables": {
+        "RIME_ENABLE_ASAN": "ON",
+        "RIME_WARNINGS_AS_ERRORS": "OFF",
+        "RIME_ENABLE_QUICKJS": "ON"
+      }
     }
   ],
   "buildPresets": [

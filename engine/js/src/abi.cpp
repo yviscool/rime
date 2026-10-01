@@ -128,7 +128,7 @@ rime::core::Error HostAbi::unload() {
 
 void HostAbi::exit(const int code) {
   // NOTE: exit() only records the code and fires on_exit; it is not an
-  // unload — subscriptions/callbacks/timers stay alive until unload().
+  // unload - subscriptions/callbacks/timers stay alive until unload().
   exit_code_ = code;
   if (on_exit_) on_exit_(code);
 }

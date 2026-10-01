@@ -279,7 +279,7 @@ bool modifiers_match(JSContext* context, JSValueConst event, const std::uint8_t 
 
 // Matches the delivered InputEvent against the binding: a key-down whose vk
 // equals the chord key and whose modifiers form exactly the chord mask.
-// Injected input matches too — no action can inject input today, so a
+// Injected input matches too - no action can inject input today, so a
 // binding cannot be retriggered by its own dispatch; an input-injection
 // executor must add send-level suppression before that assumption weakens.
 bool matches_chord(JSContext* context, JSValueConst event, const ChordBinding& chord) {
@@ -589,7 +589,7 @@ JSValue input_unbind(JSContext* context, JSValueConst, int argc, JSValueConst* a
   const auto found = binding->chords.find(static_cast<std::uint64_t>(raw_id));
   if (found == binding->chords.end()) return JS_NewBool(context, 0);
   // Close the delivery chain first so no queued event can reach a callback
-  // whose registration — and owned context — is about to be erased.
+  // whose registration - and owned context - is about to be erased.
   (void)binding->service->unsubscribe(found->second.subscription_id);
   (void)host->remove_callback(found->second.host_callback_id);
   binding->chords.erase(found);

@@ -32,7 +32,7 @@ class Runtime final {
   // module's wiring pointer (Host::set_module_data). Only valid before start.
   // NOTE: `data` intentionally stays void* (changing it cascades). The caller
   // retains ownership for the host's lifetime and must not pass the raw
-  // pointer across threads — use stable ids/snapshots instead.
+  // pointer across threads - use stable ids/snapshots instead.
   rime::core::Error add_native_module(std::string name,
                                       ModuleRegistry::NativeFactory factory,
                                       void* data = nullptr);

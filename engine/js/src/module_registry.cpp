@@ -154,7 +154,7 @@ JSModuleDef* ModuleRegistry::load(JSContext* context, const char* module_name) {
     }
   }
   // NOTE: JS_VALUE_GET_PTR is the only low-level accessor used here; it is
-  // tied to the pinned quickjs-ng version — do not introduce newer JS_* APIs
+  // tied to the pinned quickjs-ng version - do not introduce newer JS_* APIs
   // without bumping/locking that dependency.
   auto* module = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(value));
   JS_FreeValue(context, value);
