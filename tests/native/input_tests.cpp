@@ -67,6 +67,7 @@ int main() {
 
   // Work before start is rejected.
   assert(service.subscribe([](const InputEvent&) {}) == 0);
+  assert(!service.send({{VK_F24, true}}).ok());
   assert(service.start().ok());
   assert(!service.start().ok());  // start-once
   assert(service.state() == rime::win32::InputServiceState::Running);
@@ -91,6 +92,17 @@ int main() {
     return false;
   };
 
+  const auto has_self_key = [&](const std::uint32_t vk, const bool down) {
+    std::lock_guard lock(mutex);
+    for (const auto& event : events) {
+      if (event.kind == InputEventKind::Key && event.vk == vk && event.key_down == down &&
+          event.self_injected) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   // A synthetic F24 press arrives as key down/up snapshots with sequences.
   send_vk(VK_F24);
   assert(wait_for([&] { return has_key(VK_F24, true) && has_key(VK_F24, false); }));
@@ -106,6 +118,31 @@ int main() {
       }
     }
     assert(ordered);
+  }
+
+  // send() enforces its contract and marks its own batch: the raw
+  // send_vk() above stays injected-but-foreign, while the tagged batch is
+  // observed as self input (chords must not re-trigger on it).
+  {
+    const auto empty = service.send({});
+    assert(empty.code == rime::core::Error::Code::InvalidContract);
+  }
+  assert(service.send({{VK_F24, true}, {VK_F24, false}}).ok());
+  assert(wait_for([&] { return has_self_key(VK_F24, true) && has_self_key(VK_F24, false); }));
+  {
+    std::lock_guard lock(mutex);
+    bool foreign = false;
+    bool self = false;
+    for (const auto& event : events) {
+      if (event.kind == InputEventKind::Key && event.vk == VK_F24 && event.injected) {
+        if (event.self_injected) {
+          self = true;
+        } else {
+          foreign = true;
+        }
+      }
+    }
+    assert(self && foreign);
   }
 
   // A synthetic absolute move arrives with the exact coordinates.
@@ -152,6 +189,7 @@ int main() {
   assert(service.stop().ok());
   assert(service.state() == rime::win32::InputServiceState::Stopped);
   assert(service.subscribe([](const InputEvent&) {}) == 0);
+  assert(!service.send({{VK_F24, true}}).ok());
 
   // A second service takes over after the first stopped.
   InputService second;

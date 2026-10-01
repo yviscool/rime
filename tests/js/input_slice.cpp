@@ -5,6 +5,7 @@
 #include "rime/core/trace.hpp"
 #include "rime/js/runtime.hpp"
 #include "rime/win32/input.hpp"
+#include "rime/win32/input_executor.hpp"
 #include "rime/win32/js_input.hpp"
 
 #include <windows.h>
@@ -134,10 +135,16 @@ int main() {
   auto trace = std::make_shared<rime::core::InMemoryTrace>();
   rime::action::Kernel kernel(
       std::make_shared<rime::action::StaticCapabilityPolicy>(
-          std::unordered_set<std::string>{"windows.hook.global", "probe.chord"}),
+          std::unordered_set<std::string>{"windows.hook.global", "probe.chord",
+                                          "windows.input.inject"}),
       trace);
   auto probe = std::make_shared<ProbeExecutor>();
   assert(kernel.register_executor("probe.chord", probe).ok());
+  // send() queues through the same pipeline; this executor injects the batch.
+  assert(kernel
+             .register_executor("input.send",
+                                std::make_shared<rime::win32::InputExecutor>(service))
+             .ok());
   // Chord bindings queue their actions through the same bounded, traced
   // pipeline every module mutation uses.
   rime::action::Dispatcher dispatcher(kernel, rime::action::default_dispatch_policy());
@@ -296,6 +303,30 @@ int main() {
       "}",
       "input-bind-check.mjs");
 
+  // send() validates its steps at the JS boundary: anything but a non-empty
+  // array of {vk: 1..254 integer, down: boolean} steps is a TypeError.
+  run(runtime,
+      "globalThis.sendErrors = {};\n"
+      "const expectSend = (name, fn) => {\n"
+      "  try { fn(); } catch (e) { globalThis.sendErrors[name] = e instanceof TypeError; }\n"
+      "};\n"
+      "expectSend('notArray', () => input.send({}));\n"
+      "expectSend('empty', () => input.send([]));\n"
+      "expectSend('stepNotObject', () => input.send([7]));\n"
+      "expectSend('vkMissing', () => input.send([{ down: true }]));\n"
+      "expectSend('vkRange', () => input.send([{ vk: 0, down: true }]));\n"
+      "expectSend('vkFraction', () => input.send([{ vk: 65.5, down: true }]));\n"
+      "expectSend('downMissing', () => input.send([{ vk: 65 }]));\n"
+      "expectSend('arity', () => input.send());",
+      "input-send-validate.mjs");
+  run(runtime,
+      "const sendErrors = globalThis.sendErrors;\n"
+      "for (const key of ['notArray', 'empty', 'stepNotObject', 'vkMissing', 'vkRange',\n"
+      "                   'vkFraction', 'downMissing', 'arity']) {\n"
+      "  if (!sendErrors[key]) throw new Error('expected a TypeError for send ' + key);\n"
+      "}",
+      "input-send-validate-check.mjs");
+
   send_vk(VK_F24);
   const auto fired_by = std::chrono::steady_clock::now() + std::chrono::seconds(5);
   while (probe_trace_counts() != std::tuple{1, 1, 1} &&
@@ -317,6 +348,47 @@ int main() {
   assert(probe->target_kind() == "chord");
   assert(probe->target_id() == "main");
   assert(probe->payload().find("f24") != std::string::npos);
+
+  // Self-injection: send() tags its batch, so subscribers observe
+  // selfInjected events while the bound chord must not re-fire on our own
+  // input - the loop-prevention rule for actions that inject keys.
+  run(runtime,
+      "globalThis.sendResult = null;\n"
+      "globalThis.sendError = null;\n"
+      "input.send([{ vk: 135, down: true }, { vk: 135, down: false }])\n"
+      "  .then(r => { globalThis.sendResult = r; },\n"
+      "        e => { globalThis.sendError = String(e); });",
+      "input-send.mjs");
+  assert(runtime.settle(5000ms).ok());
+  run(runtime,
+      "if (globalThis.sendError) throw new Error('send failed: ' + globalThis.sendError);\n"
+      "if (!globalThis.sendResult || globalThis.sendResult.sent !== 2)\n"
+      "  throw new Error('send must resolve with the sent count: ' +\n"
+      "                  JSON.stringify(globalThis.sendResult));\n"
+      "globalThis.selfSeen = 'pending';\n"
+      "waitFor(() => events.some(e => e.kind === 'key' && e.vk === 135 && e.down &&\n"
+      "                            e.selfInjected === true), 3000)\n"
+      "  .then(v => { globalThis.selfSeen = v; });",
+      "input-send-check.mjs");
+  assert(runtime.settle(5000ms).ok());
+  run(runtime,
+      "if (globalThis.selfSeen !== true)\n"
+      "  throw new Error('self-injected key events must reach subscribe');",
+      "input-send-seen.mjs");
+  // Chord suppression: the self events already reached both subscriptions,
+  // so a stability window without probe activity proves the skip.
+  const auto self_stable_until =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(400);
+  while (std::chrono::steady_clock::now() < self_stable_until) {
+    run(runtime,
+        "globalThis.selfTick = 'pending';\n"
+        "globalThis.waitFor(() => false, 50).then(v => { globalThis.selfTick = v; });",
+        "input-self-pump.mjs");
+    (void)runtime.settle(100ms);
+  }
+  assert(runtime.settle(500ms).ok());
+  assert(probe->executed() == 1);
+  assert((probe_trace_counts() == std::tuple{1, 1, 1}));
 
   // Unbind closes the whole chain: double close and unknown ids are false,
   // and a later press dispatches nothing.
@@ -393,7 +465,10 @@ int main() {
         "catch (e) { globalThis.denied = e.message; }\n"
         "try { input.bind('f24', { type: 'probe.chord', capability: 'probe.chord',\n"
         "                          target: { kind: 'chord', id: 'main' } }); }\n"
-        "catch (e) { globalThis.deniedBind = e.message; }",
+        "catch (e) { globalThis.deniedBind = e.message; }\n"
+        "globalThis.deniedSend = null;\n"
+        "try { input.send([{ vk: 135, down: true }]); }\n"
+        "catch (e) { globalThis.deniedSend = e.message; }",
         "input-deny.mjs");
     run(denied_runtime,
         "if (!globalThis.denied || !globalThis.denied.includes('windows.hook.global'))\n"
@@ -401,7 +476,10 @@ int main() {
         "                  globalThis.denied);\n"
         "if (!globalThis.deniedBind || !globalThis.deniedBind.includes('windows.hook.global'))\n"
         "  throw new Error('bind must be denied with the capability name: ' +\n"
-        "                  globalThis.deniedBind);",
+        "                  globalThis.deniedBind);\n"
+        "if (!globalThis.deniedSend || !globalThis.deniedSend.includes('windows.input.inject'))\n"
+        "  throw new Error('send must be denied with the capability name: ' +\n"
+        "                  globalThis.deniedSend);",
         "input-deny-check.mjs");
     assert(denied_runtime.stop().ok());
   }

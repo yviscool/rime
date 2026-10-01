@@ -1,8 +1,12 @@
+import type { NativeActionOptions } from "./action";
+
 export interface KeyEvent {
   kind: "key";
   sequence: number;
   timestamp: number;
   injected: boolean;
+  /** True only for input this process sent through `send()`. */
+  selfInjected: boolean;
   down: boolean;
   vk: number;
   scan: number;
@@ -17,6 +21,8 @@ export interface MouseEvent {
   sequence: number;
   timestamp: number;
   injected: boolean;
+  /** True only for input this process sent through `send()`. */
+  selfInjected: boolean;
   action: "move" | "down" | "up" | "wheel";
   x: number;
   y: number;
@@ -26,6 +32,12 @@ export interface MouseEvent {
 }
 
 export type InputEvent = KeyEvent | MouseEvent;
+
+/** One `send()` step: a key transition. `vk` is 1..254. */
+export interface SendKeyStep {
+  vk: number;
+  down: boolean;
+}
 
 /**
  * Action template bound to a chord. The runtime validates it at bind time
@@ -61,6 +73,21 @@ export interface InputBridge {
   bind(chord: string, action: ChordActionTemplate): number;
   /** Closes a chord binding. False for unknown or already-closed ids. */
   unbind(bindingId: number): boolean;
+  /**
+   * Injects an ordered key batch through SendInput in one call, tagged as
+   * this process's own input: subscribers observe the events with
+   * `selfInjected: true`, and chord bindings never re-trigger on them, so a
+   * script cannot feed its own chords. Foreign injected input still matches.
+   * Resolves with `{ sent }` (the injected step count).
+   *
+   * Throws TypeError for malformed steps; throws Error naming
+   * `windows.input.inject` when the capability is missing; rejects with
+   * `invalid_state` when the input service is not running.
+   */
+  send(
+    steps: readonly SendKeyStep[],
+    options?: NativeActionOptions,
+  ): Promise<{ sent: number }>;
 }
 
 export { input } from "rime:input";

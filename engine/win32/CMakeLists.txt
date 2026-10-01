@@ -3,6 +3,7 @@ add_library(rime_win32 STATIC
   src/window.cpp
   src/window_executor.cpp
   src/input.cpp
+  src/input_executor.cpp
   src/process.cpp
   src/process_executor.cpp
   src/clipboard.cpp

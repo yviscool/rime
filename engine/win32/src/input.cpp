@@ -23,6 +23,34 @@ bool async_key_down(const int virtual_key) {
   return (GetAsyncKeyState(virtual_key) & 0x8000) != 0;
 }
 
+// Extended-key list per SendInput docs: without KEYEVENTF_EXTENDEDKEY these
+// arrive with the wrong scan semantics (arrows collapse to the numeric pad,
+// right-hand modifiers to their left twins).
+bool is_extended_vk(const std::uint32_t vk) {
+  switch (vk) {
+    case VK_INSERT:
+    case VK_DELETE:
+    case VK_HOME:
+    case VK_END:
+    case VK_PRIOR:
+    case VK_NEXT:
+    case VK_LEFT:
+    case VK_UP:
+    case VK_RIGHT:
+    case VK_DOWN:
+    case VK_NUMLOCK:
+    case VK_SCROLL:
+    case VK_RCONTROL:
+    case VK_RMENU:
+    case VK_LWIN:
+    case VK_RWIN:
+    case VK_APPS:
+      return true;
+    default:
+      return false;
+  }
+}
+
 }  // namespace
 
 struct InputService::Impl {
@@ -50,6 +78,11 @@ struct InputService::Impl {
   std::uint64_t next_sequence{1};
   std::uint64_t next_id{1};
   std::uint64_t dropped{0};
+
+  // Serializes send() batches against each other; stop() joins an in-flight
+  // batch before unhooking so a refused-later send can never inject into a
+  // desktop the hooks no longer observe.
+  std::mutex send_mutex;
 
   // Hook-thread only.
   HHOOK keyboard_hook{nullptr};
@@ -190,6 +223,9 @@ LRESULT CALLBACK InputService::Impl::keyboard_proc(const int code, const WPARAM 
         event.kind = InputEventKind::Key;
         event.timestamp_ms = data->time;
         event.injected = (data->flags & LLKHF_INJECTED) != 0;
+        event.self_injected =
+            event.injected &&
+            data->dwExtraInfo == static_cast<ULONG_PTR>(k_self_injected_marker);
         event.key_down = down;
         event.vk = data->vkCode;
         event.scan = data->scanCode;
@@ -214,6 +250,9 @@ LRESULT CALLBACK InputService::Impl::mouse_proc(const int code, const WPARAM wpa
       event.kind = InputEventKind::Mouse;
       event.timestamp_ms = data->time;
       event.injected = (data->flags & LLMHF_INJECTED) != 0;
+      event.self_injected =
+          event.injected &&
+          data->dwExtraInfo == static_cast<ULONG_PTR>(k_self_injected_marker);
       event.x = data->pt.x;
       event.y = data->pt.y;
       bool valid = false;
@@ -331,6 +370,12 @@ rime::core::Error InputService::stop() {
   std::thread worker = std::move(impl_->thread);
   const DWORD thread_id = impl_->thread_id;
   lock.unlock();
+  // Wait out an in-flight send() batch: it observed Running before the state
+  // flip, so let it inject while the hooks are still installed; every later
+  // send() observes Stopping and refuses.
+  {
+    std::lock_guard send_lock(impl_->send_mutex);
+  }
   if (thread_id != 0) PostThreadMessageW(thread_id, kQuitMessage, 0, 0);
   if (worker.joinable()) worker.join();
   lock.lock();
@@ -394,6 +439,45 @@ std::size_t InputService::subscription_count() const {
 std::uint64_t InputService::dropped_events() const {
   std::lock_guard lock(impl_->mutex);
   return impl_->dropped;
+}
+
+rime::core::Error InputService::send(const std::vector<SendKeyEvent>& keys) {
+  if (keys.empty()) {
+    return {rime::core::Error::Code::InvalidContract, "send requires at least one key step"};
+  }
+  for (const auto& step : keys) {
+    if (step.vk == 0 || step.vk > 0xFE) {
+      return {rime::core::Error::Code::InvalidContract,
+              "send key steps require a virtual key in 1..254"};
+    }
+  }
+  std::lock_guard send_lock(impl_->send_mutex);
+  {
+    std::lock_guard lock(impl_->mutex);
+    if (impl_->state != InputServiceState::Running || impl_->stopping) {
+      return {rime::core::Error::Code::InvalidState, "input service is not running"};
+    }
+  }
+  std::vector<INPUT> inputs;
+  inputs.reserve(keys.size());
+  for (const auto& step : keys) {
+    INPUT input{};
+    input.type = INPUT_KEYBOARD;
+    input.ki.wVk = static_cast<WORD>(step.vk);
+    input.ki.wScan = static_cast<WORD>(MapVirtualKeyW(step.vk, MAPVK_VK_TO_VSC));
+    input.ki.dwFlags = (step.down ? 0u : static_cast<DWORD>(KEYEVENTF_KEYUP)) |
+                       (is_extended_vk(step.vk) ? static_cast<DWORD>(KEYEVENTF_EXTENDEDKEY) : 0u);
+    input.ki.dwExtraInfo = static_cast<ULONG_PTR>(k_self_injected_marker);
+    inputs.push_back(input);
+  }
+  const UINT sent =
+      SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+  if (sent != inputs.size()) {
+    return {rime::core::Error::Code::ExecutionFailed,
+            "SendInput injected " + std::to_string(sent) + " of " +
+                std::to_string(inputs.size()) + " key steps"};
+  }
+  return rime::core::Error::none();
 }
 
 }  // namespace rime::win32

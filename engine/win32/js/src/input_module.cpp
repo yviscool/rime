@@ -58,6 +58,7 @@ std::string event_json(const InputEvent& event) {
   value.set("sequence", json::Value::number(static_cast<double>(event.sequence)));
   value.set("timestamp", json::Value::number(static_cast<double>(event.timestamp_ms)));
   value.set("injected", json::Value::boolean(event.injected));
+  value.set("selfInjected", json::Value::boolean(event.self_injected));
   if (event.kind == InputEventKind::Key) {
     value.set("kind", json::Value::string("key"));
     value.set("down", json::Value::boolean(event.key_down));
@@ -90,6 +91,35 @@ std::string event_json(const InputEvent& event) {
   value.set("button", json::Value::number(static_cast<double>(event.button)));
   value.set("wheelDelta", json::Value::number(static_cast<double>(event.wheel_delta)));
   return json::stringify(value);
+}
+
+// Reads one send step with TypeError on anything but an integer vk in
+// 1..254 plus a boolean down; the executor re-validates the payload as the
+// contract enforcer, this only gives JS callers precise call-site errors.
+bool parse_send_step(JSContext* context, JSValueConst step, SendKeyEvent& out) {
+  JSValue vk_value = JS_GetPropertyStr(context, step, "vk");
+  if (JS_IsException(vk_value)) return false;
+  double vk_number = 0;
+  const bool vk_ok =
+      JS_IsNumber(vk_value) && JS_ToFloat64(context, &vk_number, vk_value) == 0 &&
+      std::isfinite(vk_number) && std::trunc(vk_number) == vk_number && vk_number >= 1.0 &&
+      vk_number <= 254.0;
+  JS_FreeValue(context, vk_value);
+  if (!vk_ok) {
+    JS_ThrowTypeError(context, "send(steps): step.vk must be an integer in 1..254");
+    return false;
+  }
+  JSValue down_value = JS_GetPropertyStr(context, step, "down");
+  if (JS_IsException(down_value)) return false;
+  if (!JS_IsBool(down_value)) {
+    JS_FreeValue(context, down_value);
+    JS_ThrowTypeError(context, "send(steps): step.down must be a boolean");
+    return false;
+  }
+  out.vk = static_cast<std::uint32_t>(vk_number);
+  out.down = JS_ToBool(context, down_value) > 0;
+  JS_FreeValue(context, down_value);
+  return true;
 }
 
 // Installing or binding a global hook is a privileged operation; the same
@@ -279,10 +309,15 @@ bool modifiers_match(JSContext* context, JSValueConst event, const std::uint8_t 
 
 // Matches the delivered InputEvent against the binding: a key-down whose vk
 // equals the chord key and whose modifiers form exactly the chord mask.
-// Injected input matches too - no action can inject input today, so a
-// binding cannot be retriggered by its own dispatch; an input-injection
-// executor must add send-level suppression before that assumption weakens.
+// Foreign injected input matches (external automation keeps working); input
+// this process sent through send() never does, so an action that injects
+// keys cannot feed its own chord - the loop-prevention rule at send level.
 bool matches_chord(JSContext* context, JSValueConst event, const ChordBinding& chord) {
+  JSValue self_value = event_field(context, event, "selfInjected");
+  const bool self_input = JS_IsBool(self_value) && JS_ToBool(context, self_value) > 0;
+  JS_FreeValue(context, self_value);
+  if (self_input) return false;
+
   JSValue kind = event_field(context, event, "kind");
   if (!JS_IsString(kind)) {
     JS_FreeValue(context, kind);
@@ -596,6 +631,58 @@ JSValue input_unbind(JSContext* context, JSValueConst, int argc, JSValueConst* a
   return JS_NewBool(context, 1);
 }
 
+// Queues the `input.send` action: steps validate up front (TypeError for
+// malformed input, Error naming windows.input.inject when the capability is
+// missing), the steps become the action payload, and the shared queue
+// settles the returned promise with {sent: n}.
+JSValue input_send(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                   void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc < 1 || argc > 2 || !JS_IsArray(argv[0])) {
+    return JS_ThrowTypeError(context, "send(steps[, options])");
+  }
+  if (!binding->kernel->allows("windows.input.inject")) {
+    return throw_capability_error(context, "windows.input.inject");
+  }
+  JSValue steps = argv[0];
+  JSValue length_value = JS_GetPropertyStr(context, steps, "length");
+  if (JS_IsException(length_value)) return JS_EXCEPTION;
+  std::int64_t length = 0;
+  const bool length_ok = JS_ToInt64(context, &length, length_value) == 0;
+  JS_FreeValue(context, length_value);
+  if (!length_ok) return JS_EXCEPTION;
+  if (length <= 0) {
+    return JS_ThrowTypeError(context, "send(steps): steps must not be empty");
+  }
+  json::Value payload = json::Value::array();
+  for (std::int64_t index = 0; index < length; ++index) {
+    JSValue step = JS_GetPropertyInt64(context, steps, index);
+    if (JS_IsException(step)) return JS_EXCEPTION;
+    if (!JS_IsObject(step)) {
+      JS_FreeValue(context, step);
+      return JS_ThrowTypeError(context, "send(steps): every step must be an object");
+    }
+    SendKeyEvent key;
+    const bool step_ok = parse_send_step(context, step, key);
+    JS_FreeValue(context, step);
+    if (!step_ok) return JS_EXCEPTION;
+    json::Value entry = json::Value::object();
+    entry.set("vk", json::Value::number(static_cast<double>(key.vk)));
+    entry.set("down", json::Value::boolean(key.down));
+    payload.push(std::move(entry));
+  }
+  ActionOptions options;
+  if (argc == 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
+  auto action = make_action(*binding->next_action_id, "rime:input", "input.send",
+                            "windows.input.inject", {"input", "keyboard"},
+                            json::stringify(payload), options);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
+}
+
 int input_module_init(JSContext* context, JSModuleDef* module) {
   auto* binding = binding_of(context);
   if (!binding || !binding->service || !binding->kernel) {
@@ -617,7 +704,8 @@ int input_module_init(JSContext* context, JSModuleDef* module) {
     return true;
   };
   if (!add("subscribe", input_subscribe, 1) || !add("unsubscribe", input_unsubscribe, 1) ||
-      !add("bind", input_bind, 2) || !add("unbind", input_unbind, 1)) {
+      !add("bind", input_bind, 2) || !add("unbind", input_unbind, 1) ||
+      !add("send", input_send, 1)) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "input", input);
