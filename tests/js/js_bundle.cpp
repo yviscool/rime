@@ -1,8 +1,10 @@
 #include "rime/action/dispatcher.hpp"
 #include "rime/action/kernel.hpp"
+#include "rime/automation/uia_service.hpp"
 #include "rime/js/runtime.hpp"
 #include "rime/win32/clipboard.hpp"
 #include "rime/win32/input.hpp"
+#include "rime/win32/js_automation.hpp"
 #include "rime/win32/js_clipboard.hpp"
 #include "rime/win32/js_input.hpp"
 #include "rime/win32/js_process.hpp"
@@ -41,6 +43,7 @@ int main(int argc, char** argv) {
   rime::win32::ProcessService process_service;
   rime::win32::ClipboardService clipboard_service;
   rime::win32::WindowService window_service;
+  rime::automation::UiaService automation_service;
   rime::action::Kernel kernel(std::make_shared<rime::action::StaticCapabilityPolicy>(
       std::unordered_set<std::string>{"windows.window.read", "windows.clipboard.read",
                                       "process.inspect", "windows.hook.global"}));
@@ -59,6 +62,8 @@ int main(int argc, char** argv) {
                                                         &next_action_id};
   rime::win32::WindowModuleBinding window_binding{&window_service, &kernel, &dispatcher,
                                                   &next_action_id};
+  rime::win32::AutomationModuleBinding automation_binding{&automation_service, &kernel,
+                                                          &dispatcher, &next_action_id};
 
   rime::js::Runtime runtime;
   if (const auto error = rime::win32::register_input_module(runtime, &input_binding); !error.ok()) {
@@ -78,6 +83,12 @@ int main(int argc, char** argv) {
   if (const auto error = rime::win32::register_window_module(runtime, &window_binding);
       !error.ok()) {
     std::cerr << "rime:window registration failed: " << error.message << '\n';
+    return 1;
+  }
+
+  if (const auto error = rime::win32::register_automation_module(runtime, &automation_binding);
+      !error.ok()) {
+    std::cerr << "rime:automation registration failed: " << error.message << '\n';
     return 1;
   }
 

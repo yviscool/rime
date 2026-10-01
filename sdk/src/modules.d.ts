@@ -22,3 +22,8 @@ declare module "rime:clipboard" {
   const clipboard: import("./clipboard").ClipboardBridge;
   export { clipboard };
 }
+
+declare module "rime:automation" {
+  const automation: import("./automation").AutomationBridge;
+  export { automation };
+}

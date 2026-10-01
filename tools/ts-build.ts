@@ -11,7 +11,8 @@ const result = await Bun.build({
   naming: "rim.js",
   target: "browser",
   format: "esm",
-  external: ["rime:runtime", "rime:window", "rime:input", "rime:process", "rime:clipboard"],
+  external: ["rime:runtime", "rime:window", "rime:input", "rime:process", "rime:clipboard",
+           "rime:automation"],
   minify: false,
   sourcemap: "none",
 });

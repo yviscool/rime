@@ -15,7 +15,7 @@ docs/       architecture and operational records
 site/       generated documentation/playground surface
 ```
 
-The dependency direction is `contracts -> engine -> hosts -> apps`; `sdk` and `tools` may consume contracts, while engine code must not depend on applications. `engine/win32` and `engine/win32/js` carry the Win32 services (`window`, `input`, `process`, `clipboard`) and their `rime:*` native modules; `engine/js` owns the QuickJS host, module loader and ABI.
+The dependency direction is `contracts -> engine -> hosts -> apps`; `sdk` and `tools` may consume contracts, while engine code must not depend on applications. `engine/win32` and `engine/win32/js` carry the Win32 services (`window`, `input`, `process`, `clipboard`) and their `rime:*` native modules; `engine/automation` carries the UI Automation layer (`UiaService` on the MTA thread plus the `automation.find` / `automation.read` / `automation.invoke` action executor) behind `rime:automation`; `engine/js` owns the QuickJS host, module loader and ABI.
 
 The root `package.json`, `bunfig.toml`, `tsconfig.json` and `rime.config.ts` (single TS-first source of truth; legacy `rime.json` removed) are the workspace/toolchain boundary. Native compilation remains CMake-owned inside `engine/` and each host; Bun orchestrates checks, packaging and developer commands.
 
@@ -23,6 +23,6 @@ QuickJS-ng is pinned to `v0.17.0` (`6d46d07d04041b40f4f49eaa7fdebe44c314c699`) a
 
 `bun run quickjs:test` builds the QuickJS integration suite (`engine/js`, `engine/win32/js`, `tests/js`) in `build/quickjs`; the first run fetches the pinned QuickJS-ng source over the network. `bun run test` runs this suite together with the contract, TypeScript and MSVC checks. Slice/JS tests require `--preset quickjs` (msvc/dev presets keep QuickJS disabled).
 
-TypeScript applications are built with `bun run ts:build`. The output remains an ES module and imports the native `rime:runtime` module; it is not executed by Bun. `bun run ts:quickjs` builds the QuickJS preset and hands the Rim bundle to `rime_js_bundle`, which registers the `rime:*` native modules the SDK imports (`runtime`, `window`, `input`, `process`, `clipboard`), runs the bundle on a dedicated JS Thread in `rime::js::Runtime`, settles pending tasks, surfaces async failures through `globalThis.__rim_failure`, and verifies deterministic shutdown. `bun run test` includes this path.
+TypeScript applications are built with `bun run ts:build`. The output remains an ES module and imports the native `rime:runtime` module; it is not executed by Bun. `bun run ts:quickjs` builds the QuickJS preset and hands the Rim bundle to `rime_js_bundle`, which registers the `rime:*` native modules the SDK imports (`runtime`, `window`, `input`, `process`, `clipboard`, `automation`), runs the bundle on a dedicated JS Thread in `rime::js::Runtime`, settles pending tasks, surfaces async failures through `globalThis.__rim_failure`, and verifies deterministic shutdown. `bun run test` includes this path.
 
 `rime::js::Host` owns one QuickJS context and may only be used on its owner thread. `rime::js::Runtime` owns the JS Thread and serializes module evaluation tasks to that Host. Native modules must be registered through the loader and exposed through stable module IDs; application code must not depend on a global runtime object.

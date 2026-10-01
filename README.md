@@ -36,7 +36,7 @@ Win32 / UIA / COM / Hooks / D3D / DirectComposition
 
 - **QuickJS Host**：QuickJS-ng 宿主、模块加载、独立 JS Thread 的 `rime::js::Runtime`、`settle`/关闭语义和 `rime:*` 原生模块注册。
 - **Action Kernel**：Action/Result 编解码（contract v1）、capability check、trace、scheduler/event queue 与 shutdown 阶段。
-- **Win32 层**：Window、Input Hook、Process、Clipboard 四组服务，以及 `rime:window` / `rime:input` / `rime:process` / `rime:clipboard` JS 模块。
+- **Win32 层**：Window、Input Hook、Process、Clipboard、UI Automation 五组服务，以及 `rime:window` / `rime:input` / `rime:process` / `rime:clipboard` / `rime:automation` JS 模块。
 - **SDK 与 Rim**：`@rime/sdk` 公共 API；Rim bundle 在宿主内执行窗口、进程与剪贴板操作。
 - **验证**：contract/typecheck/SDK 测试、MSVC CTest（/W4 /WX）、QuickJS 切片与 bundle 执行、MSVC AddressSanitizer，由 GitHub Actions 在 `windows-latest` 上执行。
 - **API 规范**：`docs/api/` 是逐领域规范入口；`coverage.json` 登记 `functions.h` 的 253 个函数，`core-builtins.md`/`core-builtins.json` 登记 `script.cpp` 的 41 个核心内建，`objects.json`、`builtins.json`、`abi-and-language.md` 登记对象成员、内置变量和 Host ABI 来源。
@@ -119,7 +119,7 @@ bun run test:all
 
 `test` 依次执行 contract schema 校验、contract 生成检查、TypeScript 类型检查、SDK 测试、MSVC 原生 CTest 和 QuickJS 集成（含 Rim bundle 执行）；`test:all` 追加 MSVC AddressSanitizer 套件；`doctor` 检查 CMake/Ninja/MSVC/QuickJS-ng 工具链。GitHub Actions 使用同一组入口。
 
-`ts:quickjs` 会构建 Rim 的 TypeScript 入口，再将 bundle 交给 C++ QuickJS Host 执行；宿主注册 `rime:window`、`rime:input`、`rime:process`、`rime:clipboard` 等原生模块，bundle 在其中执行 Rim 的窗口/进程/剪贴板查询并校验 settle 与确定性关闭。Native bridge smoke 同时验证宿主 API 可用。`test` 汇总契约、TypeScript、Native 和 QuickJS 验证。
+`ts:quickjs` 会构建 Rim 的 TypeScript 入口，再将 bundle 交给 C++ QuickJS Host 执行；宿主注册 `rime:window`、`rime:input`、`rime:process`、`rime:clipboard`、`rime:automation` 等原生模块，bundle 在其中执行 Rim 的窗口/进程/剪贴板查询并校验 settle 与确定性关闭。Native bridge smoke 同时验证宿主 API 可用。`test` 汇总契约、TypeScript、Native 和 QuickJS 验证。
 
 Schema 的 JSON 是跨语言契约事实源；C++ 类型负责执行边界，TypeScript SDK 和插件协议必须从同一版本契约生成或校验，不能各自定义字段。
 
@@ -196,7 +196,7 @@ Win32 / Hook / Timer / COM completion
 Win32 Message Pump 是 UI、Hook、Timer 和窗口回调的事件入口。消息泵可以被嵌套（例如模态对话框或系统拖放），但 Runtime 不得因此产生第二个未受监管的脚本调度器；所有嵌套泵都必须向同一个调度器报告，并遵守队列顺序、背压、取消和关闭状态。
 
 
-自动化（UIA/MSAA）、UI Runtime 和插件模块将在后续阶段以同样的 SDK 表面接入。未来标准库的模块划分与签名（`windows`、`keyboard`/`mouse`、`processes`、`fs`、`clipboard`、`displays`、`actions`，以及 branded `WindowId`/`WindowRef`、`CallOptions`、`Subscription`）以 `docs/api/future-runtime.md` 为准；AHK 函数名只用于覆盖矩阵追踪，不作为公共命名。
+MSAA 扩展、UI Runtime 和插件模块将在后续阶段以同样的 SDK 表面接入。未来标准库的模块划分与签名（`windows`、`keyboard`/`mouse`、`processes`、`fs`、`clipboard`、`displays`、`actions`，以及 branded `WindowId`/`WindowRef`、`CallOptions`、`Subscription`）以 `docs/api/future-runtime.md` 为准；AHK 函数名只用于覆盖矩阵追踪，不作为公共命名。
 
 系统资源必须由 Native 层通过 RAII 管理。`HWND`、`HANDLE`、`IUnknown*` 等原始指针不能直接暴露给 JavaScript，只能通过 Runtime-owned opaque object 和稳定 ID 访问。
 
