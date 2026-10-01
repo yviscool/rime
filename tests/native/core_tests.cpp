@@ -95,6 +95,14 @@ int main() {
       {45, 1, {"user", "local"}, "window.move", "windows.window.write", {"window", "active"}, {},
        expired_deadline(), 0, "{}", ""});
   assert(expired.error.code == rime::core::Error::Code::Timeout);
+  // A declared precondition is refused, not silently ignored: the kernel has
+  // no evaluator vocabulary, so honoring it is impossible and skipping it
+  // would break the caller's contract.
+  const auto preconditioned = kernel.execute(
+      {46, 1, {"user", "local"}, "window.move", "windows.window.write", {"window", "active"},
+       {{"window.foreground", "true"}}, future_deadline(), 0, "{}", ""});
+  assert(preconditioned.error.code == rime::core::Error::Code::Unsupported);
+  assert(preconditioned.error.message.find("window.foreground") != std::string::npos);
   rime::core::CancellationSource cancelled;
   cancelled.cancel();
   const auto cancelled_result = kernel.execute(action, cancelled.token());
@@ -162,6 +170,7 @@ int main() {
   assert(result_code_for(43) == "capability_denied");
   assert(result_code_for(44) == "unsupported");
   assert(result_code_for(45) == "timeout");
+  assert(result_code_for(46) == "unsupported");
 
   rime::core::Runtime host_runtime(2);
   rime::desktop::DesktopHost desktop_host(host_runtime);

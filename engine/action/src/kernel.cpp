@@ -77,6 +77,15 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
     return fail(action, Code::InvalidContract,
                 "action requires v1, identity, source, type, capability, target and deadline");
   }
+  // Preconditions are part of the wire contract but this kernel defines no
+  // evaluator vocabulary for them, so a declared precondition can never be
+  // honored here. Executing anyway would silently drop a condition the caller
+  // relied on; the static rejection (before transient Cancelled/Timeout) makes
+  // the dead-on-arrival action visible instead.
+  if (!action.preconditions.empty()) {
+    return fail(action, Code::Unsupported,
+                "kernel does not evaluate preconditions: " + action.preconditions.front().type);
+  }
   if (cancellation.cancelled()) {
     return fail(action, Code::Cancelled, "action was cancelled before execution");
   }

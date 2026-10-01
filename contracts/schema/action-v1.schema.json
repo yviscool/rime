@@ -24,6 +24,7 @@
     "target": { "$ref": "#/$defs/identity" },
     "preconditions": {
       "type": "array",
+      "description": "Conditions the kernel must verify before executing. Not evaluated: the Action Kernel rejects any action that declares a precondition with `unsupported`, so producers must send [].",
       "items": { "$ref": "#/$defs/precondition" }
     },
     "deadlineUnixMs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
