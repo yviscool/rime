@@ -2522,10 +2522,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
       ],
       "tsModule": "@rime/process-shell",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "process.terminate",
-      "contractTest": "missing",
+      "contractTest": "tests/native/process_tests.cpp,tests/js/breadth_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2539,10 +2539,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
       ],
       "tsModule": "@rime/process-shell",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "process.inspect",
-      "contractTest": "missing",
+      "contractTest": "tests/native/process_tests.cpp,tests/js/breadth_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2554,10 +2554,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
       ],
       "tsModule": "@rime/process-shell",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "process.inspect",
-      "contractTest": "missing",
+      "contractTest": "tests/native/process_tests.cpp,tests/js/breadth_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2569,10 +2569,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
       ],
       "tsModule": "@rime/process-shell",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "process.inspect",
-      "contractTest": "missing",
+      "contractTest": "tests/native/process_tests.cpp,tests/js/breadth_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2585,10 +2585,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
       ],
       "tsModule": "@rime/process-shell",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "process.inspect",
-      "contractTest": "missing",
+      "contractTest": "tests/native/process_tests.cpp,tests/js/breadth_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2705,10 +2705,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
       ],
       "tsModule": "@rime/process-shell",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "process.launch",
-      "contractTest": "missing",
+      "contractTest": "tests/native/process_tests.cpp,tests/js/breadth_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
