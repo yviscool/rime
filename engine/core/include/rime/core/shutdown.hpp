@@ -57,7 +57,6 @@ class ShutdownSequence final {
   ShutdownPhase phase_{ShutdownPhase::Running};
   std::vector<std::string> outstanding_;
   std::shared_ptr<TraceSink> trace_;
-  Sequence sequence_{0};
 };
 
 }  // namespace rime::core

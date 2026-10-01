@@ -107,6 +107,36 @@ int main() {
   assert(dispatched.size() == 1 && dispatched.front().succeeded);
   dispatcher.close();
   assert(dispatcher.submit(action) == rime::action::DispatchStatus::Closed);
+
+  // Trace integrity: entries from runtime + kernel sharing one sink are
+  // strictly ordered by the global sequence, every ActionStarted pairs with
+  // a later ActionFinished for the same action id, and non-action entries
+  // never carry an action id.
+  const auto entries = trace->snapshot();
+  assert(!entries.empty());
+  for (std::size_t index = 1; index < entries.size(); ++index) {
+    assert(entries[index].sequence > entries[index - 1].sequence);
+  }
+  for (std::size_t index = 0; index < entries.size(); ++index) {
+    const auto& entry = entries[index];
+    if (entry.kind == rime::core::TraceKind::ActionStarted) {
+      assert(entry.action_id != 0);
+      bool paired = false;
+      for (std::size_t later = index + 1; later < entries.size(); ++later) {
+        if (entries[later].action_id == entry.action_id &&
+            entries[later].kind == rime::core::TraceKind::ActionFinished) {
+          paired = true;
+          break;
+        }
+      }
+      assert(paired);
+    } else if (entry.kind == rime::core::TraceKind::ActionFinished) {
+      assert(entry.action_id != 0);
+    } else {
+      assert(entry.action_id == 0);
+    }
+  }
+
   rime::core::Runtime host_runtime(2);
   rime::desktop::DesktopHost desktop_host(host_runtime);
   assert(desktop_host.start().ok());

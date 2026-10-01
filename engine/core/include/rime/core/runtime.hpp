@@ -56,7 +56,6 @@ class Runtime final {
   EventHandler handler_;
   std::shared_ptr<TraceSink> trace_;
   std::atomic<Sequence> next_sequence_{1};
-  std::atomic<Sequence> next_trace_sequence_{1};
   int pump_depth_{0};
   std::thread::id pump_thread_{};
 };

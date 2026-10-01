@@ -156,7 +156,7 @@ void Kernel::record(const Action& action, const rime::core::TraceKind kind, std:
   // action still yields exactly one Result instead of throwing.
   try {
     if (trace_) {
-      trace_->record({action.id, kind, action.type, std::move(detail)});
+      trace_->record({0, kind, action.type, std::move(detail), action.id});
     }
   } catch (...) {
   }

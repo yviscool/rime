@@ -124,7 +124,7 @@ void ShutdownSequence::trace(const ShutdownPhase phase, const std::string& subje
                              const std::string& detail) {
   if (!trace_) return;
   const std::string entry = std::string(shutdown_phase_name(phase)) + ": " + detail;
-  trace_->record({++sequence_, TraceKind::StateChanged, subject, entry});
+  trace_->record({0, TraceKind::StateChanged, subject, entry});
 }
 
 }  // namespace rime::core

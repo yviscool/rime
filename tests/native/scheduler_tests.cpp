@@ -172,7 +172,13 @@ int main() {
     assert(shutdown.advance(rime::core::ShutdownPhase::StoppingWorkers).code ==
            rime::core::Error::Code::InvalidState);
     assert(shutdown.retain("late").code == rime::core::Error::Code::InvalidState);
-    assert(!trace->snapshot().empty());
+    // Shutdown entries share the global sequence and stay strictly ordered.
+    const auto shutdown_trace = trace->snapshot();
+    assert(!shutdown_trace.empty());
+    for (std::size_t index = 1; index < shutdown_trace.size(); ++index) {
+      assert(shutdown_trace[index].sequence > shutdown_trace[index - 1].sequence);
+      assert(shutdown_trace[index].action_id == 0);
+    }
 
     rime::core::ShutdownSequence failed;
     assert(failed.fail("boom").ok());

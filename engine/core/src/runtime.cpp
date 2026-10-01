@@ -125,24 +125,24 @@ std::size_t Runtime::pump(const std::size_t budget) {
     }
     if (!event) break;
     try {
-      trace(TraceKind::ActionStarted, event->name, "dispatch");
+      trace(TraceKind::EventDispatchStarted, event->name, "dispatch");
     } catch (...) {
       // Tracing must never break dispatch; detail loss is acceptable.
     }
     try {
       handler(*event, shutdown_.token());
       try {
-        trace(TraceKind::ActionFinished, event->name, "dispatch");
+        trace(TraceKind::EventDispatchFinished, event->name, "dispatch");
       } catch (...) {
       }
     } catch (const std::exception& exception) {
       try {
-        trace(TraceKind::ActionFinished, event->name, exception.what());
+        trace(TraceKind::EventDispatchFinished, event->name, exception.what());
       } catch (...) {
       }
     } catch (...) {
       try {
-        trace(TraceKind::ActionFinished, event->name, "handler threw an unknown exception");
+        trace(TraceKind::EventDispatchFinished, event->name, "handler threw an unknown exception");
       } catch (...) {
       }
     }
@@ -194,8 +194,7 @@ void Runtime::trace(const TraceKind kind, std::string subject, std::string detai
   // propagate into dispatch/shutdown paths, so failures are swallowed.
   try {
     if (trace_) {
-      trace_->record({next_trace_sequence_.fetch_add(1, std::memory_order_relaxed), kind,
-                      std::move(subject), std::move(detail)});
+      trace_->record({0, kind, std::move(subject), std::move(detail)});
     }
   } catch (...) {
   }
