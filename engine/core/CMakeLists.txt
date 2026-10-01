@@ -5,6 +5,7 @@ add_library(rime_core STATIC
   src/lane.cpp
   src/runtime.cpp
   src/shutdown.cpp
+  src/worker.cpp
 )
 
 target_include_directories(rime_core

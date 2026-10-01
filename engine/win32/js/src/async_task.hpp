@@ -132,7 +132,7 @@ inline bool parse_action_options(JSContext* context, JSValueConst value, ActionO
   return true;
 }
 
-// Runs `work` on the timer thread and settles the returned promise with its
+// Runs `work` on the worker lane and settles the returned promise with its
 // AsyncOutcome. Success resolves as JSON; failure rejects with an Error
 // carrying the kernel-style `code` name plus the message. Shared by the native
 // modules so every async query/mutation drains through the same host
@@ -147,11 +147,11 @@ JSValue start_async(JSContext* context, Work work, std::uint64_t cancellation_id
   if (const auto error = host->begin_async(context, promise, token, cancellation_id); !error.ok()) {
     return JS_ThrowInternalError(context, "%s", error.message.c_str());
   }
-  host->schedule_task(token, std::chrono::milliseconds(0),
-                      [host, token, work = std::move(work)]() mutable {
-                        // Ownership: `host` (raw) outlives every scheduled task;
-                        // TimerService::stop runs before Host teardown completes.
-                        try {
+  host->schedule_worker(token,
+                        [host, token, work = std::move(work)]() mutable {
+                          // Ownership: `host` (raw) outlives every scheduled task;
+                          // Host dtor stops the worker and joins this task first.
+                          try {
                           AsyncOutcome outcome = work();
                           if (outcome.ok) {
                             host->complete_async(token, true, std::move(outcome.payload));
@@ -269,22 +269,20 @@ inline JSValue run_action(JSContext* context, rime::action::Dispatcher& dispatch
     return promise;
   }
   rime::action::Dispatcher* dispatcher_ptr = &dispatcher;
-  host->schedule_task(token, std::chrono::milliseconds(0),
-                      [host, token, dispatcher_ptr]() mutable {
-                        // Ownership: `host`/`dispatcher_ptr` (raw) outlive every
-                        // scheduled task; kernel, dispatcher and host teardown only
-                        // run after pending tasks settle.
-                        try {
-                          run_queue_pump(host, *dispatcher_ptr);
-                        } catch (const std::exception& exception) {
-                          host->complete_async(
-                              token, false,
-                              std::string("execution_failed:") + exception.what());
-                        } catch (...) {
-                          host->complete_async(token, false,
-                                               "execution_failed:native module task failed");
-                        }
-                      });
+  host->schedule_worker(token, [host, token, dispatcher_ptr]() mutable {
+    // Ownership: `host`/`dispatcher_ptr` (raw) outlive every scheduled task;
+    // kernel, dispatcher and host teardown only run after pending tasks
+    // settle (Host dtor joins the worker first).
+    try {
+      run_queue_pump(host, *dispatcher_ptr);
+    } catch (const std::exception& exception) {
+      host->complete_async(token, false,
+                           std::string("execution_failed:") + exception.what());
+    } catch (...) {
+      host->complete_async(token, false,
+                           "execution_failed:native module task failed");
+    }
+  });
   return promise;
 }
 

@@ -1,6 +1,7 @@
 #include "rime/win32/window_executor.hpp"
 
 #include "rime/core/json.hpp"
+#include "rime/core/lane.hpp"
 
 #include <charconv>
 #include <chrono>
@@ -87,6 +88,10 @@ bool resolve_target(WindowService& service, const rime::action::Action& action,
 
 rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
                                              rime::core::CancellationToken cancellation) {
+  if (const auto lane_error = rime::core::require_lane(rime::core::Lane::Worker);
+      !lane_error.ok()) {
+    return fail(action, lane_error.code, lane_error.message);
+  }
   if (!window_action_types().contains(action.type)) {
     return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
   }

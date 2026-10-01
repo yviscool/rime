@@ -4,9 +4,13 @@
 #include "rime/core/lane.hpp"
 #include "rime/core/runtime.hpp"
 #include "rime/core/shutdown.hpp"
+#include "rime/core/worker.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
+#include <chrono>
+#include <future>
 #include <memory>
 #include <string>
 #include <thread>
@@ -145,6 +149,46 @@ int main() {
            rime::core::Error::Code::InvalidState);
     assert(rime::core::LaneRegistry::instance().claim(rime::core::Lane::Ui).ok());
     rime::core::LaneRegistry::instance().reset();
+  }
+
+  // --- Worker lane service ----------------------------------------------
+  {
+    auto& worker = rime::core::WorkerService::instance();
+    assert(!worker.running());
+    assert(worker.start().ok());
+    assert(worker.start().ok());  // idempotent while running
+    assert(worker.running());
+    assert(worker.pending() == 0);
+
+    // Posted work observes the worker lane claim.
+    std::promise<bool> lane_ok;
+    auto lane_future = lane_ok.get_future();
+    assert(worker.post([&lane_ok] {
+      lane_ok.set_value(rime::core::require_lane(rime::core::Lane::Worker).ok());
+    }));
+    assert(lane_future.get());
+
+    // stop() while a task runs drops the queued tail instead of executing it.
+    std::promise<void> gate;
+    std::promise<void> started;
+    auto started_future = started.get_future();
+    std::atomic<int> ran{0};
+    assert(worker.post([&] {
+      started.set_value();
+      gate.get_future().wait();
+    }));
+    started_future.get();  // first task holds the worker
+    assert(worker.post([&] { ran.fetch_add(1); }));
+    std::thread releaser([&gate] {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      gate.set_value();
+    });
+    worker.stop();  // rejects new posts, drops the queue, joins the running task
+    releaser.join();
+    assert(!worker.running());
+    assert(ran.load() == 0);  // queued tail was dropped, not executed
+    assert(!worker.post([] {}));  // stopped worker rejects new posts
+    worker.stop();  // idempotent
   }
 
   // --- Shutdown sequence -------------------------------------------------

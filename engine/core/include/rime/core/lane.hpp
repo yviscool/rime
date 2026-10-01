@@ -9,9 +9,10 @@
 namespace rime::core {
 
 // Thread affinity lanes. Cross-lane access is a contract violation: QuickJS
-// objects live on the JS lane, HWND/DirectComposition on the UI lane and COM
-// interfaces on the Automation lane.
-enum class Lane : std::uint8_t { Js = 0, Ui, Automation, Count };
+// objects live on the JS lane, HWND/DirectComposition on the UI lane, COM
+// interfaces on the Automation lane and blocking native reads plus action
+// queue pumps on the Worker lane.
+enum class Lane : std::uint8_t { Js = 0, Ui, Automation, Worker, Count };
 
 const char* lane_name(Lane lane);
 

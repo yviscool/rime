@@ -1,6 +1,7 @@
 #include "rime/js/host.hpp"
 
 #include "rime/core/json.hpp"
+#include "rime/core/worker.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -281,6 +282,9 @@ Host::Host() : owner_(std::this_thread::get_id()) {
 Host::~Host() {
   if (events_) events_->close();
   timer_.stop();
+  // Joins any running worker task (queue pump / async read) before the host
+  // memory it captures goes away.
+  rime::core::WorkerService::instance().stop();
   subscriptions_.close();
   if (context_) {
     {
@@ -554,6 +558,41 @@ void Host::schedule_task(const std::uint64_t token, const std::chrono::milliseco
         {token, 0, CompletionKind::Reject, "invalid_state:timer service is stopping"});
   }
   wake();
+}
+
+void Host::schedule_worker(const std::uint64_t token, std::function<void()> task) {
+  auto& worker = rime::core::WorkerService::instance();
+  if (!worker.running()) (void)worker.start();
+  // Register the token as in-flight so idle() stays false (and settle waits)
+  // until the worker's completion lands; apply_completion erases it. Mirrors
+  // schedule_task's delay_timers_ entry with timer id 0 (no OS timer armed).
+  {
+    std::lock_guard lock(async_mutex_);
+    delay_timers_[token] = 0;
+  }
+  const bool accepted = worker.post([this, token, task = std::move(task)]() mutable {
+    // Ownership: captures `this` raw; Host dtor stops the worker and joins
+    // this task before tearing the host down.
+    try {
+      task();
+    } catch (const std::exception& exception) {
+      complete_async(token, false, std::string("execution_failed:") + exception.what());
+    } catch (...) {
+      complete_async(token, false, "execution_failed:native worker task failed");
+    }
+  });
+  if (!accepted) {
+    std::lock_guard lock(async_mutex_);
+    completions_.push_back(
+        {token, 0, CompletionKind::Reject, "invalid_state:worker service is stopping"});
+    wake();
+  }
+}
+
+bool Host::post_worker(std::function<void()> task) {
+  auto& worker = rime::core::WorkerService::instance();
+  if (!worker.running()) (void)worker.start();
+  return worker.post(std::move(task));
 }
 
 std::size_t Host::pending_async() const {
@@ -932,7 +971,11 @@ std::string Host::inspect(const std::string& request_json) {
     }
     tasks.set("async", json::Value::number(static_cast<double>(promise_count)));
     tasks.set("queued", json::Value::number(static_cast<double>(completion_count)));
-    tasks.set("timers", json::Value::number(static_cast<double>(timer_.pending())));
+  tasks.set("timers", json::Value::number(static_cast<double>(timer_.pending())));
+  tasks.set("worker", json::Value::number(
+                          static_cast<double>(rime::core::WorkerService::instance().pending())));
+    tasks.set("worker", json::Value::number(
+                            static_cast<double>(rime::core::WorkerService::instance().pending())));
     tasks.set("callbacks", json::Value::number(static_cast<double>(callback_count())));
     result.set("tasks", std::move(tasks));
   }

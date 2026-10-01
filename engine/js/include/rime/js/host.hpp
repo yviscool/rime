@@ -88,6 +88,14 @@ class Host final {
   // disarms the timer.
   void schedule_task(std::uint64_t token, std::chrono::milliseconds delay,
                      std::function<void()> task);
+  // JS thread: run `task` on the worker lane (blocking native reads and
+  // action queue pumps) instead of the timer thread. Starts the worker
+  // lazily; a worker that is stopping rejects the token like schedule_task.
+  void schedule_worker(std::uint64_t token, std::function<void()> task);
+  // JS thread: worker-lane task without a promise token (e.g. chord pumps
+  // that settle nothing). Returns false when the worker is unavailable so
+  // the caller can record the failure.
+  bool post_worker(std::function<void()> task);
   [[nodiscard]] std::size_t pending_async() const;
 
   // Cancellation ids shared with JS (runtime.cancellation/runtime.cancel).

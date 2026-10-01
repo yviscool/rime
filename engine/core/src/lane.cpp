@@ -12,6 +12,8 @@ const char* lane_name(const Lane lane) {
       return "ui";
     case Lane::Automation:
       return "automation";
+    case Lane::Worker:
+      return "worker";
     case Lane::Count:
       break;
   }

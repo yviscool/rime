@@ -1,4 +1,5 @@
 #include "rime/action/kernel.hpp"
+#include "rime/core/lane.hpp"
 #include "rime/core/json.hpp"
 #include "rime/win32/clipboard.hpp"
 #include "rime/win32/clipboard_executor.hpp"
@@ -38,6 +39,8 @@ struct ClipboardGuard {
 
 int main() {
   ClipboardService service;
+  // Executors require the worker lane; this harness executes on the main thread.
+  assert(rime::core::LaneRegistry::instance().claim(rime::core::Lane::Worker).ok());
 
   // Preserve whatever text the clipboard held before the test via the guard
   // (the explicit restore below still runs first so an abort() cannot leave

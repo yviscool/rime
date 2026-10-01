@@ -1,6 +1,7 @@
 #include "rime/win32/process_executor.hpp"
 
 #include "rime/core/json.hpp"
+#include "rime/core/lane.hpp"
 
 #include "utf.hpp"
 
@@ -92,6 +93,10 @@ Result run_terminate(const rime::action::Action& action, ProcessService& service
 
 rime::action::Result ProcessExecutor::execute(const rime::action::Action& action,
                                               rime::core::CancellationToken cancellation) {
+  if (const auto lane_error = rime::core::require_lane(rime::core::Lane::Worker);
+      !lane_error.ok()) {
+    return fail(action, lane_error.code, lane_error.message);
+  }
   if (action.target.kind != "process") {
     return fail(action, Code::InvalidContract,
                 "process actions require target kind 'process', got: " + action.target.kind);

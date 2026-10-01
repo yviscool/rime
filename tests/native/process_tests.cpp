@@ -1,4 +1,5 @@
 #include "rime/action/kernel.hpp"
+#include "rime/core/lane.hpp"
 #include "rime/core/json.hpp"
 #include "rime/win32/process.hpp"
 #include "rime/win32/process_executor.hpp"
@@ -66,6 +67,8 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  // Executors require the worker lane; this harness executes on the main thread.
+  assert(rime::core::LaneRegistry::instance().claim(rime::core::Lane::Worker).ok());
   ProcessService service;
 
   // The snapshot contains this process with a real image name.

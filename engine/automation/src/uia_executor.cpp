@@ -1,6 +1,7 @@
 #include "rime/automation/uia_executor.hpp"
 
 #include "rime/core/json.hpp"
+#include "rime/core/lane.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -80,6 +81,10 @@ bool read_optional_u64(const rime::core::json::Value& payload, const char* key,
 
 rime::action::Result UiaExecutor::execute(const rime::action::Action& action,
                                           rime::core::CancellationToken cancellation) {
+  if (const auto lane_error = rime::core::require_lane(rime::core::Lane::Worker);
+      !lane_error.ok()) {
+    return fail(action, lane_error.code, lane_error.message);
+  }
   const char* expected_type = op_ == Op::Find   ? "automation.find"
                               : op_ == Op::Read ? "automation.read"
                                                 : "automation.invoke";

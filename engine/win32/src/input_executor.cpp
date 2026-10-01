@@ -1,6 +1,7 @@
 #include "rime/win32/input_executor.hpp"
 
 #include "rime/core/json.hpp"
+#include "rime/core/lane.hpp"
 
 #include <cmath>
 #include <string>
@@ -25,6 +26,10 @@ Result cancelled(const rime::action::Action& action, const std::string& message)
 
 rime::action::Result InputExecutor::execute(const rime::action::Action& action,
                                             rime::core::CancellationToken cancellation) {
+  if (const auto lane_error = rime::core::require_lane(rime::core::Lane::Worker);
+      !lane_error.ok()) {
+    return fail(action, lane_error.code, lane_error.message);
+  }
   if (action.type != "input.send") {
     return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
   }

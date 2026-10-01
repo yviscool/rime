@@ -1,6 +1,7 @@
 #include "rime/win32/clipboard_executor.hpp"
 
 #include "rime/core/json.hpp"
+#include "rime/core/lane.hpp"
 
 #include <string>
 
@@ -18,6 +19,10 @@ Result fail(const rime::action::Action& action, const Code code, std::string mes
 
 rime::action::Result ClipboardExecutor::execute(const rime::action::Action& action,
                                                 rime::core::CancellationToken cancellation) {
+  if (const auto lane_error = rime::core::require_lane(rime::core::Lane::Worker);
+      !lane_error.ok()) {
+    return fail(action, lane_error.code, lane_error.message);
+  }
   if (action.type != "clipboard.write") {
     return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
   }

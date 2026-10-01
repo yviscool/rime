@@ -35,6 +35,8 @@ std::optional<WindowInfo> find_by_title(const std::vector<WindowInfo>& windows) 
 
 int main() {
   WindowService service;
+  // Executors require the worker lane; this harness executes on the main thread.
+  assert(rime::core::LaneRegistry::instance().claim(rime::core::Lane::Worker).ok());
   std::vector<WindowInfo> windows;
 
   // Work before start is rejected.

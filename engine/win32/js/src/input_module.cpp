@@ -470,10 +470,10 @@ JSValue chord_dispatch(JSContext* context, JSValueConst, int argc, JSValueConst*
   rime::action::Dispatcher* dispatcher_ptr = binding->dispatcher;
   // No completion token exists for a chord dispatch: schedule_task's
   // delay-timer bookkeeping would leak a token no completion ever erases,
-  // stalling idle()/settle. The raw timer runs the same shared pump the
+  // stalling idle()/settle. The worker lane runs the same shared pump the
   // promise path uses; with no promise to settle, a pump failure lands in
   // the host error log instead.
-  host->timers().schedule(std::chrono::milliseconds(0), [host, dispatcher_ptr] {
+  const bool posted = host->post_worker([host, dispatcher_ptr] {
     try {
       run_queue_pump(host, *dispatcher_ptr);
     } catch (const std::exception& exception) {
@@ -482,6 +482,9 @@ JSValue chord_dispatch(JSContext* context, JSValueConst, int argc, JSValueConst*
       (void)host->record("rime:input.chord", "queue pump failed");
     }
   });
+  if (!posted) {
+    (void)host->record("rime:input.chord", "worker service is stopping");
+  }
   return JS_UNDEFINED;
 }
 

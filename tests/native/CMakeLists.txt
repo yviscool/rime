@@ -13,6 +13,11 @@ add_test(NAME rime_contract_codec COMMAND rime_contract_tests ${CMAKE_SOURCE_DIR
 add_executable(rime_scheduler_tests scheduler_tests.cpp)
 target_link_libraries(rime_scheduler_tests PRIVATE rime_action rime_core)
 target_compile_features(rime_scheduler_tests PRIVATE cxx_std_20)
+if (MINGW)
+  # std::future/std::thread pull in winpthread; link statically so the test
+  # never depends on a host MinGW runtime DLL being on PATH.
+  target_link_options(rime_scheduler_tests PRIVATE -static-libstdc++ -static-libgcc)
+endif()
 add_test(NAME rime_scheduler_policies COMMAND rime_scheduler_tests)
 
 if (WIN32)
