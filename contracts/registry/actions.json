@@ -1,0 +1,325 @@
+{
+  "schemaVersion": 1,
+  "sourceKind": "action-registry",
+  "status": "contract-only",
+  "envelopeSchema": "contracts/schema/action-v1.schema.json",
+  "resultSchema": "contracts/schema/result-v1.schema.json",
+  "note": "Single source of truth for dispatchable action types. matrix:check fails when the executor-side type literals and this registry disagree; add new types here first.",
+  "actions": [
+    {
+      "type": "window.move",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/movePayload",
+      "executor": "engine/win32/src/window_executor.cpp:115",
+      "module": "engine/win32/js/src/window_module.cpp:374",
+      "sdk": "sdk/src/window.ts:141",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.focus",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/emptyPayload",
+      "executor": "engine/win32/src/window_executor.cpp:154",
+      "module": "engine/win32/js/src/window_module.cpp:379",
+      "sdk": "sdk/src/window.ts:147",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.close",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/emptyPayload",
+      "executor": "engine/win32/src/window_executor.cpp:156",
+      "module": "engine/win32/js/src/window_module.cpp:384",
+      "sdk": "sdk/src/window.ts:149",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.hide",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/emptyPayload",
+      "executor": "engine/win32/src/window_executor.cpp:158",
+      "module": "engine/win32/js/src/window_module.cpp:389",
+      "sdk": "sdk/src/window.ts:151",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.show",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/emptyPayload",
+      "executor": "engine/win32/src/window_executor.cpp:160",
+      "module": "engine/win32/js/src/window_module.cpp:394",
+      "sdk": "sdk/src/window.ts:153",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.minimize",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/emptyPayload",
+      "executor": "engine/win32/src/window_executor.cpp:162",
+      "module": "engine/win32/js/src/window_module.cpp:399",
+      "sdk": "sdk/src/window.ts:155",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.maximize",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/emptyPayload",
+      "executor": "engine/win32/src/window_executor.cpp:164",
+      "module": "engine/win32/js/src/window_module.cpp:404",
+      "sdk": "sdk/src/window.ts:157",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.restore",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/emptyPayload",
+      "executor": "engine/win32/src/window_executor.cpp:166",
+      "module": "engine/win32/js/src/window_module.cpp:409",
+      "sdk": "sdk/src/window.ts:159",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "input.send",
+      "capability": "windows.input.inject",
+      "target": { "kind": "input", "example": "keyboard" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/input_executor.cpp:39-66",
+      "executor": "engine/win32/src/input_executor.cpp:28",
+      "module": "engine/win32/js/src/input_module.cpp:680",
+      "sdk": "sdk/src/input.ts:87",
+      "tests": ["tests/js/input_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "clipboard.write",
+      "capability": "windows.clipboard.write",
+      "target": { "kind": "clipboard", "example": "default" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/clipboard_executor.cpp:38-42",
+      "executor": "engine/win32/src/clipboard_executor.cpp:21",
+      "module": "engine/win32/js/src/clipboard_module.cpp:80",
+      "sdk": "sdk/src/clipboard.ts:33",
+      "tests": ["tests/native/clipboard_tests.cpp", "tests/js/breadth_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "process.launch",
+      "capability": "process.launch",
+      "target": { "kind": "process", "example": "new" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/process_executor.cpp:39-53",
+      "executor": "engine/win32/src/process_executor.cpp:105",
+      "module": "engine/win32/js/src/process_module.cpp:161",
+      "sdk": "sdk/src/process.ts:66",
+      "tests": ["tests/native/process_tests.cpp", "tests/js/breadth_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "process.terminate",
+      "capability": "process.terminate",
+      "target": { "kind": "process", "example": "<pid>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/process_executor.cpp:78",
+      "executor": "engine/win32/src/process_executor.cpp:108",
+      "module": "engine/win32/js/src/process_module.cpp:184",
+      "sdk": "sdk/src/process.ts:76",
+      "tests": ["tests/native/process_tests.cpp", "tests/js/breadth_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "automation.find",
+      "capability": "windows.automation.find",
+      "target": { "kind": "automation", "example": "desktop" },
+      "payloadSchema": "inline",
+      "validation": "engine/automation/src/uia_executor.cpp:94-127",
+      "executor": "engine/automation/src/uia_executor.cpp:83",
+      "module": "engine/win32/js/src/automation_module.cpp:177",
+      "sdk": "sdk/src/automation.ts:36",
+      "tests": ["tests/js/automation_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "automation.read",
+      "capability": "windows.automation.read",
+      "target": { "kind": "element", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/automation/src/uia_executor.cpp:84",
+      "executor": "engine/automation/src/uia_executor.cpp:84",
+      "module": "engine/win32/js/src/automation_module.cpp:200",
+      "sdk": "sdk/src/automation.ts:38",
+      "tests": ["tests/js/automation_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "automation.invoke",
+      "capability": "windows.automation.invoke",
+      "target": { "kind": "element", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/automation/src/uia_executor.cpp:85",
+      "executor": "engine/automation/src/uia_executor.cpp:85",
+      "module": "engine/win32/js/src/automation_module.cpp:223",
+      "sdk": "sdk/src/automation.ts:40",
+      "tests": ["tests/js/automation_slice.cpp"],
+      "status": "implemented"
+    }
+  ],
+  "capabilities": [
+    {
+      "name": "windows.window.read",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/window_module.cpp:22",
+      "checked": ["engine/win32/js/src/window_module.cpp:172", "engine/win32/js/src/window_module.cpp:231", "engine/win32/js/src/window_module.cpp:265"],
+      "actions": []
+    },
+    {
+      "name": "windows.window.write",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/window_module.cpp:23",
+      "checked": ["engine/action/src/kernel.cpp:97"],
+      "actions": ["window.move", "window.focus", "window.close", "window.hide", "window.show", "window.minimize", "window.maximize", "window.restore"]
+    },
+    {
+      "name": "windows.clipboard.read",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/clipboard_module.cpp:24",
+      "checked": ["engine/win32/js/src/clipboard_module.cpp:41"],
+      "actions": []
+    },
+    {
+      "name": "windows.clipboard.write",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/clipboard_module.cpp:25",
+      "checked": ["engine/action/src/kernel.cpp:97"],
+      "actions": ["clipboard.write"]
+    },
+    {
+      "name": "windows.input.inject",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/input_module.cpp:648",
+      "checked": ["engine/action/src/kernel.cpp:97"],
+      "actions": ["input.send"]
+    },
+    {
+      "name": "windows.hook.global",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/input_module.cpp:362",
+      "checked": ["engine/win32/js/src/input_module.cpp:499"],
+      "actions": []
+    },
+    {
+      "name": "windows.automation.find",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/automation_module.cpp:136",
+      "checked": ["engine/action/src/kernel.cpp:97"],
+      "actions": ["automation.find"]
+    },
+    {
+      "name": "windows.automation.read",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/automation_module.cpp:194",
+      "checked": ["engine/action/src/kernel.cpp:97"],
+      "actions": ["automation.read"]
+    },
+    {
+      "name": "windows.automation.invoke",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/automation_module.cpp:217",
+      "checked": ["engine/action/src/kernel.cpp:97"],
+      "actions": ["automation.invoke"]
+    },
+    {
+      "name": "process.inspect",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/process_module.cpp:49",
+      "checked": ["engine/win32/js/src/process_module.cpp:65", "engine/win32/js/src/process_module.cpp:102"],
+      "actions": []
+    },
+    {
+      "name": "process.launch",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/process_module.cpp:162",
+      "checked": ["engine/action/src/kernel.cpp:97"],
+      "actions": ["process.launch"]
+    },
+    {
+      "name": "process.terminate",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/process_module.cpp:185",
+      "checked": ["engine/action/src/kernel.cpp:97"],
+      "actions": ["process.terminate"]
+    },
+    {
+      "name": "registry.read",
+      "status": "planned",
+      "plannedBy": "docs/api/core-builtins.json (RegRead)",
+      "actions": []
+    },
+    {
+      "name": "registry.write",
+      "status": "planned",
+      "plannedBy": "docs/api/core-builtins.json (RegWrite, RegCreateKey, RegDelete, RegDeleteKey)",
+      "actions": []
+    },
+    {
+      "name": "media.sound",
+      "status": "planned",
+      "plannedBy": "docs/api/core-builtins.json (SoundGet/Set*)",
+      "actions": []
+    },
+    {
+      "name": "probe.chord",
+      "status": "test-only",
+      "declared": "tests/js/input_slice.cpp:138",
+      "checked": ["tests/js/input_slice.cpp:142"],
+      "actions": []
+    }
+  ],
+  "readSurfaces": [
+    {
+      "api": "windows.list()",
+      "capability": "windows.window.read",
+      "site": "engine/win32/js/src/window_module.cpp:172"
+    },
+    {
+      "api": "windows.active()",
+      "capability": "windows.window.read",
+      "site": "engine/win32/js/src/window_module.cpp:231"
+    },
+    {
+      "api": "windows.info(hwnd)",
+      "capability": "windows.window.read",
+      "site": "engine/win32/js/src/window_module.cpp:265"
+    },
+    {
+      "api": "clipboard.read()",
+      "capability": "windows.clipboard.read",
+      "site": "engine/win32/js/src/clipboard_module.cpp:41"
+    },
+    {
+      "api": "process.list()",
+      "capability": "process.inspect",
+      "site": "engine/win32/js/src/process_module.cpp:65"
+    },
+    {
+      "api": "process.info(pid)",
+      "capability": "process.inspect",
+      "site": "engine/win32/js/src/process_module.cpp:102"
+    }
+  ]
+}

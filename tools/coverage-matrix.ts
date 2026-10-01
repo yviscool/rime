@@ -122,6 +122,77 @@ async function checkDrift(): Promise<void> {
   console.log(
     `Denominator frozen: ${md_funcs.size} md_func + ${g_bifs.size} g_BIF + ${directives.size} directives + ${g_bivs.size} builtin vars`,
   );
+
+  await checkActionRegistry(root, fail);
+}
+
+// Action registry drift: the type strings the executors accept must equal
+// contracts/registry/actions.json, and every referenced file must exist.
+async function checkActionRegistry(
+  root: string,
+  fail: (message: string) => never,
+): Promise<void> {
+  const registry = JSON.parse(
+    await readFile(resolve(root, "contracts/registry/actions.json"), "utf8"),
+  ) as {
+    actions: Array<{
+      type: string;
+      executor: string;
+      module: string;
+      sdk: string;
+      payloadSchema: string;
+      validation?: string;
+    }>;
+    capabilities: Array<{ name: string; actions: string[] }>;
+  };
+
+  const registry_types = new Set(registry.actions.map((a) => a.type));
+  const code_types = new Set<string>();
+  // Include paths and filenames also look like "word.word"; skip file extensions.
+  const non_type_verbs = new Set([
+    "h", "hpp", "hxx", "c", "cc", "cpp", "cxx", "js", "mjs", "ts", "tsx", "json", "md",
+    "txt", "log", "dll", "exe", "lib", "ini", "yaml", "yml", "py", "png", "ico",
+  ]);
+  const { readdir } = await import("node:fs/promises");
+  const engine_files = (await readdir(resolve(root, "engine"), { recursive: true })) as string[];
+  const executors = engine_files
+    .map((f) => f.replace(/\\/g, "/"))
+    .filter((f) => f.endsWith(".cpp") && f.includes("executor"));
+  for (const rel of executors) {
+    const text = await readFile(resolve(root, "engine", rel), "utf8");
+    for (const m of text.matchAll(/"([a-z][a-z0-9]*)\.([a-z][a-z0-9]*)"/g)) {
+      if (non_type_verbs.has(m[2])) continue;
+      code_types.add(`${m[1]}.${m[2]}`);
+    }
+  }
+  for (const name of code_types) {
+    if (!registry_types.has(name)) fail(`actions.json misses executor type ${name}`);
+  }
+  for (const name of registry_types) {
+    if (!code_types.has(name)) fail(`actions.json has ${name} no executor accepts`);
+  }
+
+  const capability_actions = new Set(registry.capabilities.flatMap((c) => c.actions));
+  for (const name of capability_actions) {
+    if (!registry_types.has(name)) fail(`actions.json capability references unknown type ${name}`);
+  }
+
+  for (const action of registry.actions) {
+    const refs = [action.executor, action.module, action.sdk, action.validation ?? ""];
+    if (action.payloadSchema !== "inline") refs.push(action.payloadSchema);
+    for (const ref of refs) {
+      const file = ref.split(/[:#]/).slice(0, -1).join(":").replace(/:\d+$/, "");
+      if (!file) continue;
+      try {
+        await stat(resolve(root, file));
+      } catch {
+        fail(`actions.json ${action.type} references missing file: ${file}`);
+      }
+    }
+  }
+  console.log(
+    `Action registry checked: ${registry_types.size} types across ${executors.length} executor files`,
+  );
 }
 
 const columns = [
