@@ -204,6 +204,42 @@ int main() {
       "if (typeof key.injected !== 'boolean') throw new Error('bad injected flag');",
       "input-check-key.mjs");
 
+  // Reentrancy: a subscribe handler runs while the event drain is in
+  // progress; entering a module mutation (bind) from inside it must neither
+  // deadlock the pump nor corrupt the chord registry.
+  run(runtime,
+      "globalThis.reentrantBindId = null;\n"
+      "globalThis.reentrantError = null;\n"
+      "globalThis.sid3 = input.subscribe(ev => {\n"
+      "  if (globalThis.reentrantBindId !== null || globalThis.reentrantError !== null) return;\n"
+      "  if (!ev.down || ev.vk !== 135) return;\n"
+      "  try {\n"
+      "    globalThis.reentrantBindId =\n"
+      "        input.bind('f23', { type: 'probe.chord', capability: 'probe.chord',\n"
+      "                            target: { kind: 'chord', id: 'reentrant' } });\n"
+      "  } catch (e) { globalThis.reentrantError = String(e); }\n"
+      "});",
+      "input-reentrant.mjs");
+  send_vk(VK_F24);
+  run(runtime,
+      "globalThis.reentrantDone = 'pending';\n"
+      "waitFor(() => globalThis.reentrantBindId !== null || globalThis.reentrantError !== null,\n"
+      "        3000)\n"
+      "  .then(v => { globalThis.reentrantDone = v; });",
+      "input-reentrant-wait.mjs");
+  assert(runtime.settle(5000ms).ok());
+  run(runtime,
+      "if (globalThis.reentrantDone !== true)\n"
+      "  throw new Error('reentrant bind never completed: ' + globalThis.reentrantError);\n"
+      "if (globalThis.reentrantError)\n"
+      "  throw new Error('reentrant bind failed: ' + globalThis.reentrantError);\n"
+      "if (!(globalThis.reentrantBindId > 0))\n"
+      "  throw new Error('reentrant bind must return a positive id');\n"
+      "if (!input.unbind(globalThis.reentrantBindId))\n"
+      "  throw new Error('reentrant bind must be unbindable');\n"
+      "input.unsubscribe(globalThis.sid3);",
+      "input-reentrant-check.mjs");
+
   // Mouse: an absolute move arrives with exact coordinates.
   send_mouse_to(321, 123);
   run(runtime,

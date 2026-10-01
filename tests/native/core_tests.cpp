@@ -43,12 +43,12 @@ class EchoExecutor final : public rime::action::Executor {
 
 int main() {
   rime::core::EventQueue queue(1);
-  assert(queue.push({1, rime::core::EventKind::Input, "one", ""}) ==
+  assert(queue.push({1, rime::core::EventKind::Input, "one", "", ""}) ==
          rime::core::QueueStatus::Accepted);
-  assert(queue.push({2, rime::core::EventKind::Input, "two", ""}) ==
+  assert(queue.push({2, rime::core::EventKind::Input, "two", "", ""}) ==
          rime::core::QueueStatus::Full);
   queue.close();
-  assert(queue.push({3, rime::core::EventKind::Input, "three", ""}) ==
+  assert(queue.push({3, rime::core::EventKind::Input, "three", "", ""}) ==
          rime::core::QueueStatus::Closed);
 
   auto trace = std::make_shared<rime::core::InMemoryTrace>();
@@ -58,11 +58,11 @@ int main() {
     if (!token.cancelled()) received = event.name;
   });
   assert(runtime.start().ok());
-  assert(runtime.post({0, rime::core::EventKind::Input, "window.move", "left"}).ok());
+  assert(runtime.post({0, rime::core::EventKind::Input, "window.move", "left", ""}).ok());
   assert(runtime.pump() == 1);
   assert(received == "window.move");
   assert(runtime.stop().ok());
-  assert(runtime.post({0, rime::core::EventKind::Input, "late", ""}).code ==
+  assert(runtime.post({0, rime::core::EventKind::Input, "late", "", ""}).code ==
          rime::core::Error::Code::InvalidState);
   assert(!trace->snapshot().empty());
 
@@ -115,6 +115,31 @@ int main() {
   assert(dispatched.size() == 1 && dispatched.front().succeeded);
   dispatcher.close();
   assert(dispatcher.submit(action) == rime::action::DispatchStatus::Closed);
+
+  // Coalescing decision: a same-idempotency-key mutation submitted while the
+  // predecessor is still queued supersedes it deterministically: the loser
+  // is refused as cancelled with the supersede detail, exactly one Result is
+  // produced per submit, and only the winner reaches the executor.
+  rime::action::Kernel coalesce_kernel(policy, trace);
+  assert(coalesce_kernel.register_executor("window.move", std::make_shared<EchoExecutor>()).ok());
+  rime::action::Dispatcher coalescing(coalesce_kernel,
+                                      rime::core::SchedulerPolicy::coalescing(8));
+  rime::action::Action successor = action;
+  successor.id = 143;
+  assert(coalescing.submit(action) == rime::action::DispatchStatus::Accepted);
+  assert(coalescing.submit(successor) == rime::action::DispatchStatus::Coalesced);
+  assert(coalescing.size() == 1);
+  const auto coalesced_results = coalescing.pump(1);
+  assert(coalesced_results.size() == 2);
+  bool winner_ran = false;
+  bool loser_superseded = false;
+  for (const auto& result : coalesced_results) {
+    if (result.id == 143 && result.succeeded) winner_ran = true;
+    if (result.id == 42 && result.cancelled && result.detail == "superseded by newer action") {
+      loser_superseded = true;
+    }
+  }
+  assert(winner_ran && loser_superseded);
 
   // Trace integrity: entries from runtime + kernel sharing one sink are
   // strictly ordered by the global sequence, every ActionStarted pairs with

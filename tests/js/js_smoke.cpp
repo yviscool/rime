@@ -39,6 +39,17 @@ int main(int argc, char** argv) {
   assert(host.errors().size() == 1);
   assert(host.errors()[0].where == "smoke.mjs");
 
+  // Host::record is the diagnostic channel for failures that have no promise
+  // to settle: it returns an ExecutionFailed error and lands in errors() and
+  // inspect so the CLI can read what the pump could not report.
+  const std::size_t record_mark = host.error_count();
+  const auto recorded = host.record("rime:test.channel", "no promise to settle");
+  assert(recorded.code == rime::core::Error::Code::ExecutionFailed);
+  assert(recorded.message == "no promise to settle");
+  assert(host.error_count() == record_mark + 1);
+  assert(host.new_error_since(record_mark) == "no promise to settle");
+  assert(host.inspect(R"({"kind":"errors"})").find("rime:test.channel") != std::string::npos);
+
   // File-based ES modules are confined to the configured root.
   assert(host.modules().set_file_root(fixture_root).ok());
   assert(host.eval_module("import { answer } from './answer.mjs';\n"

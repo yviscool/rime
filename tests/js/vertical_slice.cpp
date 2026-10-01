@@ -418,6 +418,31 @@ int main() {
         "  throw new Error('wrong rejection: ' + globalThis.failure);",
         "slice-stale-check.mjs");
 
+  // A cancellation armed before the queued action executes settles its
+  // promise as cancelled and never reaches the executor: queued work is
+  // cancellable, not fire-and-forget.
+  check(runtime,
+        "import { runtime } from 'rime:runtime';\n"
+        "import { windows } from 'rime:window';\n"
+        "const cid = runtime.cancellation();\n"
+        "runtime.cancel(cid);\n"
+        "globalThis.prematureFailure = null;\n"
+        "globalThis.prematureErrorCode = null;\n"
+        "windows.move(" + id_text +
+            ", 'left', { cancellationId: cid })\n"
+            "  .then(() => { globalThis.prematureFailure = 'unexpected resolution'; },\n"
+            "        e => { globalThis.prematureFailure = String(e);\n"
+            "               globalThis.prematureErrorCode = e.code; });",
+        "slice-premature.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (!globalThis.prematureFailure.includes('cancelled'))\n"
+        "  throw new Error('wrong cancellation rejection: ' + globalThis.prematureFailure);\n"
+        "if (globalThis.prematureErrorCode !== 'cancelled')\n"
+        "  throw new Error('cancellation rejection must carry cancelled: ' +\n"
+        "                  globalThis.prematureErrorCode);",
+        "slice-premature-check.mjs");
+
   // Trace, grouped by action type (no fragile global totals). Sources:
   // - window.focus/hide/show/minimize/maximize/restore/close: one Started +
   //   one Finished each (segments 3/5/5b/5c/6);
@@ -494,7 +519,61 @@ int main() {
           "    !globalThis.writeDenied.includes('windows.window.write'))\n"
           "  throw new Error('write must name the capability: ' + globalThis.writeDenied);",
           "slice-deny-check.mjs");
+
+    // After close the same mutation is refused with invalid_state: teardown
+    // order is observable from JS instead of hanging the promise.
+    denied_dispatcher.close();
+    check(denied_runtime,
+          "import { windows } from 'rime:window';\n"
+          "globalThis.closedFailure = null;\n"
+          "globalThis.closedErrorCode = null;\n"
+          "windows.move(" + id_text +
+              ", 'left')\n"
+              "  .then(() => { globalThis.closedFailure = 'unexpected resolution'; },\n"
+              "        e => { globalThis.closedFailure = String(e);\n"
+              "               globalThis.closedErrorCode = e.code; });",
+          "slice-closed.mjs");
+    assert(denied_runtime.settle(5000ms).ok());
+    check(denied_runtime,
+          "if (!globalThis.closedFailure.includes('dispatcher closed'))\n"
+          "  throw new Error('wrong closed rejection: ' + globalThis.closedFailure);\n"
+          "if (globalThis.closedErrorCode !== 'invalid_state')\n"
+          "  throw new Error('closed rejection must carry invalid_state: ' +\n"
+          "                  globalThis.closedErrorCode);",
+          "slice-closed-check.mjs");
     assert(denied_runtime.stop().ok());
+  }
+
+  // Queue-policy rejection: a capacity-0 dispatcher refuses before enqueue,
+  // so the promise settles with queue_full instead of bypassing the queue.
+  {
+    rime::action::Kernel full_kernel(std::make_shared<rime::action::StaticCapabilityPolicy>(
+        std::unordered_set<std::string>{"windows.window.read", "windows.window.write"}));
+    rime::action::Dispatcher full_dispatcher(full_kernel, 0);
+    rime::win32::WindowModuleBinding full_binding{&service, &full_kernel, &full_dispatcher,
+                                                   &next_action_id};
+    rime::js::Runtime full_runtime;
+    assert(rime::win32::register_window_module(full_runtime, &full_binding).ok());
+    assert(full_runtime.start().ok());
+    check(full_runtime,
+          "import { windows } from 'rime:window';\n"
+          "globalThis.fullFailure = null;\n"
+          "globalThis.fullErrorCode = null;\n"
+          "windows.move(" + id_text +
+              ", 'left')\n"
+              "  .then(() => { globalThis.fullFailure = 'unexpected resolution'; },\n"
+              "        e => { globalThis.fullFailure = String(e);\n"
+              "               globalThis.fullErrorCode = e.code; });",
+          "slice-queue-full.mjs");
+    assert(full_runtime.settle(5000ms).ok());
+    check(full_runtime,
+          "if (!globalThis.fullFailure.includes('action queue is full'))\n"
+          "  throw new Error('wrong queue_full rejection: ' + globalThis.fullFailure);\n"
+          "if (globalThis.fullErrorCode !== 'queue_full')\n"
+          "  throw new Error('queue_full rejection must carry queue_full: ' +\n"
+          "                  globalThis.fullErrorCode);",
+          "slice-queue-full-check.mjs");
+    assert(full_runtime.stop().ok());
   }
 
   assert(service.stop().ok());

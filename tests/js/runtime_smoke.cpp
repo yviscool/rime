@@ -168,6 +168,29 @@ void test_host_abi() {
   assert(!dead.ok());
   assert(dead.code == rime::core::Error::Code::InvalidState);
 
+  // Unresolved promises and armed timers block unload with their own named
+  // reasons, so an embedder can see what to wait for; cancelling the work
+  // clears both and unload proceeds.
+  rime::js::HostAbi pending_abi;
+  assert(pending_abi.load("import { runtime } from 'rime:runtime';\n"
+                          "const id = runtime.cancellation();\n"
+                          "globalThis.cid = id;\n"
+                          "globalThis.pending = runtime.delay(5000, 1, id);",
+                          "pending.mjs")
+             .ok());
+  assert(pending_abi.execute().ok());
+  const auto pending_unload = pending_abi.unload();
+  assert(!pending_unload.ok());
+  assert(pending_unload.code == rime::core::Error::Code::InvalidState);
+  assert(pending_unload.message.find("unresolved promise") != std::string::npos);
+  assert(pending_unload.message.find("armed timer") != std::string::npos);
+  assert(pending_abi.execute("import { runtime } from 'rime:runtime';\n"
+                             "runtime.cancel(globalThis.cid);",
+                             "cancel-pending.mjs")
+             .ok());
+  assert(pending_abi.unload().ok());
+  assert(pending_abi.state() == rime::js::HostAbiState::Unloaded);
+
   // Empty sources are a contract violation, not a state error.
   rime::js::HostAbi empty;
   const auto empty_load = empty.load("", "empty.js");
