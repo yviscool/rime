@@ -578,6 +578,28 @@ bool Host::release_cancellation(const std::uint64_t id) {
   return cancellations_.erase(id) > 0;
 }
 
+void Host::bind_route(const std::uint64_t key, AsyncRoute route) {
+  std::lock_guard lock(route_mutex_);
+  routes_.insert_or_assign(key, std::move(route));
+}
+
+bool Host::find_route(const std::uint64_t key, AsyncRoute& out) const {
+  std::lock_guard lock(route_mutex_);
+  const auto found = routes_.find(key);
+  if (found == routes_.end()) return false;
+  out = found->second;
+  return true;
+}
+
+bool Host::take_route(const std::uint64_t key, AsyncRoute& out) {
+  std::lock_guard lock(route_mutex_);
+  const auto found = routes_.find(key);
+  if (found == routes_.end()) return false;
+  out = std::move(found->second);
+  routes_.erase(found);
+  return true;
+}
+
 rime::core::Error Host::add_callback(JSValue callback, std::uint64_t& id_out) {
   if (const auto thread_error = check_thread(); !thread_error.ok()) return thread_error;
   if (!JS_IsFunction(context_, callback)) {

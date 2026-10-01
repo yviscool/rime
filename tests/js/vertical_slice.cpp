@@ -1,3 +1,4 @@
+#include "rime/action/dispatcher.hpp"
 #include "rime/action/kernel.hpp"
 #include "rime/core/trace.hpp"
 #include "rime/js/runtime.hpp"
@@ -91,7 +92,10 @@ int main() {
   }
 
   std::atomic<std::uint64_t> next_action_id{0};
-  rime::win32::WindowModuleBinding binding{&service, &kernel, &next_action_id};
+  // Every mutation in this slice submits to one bounded queue, so the trace
+  // records acceptance, execution and refusal through the same pipeline.
+  rime::action::Dispatcher dispatcher(kernel, rime::action::default_dispatch_policy());
+  rime::win32::WindowModuleBinding binding{&service, &kernel, &dispatcher, &next_action_id};
 
   rime::js::Runtime runtime;
   assert(rime::win32::register_window_module(runtime, &binding).ok());
@@ -464,7 +468,9 @@ int main() {
   {
     rime::action::Kernel denied_kernel(std::make_shared<rime::action::StaticCapabilityPolicy>(
         std::unordered_set<std::string>{}));
-    rime::win32::WindowModuleBinding denied_binding{&service, &denied_kernel,
+    rime::action::Dispatcher denied_dispatcher(denied_kernel,
+                                               rime::action::default_dispatch_policy());
+    rime::win32::WindowModuleBinding denied_binding{&service, &denied_kernel, &denied_dispatcher,
                                                     &next_action_id};
     rime::js::Runtime denied_runtime;
     assert(rime::win32::register_window_module(denied_runtime, &denied_binding).ok());

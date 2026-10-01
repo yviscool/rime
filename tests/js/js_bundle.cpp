@@ -1,3 +1,4 @@
+#include "rime/action/dispatcher.hpp"
 #include "rime/action/kernel.hpp"
 #include "rime/js/runtime.hpp"
 #include "rime/win32/clipboard.hpp"
@@ -43,14 +44,19 @@ int main(int argc, char** argv) {
   rime::action::Kernel kernel(std::make_shared<rime::action::StaticCapabilityPolicy>(
       std::unordered_set<std::string>{"windows.window.read", "windows.clipboard.read",
                                       "process.inspect", "windows.hook.global"}));
+  // One shared queue for every module's mutations: bounded, coalescing and
+  // traced, so the bundle's actions read as one inspectable pipeline.
+  rime::action::Dispatcher dispatcher(kernel, rime::action::default_dispatch_policy());
   std::atomic<std::uint64_t> next_action_id{0};
   rime::win32::InputModuleBinding input_binding;
   input_binding.service = &input_service;
   input_binding.kernel = &kernel;
-  rime::win32::ProcessModuleBinding process_binding{&process_service, &kernel, &next_action_id};
-  rime::win32::ClipboardModuleBinding clipboard_binding{&clipboard_service, &kernel,
+  rime::win32::ProcessModuleBinding process_binding{&process_service, &kernel, &dispatcher,
+                                                    &next_action_id};
+  rime::win32::ClipboardModuleBinding clipboard_binding{&clipboard_service, &kernel, &dispatcher,
                                                         &next_action_id};
-  rime::win32::WindowModuleBinding window_binding{&window_service, &kernel, &next_action_id};
+  rime::win32::WindowModuleBinding window_binding{&window_service, &kernel, &dispatcher,
+                                                  &next_action_id};
 
   rime::js::Runtime runtime;
   if (const auto error = rime::win32::register_input_module(runtime, &input_binding); !error.ok()) {

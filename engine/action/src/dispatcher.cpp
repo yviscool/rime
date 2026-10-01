@@ -137,6 +137,12 @@ DispatchStatus Dispatcher::submit(Action action) {
 
 std::vector<Result> Dispatcher::pump(const std::size_t budget,
                                      rime::core::CancellationToken cancellation) {
+  return pump(budget, [&cancellation](const Action&) { return cancellation; });
+}
+
+std::vector<Result> Dispatcher::pump(
+    const std::size_t budget,
+    const std::function<rime::core::CancellationToken(const Action&)>& cancellation_of) {
   std::vector<Action> batch;
   std::vector<Result> results;
   {
@@ -153,6 +159,7 @@ std::vector<Result> Dispatcher::pump(const std::size_t budget,
   for (const auto& action : batch) {
     // Check cancellation before every step so a cancelled batch still yields
     // one Result per action instead of swallowing the remainder.
+    const rime::core::CancellationToken cancellation = cancellation_of(action);
     if (cancellation.cancelled()) {
       Result cancelled;
       cancelled.id = action.id;
@@ -202,6 +209,15 @@ std::size_t Dispatcher::size() const {
 std::size_t Dispatcher::dropped() const {
   std::lock_guard lock(mutex_);
   return dropped_;
+}
+
+std::size_t Dispatcher::capacity() const { return policy_.capacity; }
+
+rime::core::SchedulerPolicy default_dispatch_policy() {
+  // Capacity bounds the queue (backpressure via queue_full rejection);
+  // coalescing dedupes same-key mutations. Matches the native scheduler
+  // policy vocabulary so traces read the same in both layers.
+  return rime::core::SchedulerPolicy::coalescing(64);
 }
 
 void Dispatcher::record(const rime::core::TraceKind kind, std::string subject,

@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -12,6 +13,11 @@
 namespace rime::action {
 
 enum class DispatchStatus : std::uint8_t { Accepted, Full, Closed, Coalesced };
+
+// Production queue policy: one bounded queue with idempotency-key
+// coalescing, so a repeated mutation supersedes its predecessor instead of
+// running twice. Central so no module invents its own policy.
+rime::core::SchedulerPolicy default_dispatch_policy();
 
 class Dispatcher final {
  public:
@@ -23,12 +29,19 @@ class Dispatcher final {
   // actions that were dropped or coalesced by the queue policy so every
   // submitted action always produces exactly one Result.
   std::vector<Result> pump(std::size_t budget, rime::core::CancellationToken cancellation = {});
+  // Per-action cancellation resolver: one JS queue is shared by every
+  // module, so each queued action resolves its own AbortSignal binding when
+  // it reaches the head, instead of one batch-wide token.
+  std::vector<Result> pump(
+      std::size_t budget,
+      const std::function<rime::core::CancellationToken(const Action&)>& cancellation_of);
   // NOTE: not noexcept: close() takes mutex_ via std::lock_guard, which may
   // throw; marking it noexcept would risk std::terminate.
   void close();
   [[nodiscard]] bool closed() const;
   [[nodiscard]] std::size_t size() const;
   [[nodiscard]] std::size_t dropped() const;
+  [[nodiscard]] std::size_t capacity() const;
 
  private:
   static std::string coalesce_key(const Action& action);

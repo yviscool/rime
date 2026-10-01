@@ -325,7 +325,8 @@ JSValue run_window_mutation(JSContext* context, int argc, JSValueConst* argv,
                             const char* function_name, const char* action_type,
                             int required_args) {
   WindowModuleBinding* binding = binding_of(context);
-  if (!binding || !binding->service || !binding->kernel || !binding->next_action_id) {
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
     return JS_ThrowInternalError(context, "rime:window is not wired");
   }
   if (argc < required_args) {
@@ -360,11 +361,10 @@ JSValue run_window_mutation(JSContext* context, int argc, JSValueConst* argv,
 
   json::Value payload = json::Value::object();
   if (!placement.empty()) payload.set("position", json::Value::string(placement));
-  rime::action::Kernel* kernel = binding->kernel;
   auto action = make_action(*binding->next_action_id, "rime:window", action_type,
                             kWindowWriteCapability, {"window", std::move(target_text)},
                             json::stringify(payload), options);
-  return run_action(context, *kernel, std::move(action), options.cancellation_id);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
 }
 
 JSValue windows_move(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
@@ -411,7 +411,8 @@ JSValue windows_restore(JSContext* context, JSValueConst, int argc, JSValueConst
 
 int window_module_init(JSContext* context, JSModuleDef* module) {
   WindowModuleBinding* binding = binding_of(context);
-  if (!binding || !binding->service || !binding->kernel || !binding->next_action_id) {
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
     JS_ThrowInternalError(context, "rime:window requires a window module binding");
     return -1;
   }
@@ -448,9 +449,10 @@ JSModuleDef* create_window_module(JSContext* context) {
 }
 
 rime::core::Error check_binding(const WindowModuleBinding* binding) {
-  if (!binding || !binding->service || !binding->kernel || !binding->next_action_id) {
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
     return {rime::core::Error::Code::InvalidContract,
-            "rime:window requires a window service, kernel and action id source"};
+            "rime:window requires a window service, kernel, dispatcher and action id source"};
   }
   return rime::core::Error::none();
 }

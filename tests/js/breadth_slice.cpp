@@ -1,3 +1,4 @@
+#include "rime/action/dispatcher.hpp"
 #include "rime/action/kernel.hpp"
 #include "rime/core/json.hpp"
 #include "rime/core/trace.hpp"
@@ -91,8 +92,12 @@ int main(int argc, char** argv) {
              .ok());
 
   std::atomic<std::uint64_t> next_action_id{0};
-  rime::win32::ProcessModuleBinding process_binding{&process_service, &kernel, &next_action_id};
-  rime::win32::ClipboardModuleBinding clipboard_binding{&clipboard_service, &kernel,
+  // Both modules share one bounded queue, so process and clipboard mutations
+  // interleave through the same inspectable pipeline.
+  rime::action::Dispatcher dispatcher(kernel, rime::action::default_dispatch_policy());
+  rime::win32::ProcessModuleBinding process_binding{&process_service, &kernel, &dispatcher,
+                                                    &next_action_id};
+  rime::win32::ClipboardModuleBinding clipboard_binding{&clipboard_service, &kernel, &dispatcher,
                                                         &next_action_id};
 
   rime::js::Runtime runtime;

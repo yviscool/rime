@@ -116,7 +116,8 @@ JSValue process_info(JSContext* context, JSValueConst, int argc, JSValueConst* a
 JSValue process_launch(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                        void*) {
   ProcessModuleBinding* binding = binding_of(context);
-  if (!binding || !binding->service || !binding->kernel || !binding->next_action_id) {
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
     return JS_ThrowInternalError(context, "rime:process is not wired");
   }
   if (argc != 1) return JS_ThrowTypeError(context, "launch(options)");
@@ -157,17 +158,17 @@ JSValue process_launch(JSContext* context, JSValueConst, int argc, JSValueConst*
   ActionOptions options;
   if (!parse_action_options(context, argv[0], options)) return JS_EXCEPTION;
 
-  rime::action::Kernel* kernel = binding->kernel;
   auto action = make_action(*binding->next_action_id, "rime:process", "process.launch",
                             "process.launch", {"process", "new"}, json::stringify(payload),
                             options);
-  return run_action(context, *kernel, std::move(action), options.cancellation_id);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
 }
 
 JSValue process_terminate(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                           void*) {
   ProcessModuleBinding* binding = binding_of(context);
-  if (!binding || !binding->service || !binding->kernel || !binding->next_action_id) {
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
     return JS_ThrowInternalError(context, "rime:process is not wired");
   }
   if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "terminate(pid, options?)");
@@ -180,16 +181,16 @@ JSValue process_terminate(JSContext* context, JSValueConst, int argc, JSValueCon
   ActionOptions options;
   if (argc == 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
 
-  rime::action::Kernel* kernel = binding->kernel;
   auto action = make_action(*binding->next_action_id, "rime:process", "process.terminate",
                             "process.terminate", {"process", std::to_string(raw_pid)}, "{}",
                             options);
-  return run_action(context, *kernel, std::move(action), options.cancellation_id);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
 }
 
 int process_module_init(JSContext* context, JSModuleDef* module) {
   ProcessModuleBinding* binding = binding_of(context);
-  if (!binding || !binding->service || !binding->kernel || !binding->next_action_id) {
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
     JS_ThrowInternalError(context, "rime:process requires a process module binding");
     return -1;
   }
@@ -222,9 +223,10 @@ JSModuleDef* create_process_module(JSContext* context) {
 }
 
 rime::core::Error check_binding(const ProcessModuleBinding* binding) {
-  if (!binding || !binding->service || !binding->kernel || !binding->next_action_id) {
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
     return {rime::core::Error::Code::InvalidContract,
-            "rime:process requires a process service, kernel and action id source"};
+            "rime:process requires a process service, kernel, dispatcher and action id source"};
   }
   return rime::core::Error::none();
 }

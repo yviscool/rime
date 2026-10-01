@@ -57,7 +57,8 @@ JSValue clipboard_read(JSContext* context, JSValueConst, int argc, JSValueConst*
 JSValue clipboard_write(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                         void*) {
   ClipboardModuleBinding* binding = binding_of(context);
-  if (!binding || !binding->service || !binding->kernel || !binding->next_action_id) {
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
     return JS_ThrowInternalError(context, "rime:clipboard is not wired");
   }
   if (argc < 1) return JS_ThrowTypeError(context, "write(text)");
@@ -76,16 +77,16 @@ JSValue clipboard_write(JSContext* context, JSValueConst, int argc, JSValueConst
   if (argc >= 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
   if (argc > 2) return JS_ThrowTypeError(context, "write(text, options?)");
 
-  rime::action::Kernel* kernel = binding->kernel;
   auto action = make_action(*binding->next_action_id, "rime:clipboard", "clipboard.write",
                             kClipboardWriteCapability, {"clipboard", "default"},
                             json::stringify(payload), options);
-  return run_action(context, *kernel, std::move(action), options.cancellation_id);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
 }
 
 int clipboard_module_init(JSContext* context, JSModuleDef* module) {
   ClipboardModuleBinding* binding = binding_of(context);
-  if (!binding || !binding->service || !binding->kernel || !binding->next_action_id) {
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
     JS_ThrowInternalError(context, "rime:clipboard requires a clipboard module binding");
     return -1;
   }
@@ -117,9 +118,11 @@ JSModuleDef* create_clipboard_module(JSContext* context) {
 }
 
 rime::core::Error check_binding(const ClipboardModuleBinding* binding) {
-  if (!binding || !binding->service || !binding->kernel || !binding->next_action_id) {
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
     return {rime::core::Error::Code::InvalidContract,
-            "rime:clipboard requires a clipboard service, kernel and action id source"};
+            "rime:clipboard requires a clipboard service, kernel, dispatcher and action id "
+            "source"};
   }
   return rime::core::Error::none();
 }

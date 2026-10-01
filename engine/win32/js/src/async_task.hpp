@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rime/action/action.hpp"
+#include "rime/action/dispatcher.hpp"
 #include "rime/action/kernel.hpp"
 #include "rime/core/json.hpp"
 #include "rime/js/host.hpp"
@@ -199,11 +200,30 @@ inline rime::action::Action make_action(std::atomic<std::uint64_t>& next_action_
   return action;
 }
 
-// Executes `action` on the timer thread through the kernel, settling the
-// promise with the result value or the failure reason. `cancellation_id`
-// (when non-zero) passes the live cancellation token into the executor and
-// binds the promise so cancel_by_id rejects it early.
-inline JSValue run_action(JSContext* context, rime::action::Kernel& kernel,
+// Settles a routed promise from its dispatcher Result. Success resolves as
+// JSON; failure rejects with the kernel-style `code` name plus the message.
+// Shared with the queue pump so direct and queued settlement format exactly
+// alike; a token already settled (e.g. by cancel_by_id) is tolerated by
+// Host::apply_completion.
+inline void settle_from_result(rime::js::Host* host, std::uint64_t token,
+                               const rime::action::Result& result) {
+  if (result.succeeded) {
+    host->complete_async(token, true, rime::core::json::stringify(result.value));
+    return;
+  }
+  const bool has_error = !result.error.ok();
+  const std::string code =
+      has_error ? rime::core::error_code_name(result.error.code) : "execution_failed";
+  const std::string& message = has_error ? result.error.message : result.detail;
+  host->complete_async(token, false, code + ":" + message);
+}
+
+// Queues `action` through the dispatcher and settles the promise when a
+// queue pump executes it, so every mutation shares one bounded, inspectable
+// pipeline (capacity, coalescing, trace) instead of racing straight against
+// the kernel. The route is bound before submit so the pump can always find
+// the promise; a submit rejected by queue policy settles it inline.
+inline JSValue run_action(JSContext* context, rime::action::Dispatcher& dispatcher,
                           rime::action::Action action, std::uint64_t cancellation_id = 0) {
   auto* host = static_cast<rime::js::Host*>(JS_GetContextOpaque(context));
   if (!host) return JS_ThrowInternalError(context, "runtime host is gone");
@@ -214,30 +234,48 @@ inline JSValue run_action(JSContext* context, rime::action::Kernel& kernel,
   }
   rime::core::CancellationToken cancellation;
   if (cancellation_id != 0) cancellation = host->cancellation_token(cancellation_id);
-  rime::action::Kernel* kernel_ptr = &kernel;
-  host->schedule_task(
-      token, std::chrono::milliseconds(0),
-      [host, token, kernel_ptr, action = std::move(action), cancellation]() mutable {
-        // Ownership: `host`/`kernel_ptr` (raw) outlive every scheduled task;
-        // the kernel and host teardown only after pending tasks settle.
-        try {
-          const auto result = kernel_ptr->execute(action, cancellation);
-          if (result.succeeded) {
-            host->complete_async(token, true, rime::core::json::stringify(result.value));
-          } else {
-            const bool has_error = !result.error.ok();
-            const std::string code =
-                has_error ? rime::core::error_code_name(result.error.code) : "execution_failed";
-            const std::string& message = has_error ? result.error.message : result.detail;
-            host->complete_async(token, false, code + ":" + message);
-          }
-        } catch (const std::exception& exception) {
-          host->complete_async(token, false,
-                                std::string("execution_failed:") + exception.what());
-        } catch (...) {
-          host->complete_async(token, false, "execution_failed:native module task failed");
-        }
-      });
+  const std::uint64_t action_id = action.id;
+  host->bind_route(action_id, rime::js::Host::AsyncRoute{token, cancellation});
+  const auto status = dispatcher.submit(std::move(action));
+  if (status != rime::action::DispatchStatus::Accepted &&
+      status != rime::action::DispatchStatus::Coalesced) {
+    rime::js::Host::AsyncRoute route;
+    host->take_route(action_id, route);
+    host->complete_async(token, false,
+                         status == rime::action::DispatchStatus::Closed
+                             ? "invalid_state:dispatcher closed"
+                             : "queue_full:action queue is full");
+    return promise;
+  }
+  rime::action::Dispatcher* dispatcher_ptr = &dispatcher;
+  host->schedule_task(token, std::chrono::milliseconds(0),
+                      [host, token, dispatcher_ptr]() mutable {
+                        // Ownership: `host`/`dispatcher_ptr` (raw) outlive every
+                        // scheduled task; kernel, dispatcher and host teardown only
+                        // run after pending tasks settle.
+                        try {
+                          const auto results = dispatcher_ptr->pump(
+                              dispatcher_ptr->capacity(),
+                              [host](const rime::action::Action& queued) {
+                                rime::js::Host::AsyncRoute route;
+                                if (host->find_route(queued.id, route)) return route.cancellation;
+                                return rime::core::CancellationToken{};
+                              });
+                          for (const auto& result : results) {
+                            rime::js::Host::AsyncRoute route;
+                            if (host->take_route(result.id, route)) {
+                              settle_from_result(host, route.token, result);
+                            }
+                          }
+                        } catch (const std::exception& exception) {
+                          host->complete_async(
+                              token, false,
+                              std::string("execution_failed:") + exception.what());
+                        } catch (...) {
+                          host->complete_async(token, false,
+                                               "execution_failed:native module task failed");
+                        }
+                      });
   return promise;
 }
 

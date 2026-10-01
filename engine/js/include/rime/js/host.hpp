@@ -99,6 +99,20 @@ class Host final {
   rime::core::CancellationToken cancellation_token(std::uint64_t id);
   bool release_cancellation(std::uint64_t id);
 
+  // Async routes bind a producer key (e.g. an Action id) to a promise token
+  // plus the cancellation its executor must observe, so a queue pump that
+  // executes a foreign action can settle that action's promise. Producers
+  // bind before queueing; the pump settles exactly once via take_route.
+  // find_route is the non-owning probe used to resolve cancellation during
+  // execution. Any thread.
+  struct AsyncRoute {
+    std::uint64_t token{0};
+    rime::core::CancellationToken cancellation;
+  };
+  void bind_route(std::uint64_t key, AsyncRoute route);
+  [[nodiscard]] bool find_route(std::uint64_t key, AsyncRoute& out) const;
+  bool take_route(std::uint64_t key, AsyncRoute& out);
+
   // JS callbacks registered through rime:runtime.subscribe.
   rime::core::Error add_callback(JSValue callback, std::uint64_t& id_out);
   rime::core::Error remove_callback(std::uint64_t id);
@@ -179,6 +193,9 @@ class Host final {
   mutable std::mutex cancellation_mutex_;
   std::unordered_map<std::uint64_t, rime::core::CancellationSource> cancellations_;
   std::uint64_t next_cancellation_{1};
+
+  mutable std::mutex route_mutex_;
+  std::unordered_map<std::uint64_t, AsyncRoute> routes_;
 
   mutable std::mutex callback_mutex_;
   std::vector<std::pair<std::uint64_t, JSValue>> callbacks_;

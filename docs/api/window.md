@@ -9,13 +9,13 @@
 ## 测试覆盖（如实）
 
 - `tests/js/vertical_slice.cpp`：11/11 个 JS 调用全覆盖（含查询、状态机与关闭）。`focus` 允许 `SetForegroundWindow` 被前台锁拒绝（合法失败分支）；`move('active')` 仅在我方窗口持有前台时执行，否则整段 SKIP——测试不注入全局输入、不移动任何外来窗口。同文件另覆盖 `deadlineMs:0` 的 `timeout` 拒绝与非法 `deadlineMs` 的同步 `TypeError`。
-- 8/8 个写类型经 JS → Kernel → Executor → UI lane 端到端验证；`tests/native/win32_tests.cpp` 另覆盖 8/8 写类型的原生分派、空 policy 下逐类型的 capability 拒绝（拒绝后状态不变）与排队超时。
+- 8/8 个写类型经 JS → Dispatcher 队列 → Kernel → Executor → UI lane 端到端验证；`tests/native/win32_tests.cpp` 另覆盖 8/8 写类型的原生分派、空 policy 下逐类型的 capability 拒绝（拒绝后状态不变）与排队超时。
 - `docs/api/coverage.json` 与 `compatibility-matrix.md` 的行是**逐 AHK 函数**状态（已测函数为 `implemented` 并带 contractTest 路径，未测扩展项仍为 `contract-only|missing`），与本页 Rime 原生 API 的状态不构成矛盾：两者粒度不同。
 - cancel（`cancellationId`）：仅 kernel 通用路径有覆盖，window JS 入口尚无取消测试。
 
 ## 执行模型
 
-**写路径（Action）**：JS 构造 Action → Kernel（契约校验 → 取消检查 → 入口 deadline → capability → 执行器 → 执行后 deadline/取消复检）→ Executor（每次 UI 往返前重算剩余预算，含 `active` 目标解析）→ UI lane → 快照结果。
+**写路径（Action）**：JS 构造 Action → Dispatcher 有界队列（入队决策 `ActionAccepted`/`ActionRefused` 进 Trace；同键共存的连续变更由 idempotency-key/同参数 key 合并，被合并方以 `cancelled:superseded by newer action` 拒绝，队列满为 `queue_full`）→ pump 执行 → Kernel（契约校验 → 取消检查 → 入口 deadline → capability → 执行器 → 执行后 deadline/取消复检）→ Executor（每次 UI 往返前重算剩余预算，含 `active` 目标解析）→ UI lane → 快照结果。
 
 - 执行后过期：结果改写为 `timeout`，消息声明 `side effects may have occurred`（副作用不可撤销，调用方据此判断）。
 - 执行后取消：同理改写为 `cancelled` 并声明副作用可能已发生。
