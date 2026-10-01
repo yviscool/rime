@@ -61,6 +61,37 @@ void test_threaded_runtime() {
   assert(runtime.state() == rime::js::RuntimeState::Stopped);
 }
 
+void test_context() {
+  rime::js::Runtime runtime;
+  assert(runtime.start().ok());
+
+  // runtime.context is a read-only snapshot: fresh per call, schema'd,
+  // listing this host's registered modules and live ownership counts.
+  auto context_task = runtime.evaluate_module(
+      "import { runtime } from 'rime:runtime';\n"
+      "const before = runtime.context();\n"
+      "if (before.schemaVersion !== 1) throw new Error('bad context version');\n"
+      "if (!before.modules.includes('rime:runtime')) throw new Error('self not listed');\n"
+      "if (typeof before.tasks.async !== 'number' ||\n"
+      "    typeof before.tasks.timers !== 'number' ||\n"
+      "    typeof before.subscriptions !== 'number')\n"
+      "  throw new Error('bad context shape');\n"
+      "before.schemaVersion = 99;\n"
+      "if (runtime.context().schemaVersion !== 1)\n"
+      "  throw new Error('context must be read-only');\n"
+      "const base = runtime.context().cancellations;\n"
+      "const id = runtime.cancellation();\n"
+      "if (runtime.context().cancellations !== base + 1)\n"
+      "  throw new Error('cancellation not counted');\n"
+      "if (!runtime.releaseCancellation(id)) throw new Error('release failed');\n"
+      "if (runtime.context().cancellations !== base)\n"
+      "  throw new Error('cancellation not released');",
+      "context.js");
+  assert(context_task.get().ok());
+
+  assert(runtime.stop().ok());
+}
+
 void test_busy_loop_interrupt() {
   rime::js::Runtime runtime;
   assert(runtime.start().ok());
@@ -148,6 +179,7 @@ void test_host_abi() {
 
 int main() {
   test_threaded_runtime();
+  test_context();
   test_busy_loop_interrupt();
   test_host_abi();
   return 0;

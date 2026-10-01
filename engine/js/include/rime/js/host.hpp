@@ -140,6 +140,13 @@ class Host final {
   void request_interrupt();
 
   std::string inspect(const std::string& request_json);
+  // Read-only environment snapshot for scripts (runtime.context): a stable,
+  // versioned view of what this runtime currently is - registered modules
+  // plus live host-owned work and ownership. Unlike inspect's debug protocol
+  // (kind requests, error detail) this is a script contract: flat, versioned,
+  // diagnostics-free. Built fresh per call; callers can mutate the result
+  // without affecting the host.
+  std::string context();
   [[nodiscard]] std::vector<ErrorRecord> errors() const;
   [[nodiscard]] std::size_t error_count() const;
   // Returns the newest message recorded after `mark`, or "" when quiet.

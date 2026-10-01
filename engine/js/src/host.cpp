@@ -182,6 +182,15 @@ JSValue runtime_inspect(JSContext* context, JSValueConst, int, JSValueConst*) {
   return JS_NewString(context, report.c_str());
 }
 
+JSValue runtime_context(JSContext* context, JSValueConst, int, JSValueConst*) {
+  Host* host = host_of(context);
+  if (!host) return JS_ThrowInternalError(context, "runtime host is gone");
+  const std::string snapshot = host->context();
+  JSValue value = JS_ParseJSON(context, snapshot.c_str(), snapshot.size(), "<context>");
+  if (JS_IsException(value)) return JS_EXCEPTION;
+  return value;
+}
+
 int runtime_module_init(JSContext* context, JSModuleDef* module) {
   JSValue object = JS_NewObject(context);
   if (JS_IsException(object)) return -1;
@@ -206,7 +215,8 @@ int runtime_module_init(JSContext* context, JSModuleDef* module) {
            JS_NewCFunction(context, runtime_release_cancellation, "releaseCancellation", 1)) ||
       !set("subscribe", JS_NewCFunction(context, runtime_subscribe, "subscribe", 1)) ||
       !set("unsubscribe", JS_NewCFunction(context, runtime_unsubscribe, "unsubscribe", 1)) ||
-      !set("inspect", JS_NewCFunction(context, runtime_inspect, "inspect", 0))) {
+      !set("inspect", JS_NewCFunction(context, runtime_inspect, "inspect", 0)) ||
+      !set("context", JS_NewCFunction(context, runtime_context, "context", 0))) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "runtime", object);
@@ -825,6 +835,39 @@ void Host::apply_completion(const Completion& completion) {
   JS_FreeValue(context_, value);
   JS_FreeValue(context_, entry.resolve);
   JS_FreeValue(context_, entry.reject);
+}
+
+std::string Host::context() {
+  json::Value modules = json::Value::array();
+  for (const auto& name : modules_.native_modules()) modules.push(json::Value::string(name));
+
+  json::Value tasks = json::Value::object();
+  std::size_t promise_count = 0;
+  std::size_t completion_count = 0;
+  {
+    std::lock_guard lock(async_mutex_);
+    promise_count = pending_.size();
+    completion_count = completions_.size();
+  }
+  tasks.set("async", json::Value::number(static_cast<double>(promise_count)));
+  tasks.set("queued", json::Value::number(static_cast<double>(completion_count)));
+  tasks.set("timers", json::Value::number(static_cast<double>(timer_.pending())));
+  tasks.set("callbacks", json::Value::number(static_cast<double>(callback_count())));
+
+  std::size_t cancellation_count = 0;
+  {
+    std::lock_guard lock(cancellation_mutex_);
+    cancellation_count = cancellations_.size();
+  }
+
+  json::Value result = json::Value::object();
+  result.set("schemaVersion", json::Value::number(1));
+  result.set("modules", std::move(modules));
+  result.set("tasks", std::move(tasks));
+  result.set("subscriptions",
+             json::Value::number(static_cast<double>(subscriptions_.list().size())));
+  result.set("cancellations", json::Value::number(static_cast<double>(cancellation_count)));
+  return json::stringify(result);
 }
 
 std::string Host::inspect(const std::string& request_json) {
