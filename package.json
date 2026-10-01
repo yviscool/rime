@@ -1,0 +1,33 @@
+{
+  "name": "@rime/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "bun@1.4.2",
+  "workspaces": ["sdk", "apps/*", "plugins/*"],
+  "files": ["sdk/src", "contracts/schema", "contracts/spec", "tools"],
+  "scripts": {
+    "bootstrap": "bun tools/bootstrap.ts",
+    "build": "bun tools/build.ts",
+    "check": "bun tools/check.ts",
+    "typecheck": "bun x tsc --noEmit",
+    "sdk:test": "bun test tests/sdk",
+    "contract:check": "bun tools/contract.ts",
+    "contract:gen": "bun tools/contract.ts --write",
+    "quickjs:test": "bun tools/native-test.ts --preset quickjs",
+    "test": "bun tools/test.ts",
+    "test:asan": "bun tools/native-test.ts --preset=msvc-asan",
+    "test:all": "bun run test && bun run test:asan",
+    "contract": "bun tests/contracts/schema-smoke.mjs",
+    "native:test": "bun tools/native-test.ts",
+    "native:test:dev": "bun tools/native-test.ts --preset=dev",
+    "ts:build": "bun tools/ts-build.ts",
+    "ts:quickjs": "bun tools/ts-quickjs.ts",
+    "doctor": "bun tools/doctor.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.0"
+  }
+}

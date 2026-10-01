@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "sourceKind": "core-bif",
+  "sourceFile": "rime-research/AutoHotkey-alpha/source/script.cpp",
+  "registrationMacro": "BIF1",
+  "functionCount": 41,
+  "status": "inventory-only",
+  "names": ["Abs", "ATan", "ATan2", "Chr", "Click", "ComObjActive", "ComObjConnect", "ComObjFlags", "ComObjGet", "ComObjQuery", "ComObjType", "ComObjValue", "Cos", "DefineProp", "Exp", "FileOpen", "Format", "FormatTime", "HasBase", "HasProp", "InStr", "IsObject", "Mod", "NumGet", "NumPut", "ObjBindMethod", "Ord", "Props", "Random", "Round", "Sin", "Sort", "StrCompare", "StrLen", "StrPtr", "SubStr", "Tan", "Throw", "Type", "VarSetStrCapacity", "VerCompare"],
+  "requiredFieldsPerEntry": ["minParams", "maxParams", "definitionSymbol", "tsModule", "lane", "async", "capability", "unsafeMemory", "status", "compatibilityTest"]
+}

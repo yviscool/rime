@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "sourceFiles": [
+    "rime-research/AutoHotkey-alpha/source/globaldata.h",
+    "rime-research/AutoHotkey-alpha/source/globaldata.cpp",
+    "rime-research/AutoHotkey-alpha/source/lib/vars.cpp",
+    "rime-research/AutoHotkey-alpha/source/script.h",
+    "rime-research/AutoHotkey-alpha/source/defines.h"
+  ],
+  "status": "inventory-only",
+  "domains": {
+    "script": ["A_AhkPath", "A_ScriptDir", "A_ScriptName", "A_LineFile", "A_LineNumber", "A_ThisFunc", "A_Args", "A_InitialWorkingDir", "A_WorkingDir", "A_TempDir"],
+    "time": ["A_Now", "A_Year", "A_Mon", "A_MDay", "A_WDay", "A_YDay", "A_YWeek", "A_Hour", "A_Min", "A_Sec", "A_MSec", "A_TickCount"],
+    "system": ["A_Computer", "A_UserName", "A_IsAdmin", "A_OSVersion", "A_Language", "A_ProgramFiles", "A_AppData", "A_Temp", "A_MyDocuments", "A_ComSpec"],
+    "window_input": ["A_ScriptHwnd", "A_CaretX", "A_CaretY", "A_Gui", "A_GuiControl", "A_EventInfo", "A_ThisHotkey", "A_PriorHotkey", "A_TimeSincePriorHotkey", "A_EndChar", "A_LastError"],
+    "loop": ["A_Index", "A_LoopField", "A_LoopFilePath", "A_LoopFileLongPath", "A_LoopFileShortPath", "A_LoopFileSize", "A_LoopFileTime"],
+    "runtime_state": ["A_IsPaused", "A_Paused", "A_IsSuspended", "A_IsCritical", "A_HotkeyInterval", "A_MaxHotkeysPerInterval", "A_HotkeyModifierTimeout", "A_CoordMode", "A_DetectHiddenWindows", "A_RegView"]
+  },
+  "requiredFieldsPerVariable": ["type", "dynamic", "source", "updatePoint", "lane", "capability", "tsReplacement", "compatibilityTest"]
+}

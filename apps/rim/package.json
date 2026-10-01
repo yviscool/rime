@@ -1,0 +1,9 @@
+{
+  "name": "@rime/rim",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@rime/sdk": "workspace:*"
+  }
+}

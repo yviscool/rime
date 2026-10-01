@@ -1,0 +1,56 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "dev",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "RIME_BUILD_TESTS": "ON",
+        "RIME_ENABLE_QUICKJS": "OFF",
+        "RIME_ENABLE_ASAN": "OFF",
+        "RIME_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "asan",
+      "inherits": "dev",
+      "binaryDir": "${sourceDir}/build/asan",
+      "cacheVariables": { "RIME_ENABLE_ASAN": "ON", "RIME_WARNINGS_AS_ERRORS": "OFF" }
+    },
+    {
+      "name": "release",
+      "inherits": "dev",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "quickjs",
+      "inherits": "dev",
+      "binaryDir": "${sourceDir}/build/quickjs",
+      "cacheVariables": { "RIME_ENABLE_QUICKJS": "ON", "RIME_WARNINGS_AS_ERRORS": "OFF" }
+    },
+    {
+      "name": "msvc",
+      "inherits": "dev",
+      "binaryDir": "${sourceDir}/build/msvc",
+      "cacheVariables": { "CMAKE_C_COMPILER": "cl", "CMAKE_CXX_COMPILER": "cl" }
+    },
+    {
+      "name": "msvc-asan",
+      "inherits": "msvc",
+      "binaryDir": "${sourceDir}/build/msvc-asan",
+      "cacheVariables": { "RIME_ENABLE_ASAN": "ON", "RIME_WARNINGS_AS_ERRORS": "OFF" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "dev", "configurePreset": "dev" },
+    { "name": "asan", "configurePreset": "asan" },
+    { "name": "release", "configurePreset": "release" },
+    { "name": "quickjs", "configurePreset": "quickjs" },
+    { "name": "msvc", "configurePreset": "msvc" },
+    { "name": "msvc-asan", "configurePreset": "msvc-asan" }
+  ]
+}

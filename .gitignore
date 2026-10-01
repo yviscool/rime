@@ -1,0 +1,69 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output (CMake / Ninja / MSVC)
+build/
+build-*/
+out/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+DartConfiguration.tcl
+compile_commands.json
+*.ninja
+.ninja_deps
+.ninja_log
+
+# Native artifacts
+*.obj
+*.o
+*.pch
+*.pdb
+*.ilk
+*.idb
+*.exp
+*.lib
+*.a
+*.so
+*.dll
+*.exe
+*.gcda
+*.gcno
+
+# TypeScript / bundler output
+dist/
+*.tsbuildinfo
+*.d.ts.map
+
+# Logs and diagnostics
+*.log
+npm-debug.log*
+yarn-error.log*
+coverage/
+.nyc_output/
+
+# Editors and IDEs
+.vs/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local secrets and machine-specific config
+.env
+.env.*
+*.local
+
+# Reference research clones (not product source, see AGENTS.md)
+rime-research/

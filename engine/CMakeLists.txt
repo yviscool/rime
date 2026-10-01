@@ -1,0 +1,5 @@
+add_subdirectory(core)
+add_subdirectory(action)
+if (WIN32)
+  add_subdirectory(win32)
+endif()

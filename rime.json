@@ -1,0 +1,10 @@
+{
+  "runtime": "rime",
+  "schemaVersion": 1,
+  "entry": "apps/rim",
+  "hosts": ["desktop"],
+  "contracts": [
+    "contracts/schema/action-v1.schema.json",
+    "contracts/schema/result-v1.schema.json"
+  ]
+}

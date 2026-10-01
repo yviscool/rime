@@ -1,0 +1,4139 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "file": "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+    "functionCount": 253
+  },
+  "generatedBy": "coverage-enrichment-2026-10-01",
+  "entries": [
+    {
+      "ahkName": "BlockInput",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "CallbackCreate",
+      "domain": "native-interop",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/error.cpp",
+        "rime-research/AutoHotkey-alpha/source/MdType.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/CCallback.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/native-interop",
+      "status": "unsupported-by-policy",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "missing",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined"
+    },
+    {
+      "ahkName": "CallbackFree",
+      "domain": "native-interop",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/CCallback.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/native-interop",
+      "status": "unsupported-by-policy",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "missing",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined"
+    },
+    {
+      "ahkName": "CaretGetPos",
+      "domain": "screen",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/screen",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "screen.capture",
+      "contractTest": "missing",
+      "lane": "ui/worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ClipWait",
+      "domain": "clipboard",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/clipboard.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/wait.cpp"
+      ],
+      "tsModule": "@rime/clipboard",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.clipboard.read/write",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlAddItem",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlChooseIndex",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlChooseString",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlClick",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlDeleteItem",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlFindItem",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlFocus",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlGetChecked",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlGetChoice",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlGetClassNN",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlGetEnabled",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlGetExStyle",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlGetFocus",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlGetHwnd",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlGetIndex",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlGetItems",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlGetPos",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlGetStyle",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlGetText",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlGetVisible",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlHide",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlHideDropDown",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlMove",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_gui.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlSend",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlSendText",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlSetChecked",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlSetEnabled",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_gui.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlSetExStyle",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlSetStyle",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlSetText",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlShow",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ControlShowDropDown",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "CoordMode",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_menu.cpp",
+        "rime-research/AutoHotkey-alpha/source/util.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "Critical",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/error.cpp",
+        "rime-research/AutoHotkey-alpha/source/globaldata.h",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DateAdd",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/math.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "sdk-owned",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "DateDiff",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/math.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "sdk-owned",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "DetectHiddenText",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "DetectHiddenWindows",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.h",
+        "rime-research/AutoHotkey-alpha/source/WinGroup.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "DirCopy",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DirCreate",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DirDelete",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DirExist",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DirMove",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DirSelect",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/hook.h",
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "ui/worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "Download",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/regex.cpp"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveEject",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveGetCapacity",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveGetFilesystem",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveGetLabel",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveGetList",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveGetSerial",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveGetSpaceFree",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveGetStatus",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveGetStatusCD",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveGetType",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveLock",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveRetract",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveSetLabel",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "DriveUnlock",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/drive.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "Edit",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/error.cpp",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "EditGetCurrentCol",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "EditGetCurrentLine",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "EditGetLine",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "EditGetLineCount",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "EditGetSelectedText",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "EditPaste",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "EnvGet",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/env.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "EnvSet",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/env.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "Exit",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/AutoHotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/Debugger.cpp",
+        "rime-research/AutoHotkey-alpha/source/Debugger.h",
+        "rime-research/AutoHotkey-alpha/source/error.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_expression.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ExitApp",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/AutoHotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/Debugger.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/error.cpp",
+        "rime-research/AutoHotkey-alpha/source/globaldata.h",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileAppend",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/TextIO.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileCopy",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileCreateShortcut",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileDelete",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileEncoding",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileExist",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileGetAttrib",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileGetShortcut",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileGetSize",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileGetTime",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileGetVersion",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileInstall",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileMove",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileRead",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/var.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/regex.cpp"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileRecycle",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileRecycleEmpty",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileSelect",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/hook.h",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/util.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "ui/worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileSetAttrib",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "FileSetTime",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "GetKeyName",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/globaldata.cpp",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "GetKeySC",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "GetKeyState",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.h",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "GetKeyVK",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "GroupActivate",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/WinGroup.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "GroupAdd",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/WinGroup.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "GroupClose",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "GroupDeactivate",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/WinGroup.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "GuiCtrlFromHwnd",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "GuiFromHwnd",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "HotIf",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/globaldata.cpp",
+        "rime-research/AutoHotkey-alpha/source/globaldata.h",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.h",
+        "rime-research/AutoHotkey-alpha/source/script.cpp"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "HotIfWinActive",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "HotIfWinExist",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "HotIfWinNotActive",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "HotIfWinNotExist",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "Hotkey",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/application.h",
+        "rime-research/AutoHotkey-alpha/source/AutoHotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hook.h",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.h",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "Hotstring",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/globaldata.cpp",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.h",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/util.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "IL_Add",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "IL_Create",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/Gui.ListView.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/Gui.TreeView.cpp"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "IL_Destroy",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ImageSearch",
+      "domain": "screen",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/pixel.cpp"
+      ],
+      "tsModule": "@rime/screen",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "screen.capture",
+      "contractTest": "missing",
+      "lane": "ui/worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "IniDelete",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_registry.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "IniRead",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_registry.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "IniWrite",
+      "domain": "storage",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_registry.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/storage",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "filesystem.read/write",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "InputBox",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/InputBox.cpp"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "InstallKeybdHook",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/input.cpp"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "InstallMouseHook",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.h",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "IsLabel",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "KeyHistory",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "KeyWait",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/wait.cpp"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ListHotkeys",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "ListLines",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/wait.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "ListVars",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "ListViewGetContent",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "LoadPicture",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_menu.cpp",
+        "rime-research/AutoHotkey-alpha/source/util.cpp",
+        "rime-research/AutoHotkey-alpha/source/util.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/Gui.StatusBar.cpp"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "MenuFromHandle",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "MenuSelect",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_menu.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "MonitorGet",
+      "domain": "screen",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/env.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/screen",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "screen.capture",
+      "contractTest": "missing",
+      "lane": "ui/worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "MonitorGetCount",
+      "domain": "screen",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/env.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/screen",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "screen.capture",
+      "contractTest": "missing",
+      "lane": "ui/worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "MonitorGetName",
+      "domain": "screen",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/env.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/screen",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "screen.capture",
+      "contractTest": "missing",
+      "lane": "ui/worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "MonitorGetPrimary",
+      "domain": "screen",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/env.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/screen",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "screen.capture",
+      "contractTest": "missing",
+      "lane": "ui/worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "MonitorGetWorkArea",
+      "domain": "screen",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/env.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/screen",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "screen.capture",
+      "contractTest": "missing",
+      "lane": "ui/worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "MouseClick",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "MouseClickDrag",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "MouseGetPos",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "MouseMove",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.h",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "MsgBox",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/AutoHotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/error.cpp",
+        "rime-research/AutoHotkey-alpha/source/globaldata.h",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ObjGetDataPtr",
+      "domain": "native-interop",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_object_bif.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/native-interop",
+      "status": "unsupported-by-policy",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "missing",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined"
+    },
+    {
+      "ahkName": "ObjGetDataSize",
+      "domain": "native-interop",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_object_bif.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/native-interop",
+      "status": "unsupported-by-policy",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "missing",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined"
+    },
+    {
+      "ahkName": "ObjSetDataPtr",
+      "domain": "native-interop",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_object_bif.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/native-interop",
+      "status": "unsupported-by-policy",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "missing",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined"
+    },
+    {
+      "ahkName": "OnClipboardChange",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/clipboard.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "OnError",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/error.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_expression.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "OnExit",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/AutoHotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/Debugger.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/error.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "OnMessage",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/globaldata.h",
+        "rime-research/AutoHotkey-alpha/source/hook.h",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_gui.h"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "OutputDebug",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/error.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/var.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "Pause",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/globaldata.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_menu.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/CCallback.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "Persistent",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_expression.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "PixelGetColor",
+      "domain": "screen",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/pixel.cpp"
+      ],
+      "tsModule": "@rime/screen",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "screen.capture",
+      "contractTest": "missing",
+      "lane": "ui/worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "PixelSearch",
+      "domain": "screen",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/pixel.cpp"
+      ],
+      "tsModule": "@rime/screen",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "screen.capture",
+      "contractTest": "missing",
+      "lane": "ui/worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "PostMessage",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/AutoHotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/error.cpp",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hook.h",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "ProcessClose",
+      "domain": "process-shell",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
+      ],
+      "tsModule": "@rime/process-shell",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "process.inspect",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ProcessExist",
+      "domain": "process-shell",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
+      ],
+      "tsModule": "@rime/process-shell",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "process.inspect",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ProcessGetName",
+      "domain": "process-shell",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
+      ],
+      "tsModule": "@rime/process-shell",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "process.inspect",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ProcessGetParent",
+      "domain": "process-shell",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
+      ],
+      "tsModule": "@rime/process-shell",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "process.inspect",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ProcessGetPath",
+      "domain": "process-shell",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
+      ],
+      "tsModule": "@rime/process-shell",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "process.inspect",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ProcessSetPriority",
+      "domain": "process-shell",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
+      ],
+      "tsModule": "@rime/process-shell",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "process.inspect",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ProcessWait",
+      "domain": "process-shell",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
+      ],
+      "tsModule": "@rime/process-shell",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "process.inspect",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ProcessWaitClose",
+      "domain": "process-shell",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
+      ],
+      "tsModule": "@rime/process-shell",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "process.inspect",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "RegExMatch",
+      "domain": "native-interop",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script_expression.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_object.h",
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.h"
+      ],
+      "tsModule": "@rime/native-interop",
+      "status": "sdk-owned",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "missing",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined"
+    },
+    {
+      "ahkName": "RegExReplace",
+      "domain": "native-interop",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/regex.cpp"
+      ],
+      "tsModule": "@rime/native-interop",
+      "status": "sdk-owned",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "missing",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined"
+    },
+    {
+      "ahkName": "Reload",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/hook.h",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_menu.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "Run",
+      "domain": "process-shell",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/AutoHotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
+      ],
+      "tsModule": "@rime/process-shell",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "process.launch",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "RunAs",
+      "domain": "process-shell",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/process-shell",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "process.launch",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "RunWait",
+      "domain": "process-shell",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/wait.cpp"
+      ],
+      "tsModule": "@rime/process-shell",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "process.launch",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "Send",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/Debugger.cpp",
+        "rime-research/AutoHotkey-alpha/source/Debugger.h",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.h",
+        "rime-research/AutoHotkey-alpha/source/script.cpp"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SendEvent",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SendInput",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SendLevel",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hook.h",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.h",
+        "rime-research/AutoHotkey-alpha/source/script.cpp"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SendMessage",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/error.cpp",
+        "rime-research/AutoHotkey-alpha/source/hook.h",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SendMode",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SendPlay",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SendText",
+      "domain": "input",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/input",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SetCapsLockState",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "SetControlDelay",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "SetDefaultMouseSpeed",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "SetKeyDelay",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/globaldata.h",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_menu.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "SetMouseDelay",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "SetNumLockState",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "SetRegView",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "SetScrollLockState",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "SetStoreCapsLockMode",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "SetTimer",
+      "domain": "hotkey-events",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/globaldata.h",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_expression.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/InputBox.cpp"
+      ],
+      "tsModule": "@rime/hotkey-events",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.hook.global",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SetTitleMatchMode",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/defines.h",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/regex.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "SetWinDelay",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "SetWorkingDir",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "Shutdown",
+      "domain": "process-shell",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
+      ],
+      "tsModule": "@rime/process-shell",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "process.inspect",
+      "contractTest": "missing",
+      "lane": "worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "Sleep",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/application.h",
+        "rime-research/AutoHotkey-alpha/source/AutoHotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/globaldata.cpp",
+        "rime-research/AutoHotkey-alpha/source/globaldata.h",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SoundBeep",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/sound.cpp"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SoundPlay",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/sound.cpp"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SplitPath",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/string.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "sdk-owned",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "StatusBarGetText",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "StatusBarWait",
+      "domain": "control",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/control",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.automation.control",
+      "contractTest": "missing",
+      "lane": "automation",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "StrReplace",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/util.cpp",
+        "rime-research/AutoHotkey-alpha/source/util.h",
+        "rime-research/AutoHotkey-alpha/source/lib/file.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/string.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "sdk-owned",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "StrSplit",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_object.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_registry.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/string.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "sdk-owned",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "none"
+    },
+    {
+      "ahkName": "Suspend",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_menu.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SysGet",
+      "domain": "screen",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/env.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/screen",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "screen.capture",
+      "contractTest": "missing",
+      "lane": "ui/worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "SysGetIPAddresses",
+      "domain": "screen",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/screen",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "screen.capture",
+      "contractTest": "missing",
+      "lane": "ui/worker",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "Thread",
+      "domain": "runtime-language",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/globaldata.h",
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp"
+      ],
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "runtime",
+      "contractTest": "missing",
+      "lane": "js",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "ToolTip",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/hook.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/util.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "TraySetIcon",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "TrayTip",
+      "domain": "gui-menu",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/stdafx.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
+      ],
+      "tsModule": "@rime/gui-menu",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "ui.create",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinActivate",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinActivateBottom",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinClose",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
+        "rime-research/AutoHotkey-alpha/source/script2.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.h",
+        "rime-research/AutoHotkey-alpha/source/WinGroup.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetAlwaysOnTop",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetClass",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetClientPos",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetControls",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_object.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetControlsHwnd",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetCount",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetEnabled",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetExStyle",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetID",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetIDLast",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetList",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_object.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetMinMax",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetPID",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetPos",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetProcessName",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetProcessPath",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetStyle",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetText",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetTitle",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetTransColor",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinGetTransparent",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinHide",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinKill",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/WinGroup.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinMaximize",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinMinimize",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinMinimizeAll",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinMinimizeAllUndo",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinMove",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinMoveBottom",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinMoveTop",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinRedraw",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinRestore",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinSetAlwaysOnTop",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinSetEnabled",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinSetExStyle",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinSetRegion",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinSetStyle",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script_autoit.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinSetTitle",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinSetTransColor",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinSetTransparent",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinShow",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/script.h",
+        "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.write",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinWait",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/script.cpp",
+        "rime-research/AutoHotkey-alpha/source/script_expression.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/process.cpp",
+        "rime-research/AutoHotkey-alpha/source/lib/wait.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinWaitActive",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/wait.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinWaitClose",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/application.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.cpp",
+        "rime-research/AutoHotkey-alpha/source/window.h",
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/wait.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    },
+    {
+      "ahkName": "WinWaitNotActive",
+      "domain": "window",
+      "sourceFiles": [
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h",
+        "rime-research/AutoHotkey-alpha/source/lib/wait.cpp"
+      ],
+      "tsModule": "@rime/window",
+      "status": "contract-only",
+      "async": "async",
+      "capability": "windows.window.read",
+      "contractTest": "missing",
+      "lane": "ui",
+      "cancellation": "deadline+AbortSignal"
+    }
+  ]
+}

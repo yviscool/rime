@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": 42,
+  "source": { "kind": "user", "id": "local-session" },
+  "type": "window.move",
+  "capability": "window.write",
+  "target": { "kind": "window", "id": "active" },
+  "preconditions": [{ "type": "window.foreground", "expected": "true" }],
+  "deadlineUnixMs": 1893456000000,
+  "parentActionId": null,
+  "payload": { "position": "left" },
+  "idempotencyKey": "move-active-left-1"
+}

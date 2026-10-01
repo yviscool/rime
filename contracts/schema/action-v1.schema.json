@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rime.runtime/contracts/action-v1.schema.json",
+  "title": "Rime Action v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "source",
+    "type",
+    "capability",
+    "target",
+    "preconditions",
+    "deadlineUnixMs",
+    "payload"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "source": { "$ref": "#/$defs/identity" },
+    "type": { "type": "string", "minLength": 1 },
+    "capability": { "type": "string", "minLength": 1 },
+    "target": { "$ref": "#/$defs/identity" },
+    "preconditions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/precondition" }
+    },
+    "deadlineUnixMs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "parentActionId": { "type": ["integer", "null"], "minimum": 1, "maximum": 9007199254740991 },
+    "payload": { "type": "object" },
+    "idempotencyKey": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "precondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "expected"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "expected": { "type": "string" }
+      }
+    }
+  }
+}

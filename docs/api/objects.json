@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "status": "inventory-only",
+  "sourceFiles": [
+    "rime-research/AutoHotkey-alpha/source/script_object.cpp",
+    "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
+    "rime-research/AutoHotkey-alpha/source/script_menu.cpp",
+    "rime-research/AutoHotkey-alpha/source/input_object.cpp",
+    "rime-research/AutoHotkey-alpha/source/TextIO.cpp",
+    "rime-research/AutoHotkey-alpha/source/script_com.cpp"
+  ],
+  "objects": [
+    {"name":"Object","members":["__Ref","Clone","DefineProp","DeleteProp","GetOwnPropDesc","HasOwnProp","OwnProps"]},
+    {"name":"Array","members":["Capacity","Length","__Enum","Clone","Delete","Get","Has","InsertAt","Pop","Push","RemoveAt"]},
+    {"name":"Map","members":["__Enum","Clear","Clone","Delete","Has","Set"]},
+    {"name":"Func","members":["Bind","Call","IsByRef","IsOptional","IsBuiltIn","IsVariadic","MaxParams","MinParams","Name"]},
+    {"name":"Buffer","members":["__New","Ptr","Size"]},
+    {"name":"ClipboardAll","members":["__New"]},
+    {"name":"RegExMatchObject","members":["__Enum","__Get","Len","Name","Pos"]},
+    {"name":"ComObject","members":["__Item","__Value","Ptr"]},
+    {"name":"Gui","source":"script_gui.cpp:GuiType::sMembers","members":["__Enum","__New","Add","AddActiveX","AddButton","AddCheckBox","AddComboBox","AddCustom","AddDateTime","AddDDL","AddDropDownList","AddEdit","AddGroupBox","AddHotkey","AddLink","AddListBox","AddListView","AddMonthCal","AddPic","AddPicture","AddProgress","AddRadio","AddSlider","AddStatusBar","AddTab","AddTab2","AddTab3","AddText","AddTreeView","AddUpDown","Destroy","Flash","GetClientPos","GetPos","Hide","Maximize","Minimize","Move","OnEvent","OnMessage","Opt","Restore","SetFont","Show","Submit","__Item","BackColor","FocusedCtrl","FontHandle","Hwnd","MarginX","MarginY","MenuBar","Name","Title"]},
+    {"name":"GuiControl","source":"script_gui.cpp:GuiControlType::sMembers*","members":["Focus","GetPos","Move","OnCommand","OnEvent","OnMessage","OnNotify","Opt","Redraw","SetFont","ClassNN","Enabled","Focused","Gui","Hwnd","Name","Text","Type","Value","Visible","Add","Choose","Delete","UseTab","SetFormat","SetCue","GetNext","GetCount","GetText","Insert","Modify","InsertCol","ModifyCol","DeleteCol","SetImageList","GetChild","GetParent","GetPrev","GetSelection","SetIcon","SetParts","SetText"]},
+    {"name":"Menu","source":"script_menu.cpp:UserMenu::sMembers","members":["Add","AddStandard","Check","ClickCount","Default","Delete","Disable","Enable","Handle","Insert","Rename","SetColor","SetIcon","Show","ToggleCheck","ToggleEnable","Uncheck"]},
+    {"name":"InputHook","source":"input_object.cpp:InputObject::sMembers","members":["__New","KeyOpt","Start","Stop","Wait","BackspaceIsUndo","CaseSensitive","FindAnywhere","NotifyNonText","VisibleNonText","VisibleText","EndKey","EndMods","EndReason","InProgress","Input","Match","MinSendLevel","OnChar","OnEnd","OnKeyDown","OnKeyUp","Timeout"]},
+    {"name":"File","source":"TextIO.cpp:FileObject::sMembers","members":["AtEOF","Close","Encoding","Handle","Length","Pos","RawRead","RawWrite","Read","ReadChar","ReadDouble","ReadFloat","ReadInt","ReadInt64","ReadLine","ReadShort","ReadUChar","ReadUInt","ReadUShort","Seek","Write","WriteChar","WriteDouble","WriteFloat","WriteInt","WriteInt64","WriteLine","WriteShort","WriteUChar","WriteUInt","WriteUShort"]}
+  ],
+  "requiredFieldsPerMember": ["name", "kind", "parameters", "returnType", "sourceDefinition", "lane", "async", "ownership", "error", "compatibilityTest"]
+}

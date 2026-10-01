@@ -1,0 +1,7 @@
+logLevel = "warn"
+smol = true
+telemetry = false
+
+[install]
+peer = true
+exact = true
