@@ -1,3 +1,5 @@
+import type { ActionV1Identity } from "./contracts";
+
 /** Error thrown by {@link runAction} when the bridge rejects with a `code`. */
 export class ActionError extends Error {
   code: string;
@@ -134,4 +136,200 @@ export async function runAction<T>(
   } finally {
     binding.release();
   }
+}
+
+// ---- plan / inspect / execute (pure action-intent pipeline) ----
+
+/** Minimal action intent a script can state without host knowledge. */
+export interface ActionSpec {
+  type: string;
+  capability: string;
+  target: ActionV1Identity;
+  payload?: Record<string, unknown>;
+}
+
+/** Build-time controls for {@link planAction}. Pure: no host calls, injected clock. */
+export interface PlanOptions {
+  /** Identity recorded in the IR (default `{ kind: "plan", id: "rime:sdk" }`). */
+  source?: ActionV1Identity;
+  /** Relative budget previewed in the IR deadline, milliseconds (default 5000). */
+  deadlineMs?: number;
+  /** Clock reading for the deadline (default `Date.now()`); inject for determinism. */
+  nowMs?: number;
+}
+
+/**
+ * Contract-shaped action intent: action-v1 minus the runtime-assigned id.
+ * Immutable once planned, so it is safe to log, diff, audit or replay.
+ */
+export interface PlannedAction {
+  schemaVersion: 1;
+  source: ActionV1Identity;
+  type: string;
+  capability: string;
+  target: ActionV1Identity;
+  /** Always `[]`: the kernel refuses any declared precondition as unsupported. */
+  preconditions: [];
+  deadlineUnixMs: number;
+  payload: Record<string, unknown>;
+}
+
+/** Read-only preview of a plan: the frozen IR plus the rules that will govern execution. */
+export interface ActionInspection {
+  action: PlannedAction;
+  /** Rules enforced at execution, stated up front instead of failing later. */
+  notes: readonly string[];
+}
+
+/**
+ * A planned, not yet executed action (future-runtime §9 shape). `cancel()`
+ * discards the plan before `execute()`; bind an `ActionOptions.signal` for
+ * mid-run cancellation.
+ */
+export interface ActionPlan {
+  /** Frozen contract-shaped intent. */
+  readonly action: PlannedAction;
+  /** True once `cancel()` discarded the plan. */
+  readonly cancelled: boolean;
+  /** Previews the frozen IR and the kernel rules that apply to it. */
+  inspect(): Promise<ActionInspection>;
+  /** Discards the plan: any later `execute()` rejects with code `cancelled`. Idempotent. */
+  cancel(): void;
+  /**
+   * Runs the options/error pipeline against the module bridge the caller
+   * provides (the SDK has no generic dispatcher: each action type executes
+   * through the module that owns its executor). Rejects with code `cancelled`
+   * when the plan was discarded.
+   */
+  execute<T>(
+    options: ActionOptions | undefined,
+    call: (native?: NativeActionOptions) => Promise<T>,
+  ): Promise<T>;
+}
+
+const MAX_SAFE_INTEGER = 9007199254740991; // 2^53 - 1, action-v1's id/deadline bound.
+
+function requireNonEmptyString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new TypeError(`${field} must be a non-empty string`);
+  }
+  return value;
+}
+
+function requireFiniteNumber(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new TypeError(`${field} must be a finite number, got ${String(value)}`);
+  }
+  return value;
+}
+
+function deepFreeze(value: unknown): void {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) return;
+  Object.freeze(value);
+  for (const entry of Object.values(value)) deepFreeze(entry);
+}
+
+/**
+ * Validates `spec` and builds the contract-shaped action intent. Throws a
+ * field-named TypeError on malformed input (the same rules the native kernel
+ * and action-v1 schema enforce); everything is pure — the clock is injectable
+ * and no host state is read.
+ */
+export function planAction(spec: ActionSpec, options?: PlanOptions): ActionPlan {
+  if (spec === null || typeof spec !== "object") {
+    throw new TypeError("spec must be an object");
+  }
+  const type = requireNonEmptyString(spec.type, "spec.type");
+  const capability = requireNonEmptyString(spec.capability, "spec.capability");
+  if (spec.target === null || typeof spec.target !== "object") {
+    throw new TypeError("spec.target must be an object with kind and id");
+  }
+  const target: ActionV1Identity = {
+    kind: requireNonEmptyString(spec.target.kind, "spec.target.kind"),
+    id: requireNonEmptyString(spec.target.id, "spec.target.id"),
+  };
+  let payload: Record<string, unknown> = {};
+  if (spec.payload !== undefined) {
+    if (spec.payload === null || typeof spec.payload !== "object" || Array.isArray(spec.payload)) {
+      throw new TypeError("spec.payload must be a plain object");
+    }
+    // Round-trip through JSON so the plan owns plain data only: circular or
+    // exotic values fail here, at plan time, not at execution.
+    payload = JSON.parse(JSON.stringify(spec.payload)) as Record<string, unknown>;
+  }
+  const source: ActionV1Identity = options?.source
+    ? {
+        kind: requireNonEmptyString(options.source.kind, "options.source.kind"),
+        id: requireNonEmptyString(options.source.id, "options.source.id"),
+      }
+    : { kind: "plan", id: "rime:sdk" };
+  const deadlineMs = options?.deadlineMs !== undefined ? options.deadlineMs : 5000;
+  if (deadlineMs < 0 || !Number.isFinite(deadlineMs)) {
+    throw new TypeError(`options.deadlineMs must be a non-negative finite number, got ${deadlineMs}`);
+  }
+  const nowMs = options?.nowMs !== undefined ? options.nowMs : Date.now();
+  if (nowMs < 0 || !Number.isFinite(nowMs)) {
+    throw new TypeError(`options.nowMs must be a non-negative finite number, got ${nowMs}`);
+  }
+  // Saturate like the native builder: an extreme budget pins the deadline at
+  // the end of the exactly-representable range instead of overflowing past it,
+  // and a degenerate zero clock still yields a deadline the schema accepts.
+  const base = Math.floor(nowMs);
+  const budget = Math.floor(deadlineMs);
+  const deadlineUnixMs = Math.max(
+    1,
+    budget > MAX_SAFE_INTEGER - base ? MAX_SAFE_INTEGER : base + budget,
+  );
+
+  const action: PlannedAction = {
+    schemaVersion: 1,
+    source,
+    type,
+    capability,
+    target,
+    preconditions: [],
+    deadlineUnixMs,
+    payload,
+  };
+  deepFreeze(action);
+
+  const notes: readonly string[] = [
+    "preconditions are never evaluated: the kernel refuses any non-empty list, so the plan keeps []",
+    "execution builds a fresh action (runtime-assigned id, fresh deadline, owning-module source) " +
+      "through the module bridge; this IR previews intent",
+    `capability '${capability}' must be granted or the kernel refuses with 'capability_denied'`,
+  ];
+
+  let cancelled = false;
+  return {
+    action,
+    get cancelled() {
+      return cancelled;
+    },
+    async inspect() {
+      return { action, notes };
+    },
+    cancel() {
+      cancelled = true;
+    },
+    async execute<T>(
+      options: ActionOptions | undefined,
+      call: (native?: NativeActionOptions) => Promise<T>,
+    ): Promise<T> {
+      if (cancelled) throw new ActionError("cancelled", "action plan was cancelled");
+      return runAction(options, call);
+    },
+  };
+}
+
+/**
+ * Plans `spec` and executes it in one step: validation first (a malformed
+ * spec never reaches the bridge), then the full options/error pipeline.
+ */
+export async function executeAction<T>(
+  spec: ActionSpec,
+  options: ActionOptions | undefined,
+  call: (native?: NativeActionOptions) => Promise<T>,
+): Promise<T> {
+  return planAction(spec).execute(options, call);
 }

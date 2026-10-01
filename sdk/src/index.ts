@@ -39,6 +39,7 @@ export interface RuntimeBridge {
 export { runtime } from "rime:runtime";
 
 export * from "./action";
+export * from "./inspect";
 export * from "./window";
 export * from "./input";
 export * from "./process";
