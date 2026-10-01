@@ -4,6 +4,7 @@ add_library(rime_win32_js STATIC
   src/process_module.cpp
   src/clipboard_module.cpp
   src/automation_module.cpp
+  src/bootstrap.cpp
 )
 target_include_directories(rime_win32_js PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(rime_win32_js PUBLIC rime_win32 rime_automation rime_js rime_action)
