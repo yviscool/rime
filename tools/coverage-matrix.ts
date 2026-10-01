@@ -24,6 +24,105 @@ interface CoverageFile {
 const root = resolve(import.meta.dir, "..");
 const coverage_path = resolve(root, "docs/api/coverage.json");
 const matrix_path = resolve(root, "docs/api/compatibility-matrix.md");
+const core_builtins_path = resolve(root, "docs/api/core-builtins.json");
+const directives_doc_path = resolve(root, "docs/api/directives-and-syntax.md");
+const ahk_script_path = resolve(root, "rime-research/AutoHotkey-alpha/source/script.cpp");
+const ahk_functions_h_path = resolve(root, "rime-research/AutoHotkey-alpha/source/lib/functions.h");
+
+// Denominator drift: the tracked sets must equal the AHK source truth.
+// After M0 the denominator is frozen; only status transitions are allowed.
+async function checkDrift(): Promise<void> {
+  const coverage = JSON.parse(await readFile(coverage_path, "utf8")) as CoverageFile;
+  const core = JSON.parse(await readFile(core_builtins_path, "utf8")) as {
+    entries: Array<{ ahkName: string }>;
+  };
+  const doc = await readFile(directives_doc_path, "utf8");
+  const script = await readFile(ahk_script_path, "utf8");
+  const functions_h = await readFile(ahk_functions_h_path, "utf8");
+
+  const fail = (message: string): never => {
+    throw new Error(`denominator drift: ${message}`);
+  };
+
+  const md_funcs = new Set(
+    [...functions_h.matchAll(/md_func[a-z_]*\(\s*([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]),
+  );
+  const tracked_funcs = new Set(coverage.entries.map((e) => e.ahkName));
+  for (const name of md_funcs) {
+    if (!tracked_funcs.has(name)) fail(`coverage.json misses md_func ${name}`);
+  }
+  for (const name of tracked_funcs) {
+    if (!md_funcs.has(name)) fail(`coverage.json has ${name} not in functions.h md_func`);
+  }
+
+  const g_bif_section = script.slice(
+    script.indexOf("FuncEntry g_BIF"),
+    script.indexOf("};", script.indexOf("FuncEntry g_BIF")),
+  );
+  const g_bifs = new Set(
+    [...g_bif_section.matchAll(/BIF[1ni]\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]),
+  );
+  const tracked_bifs = new Set(core.entries.map((e) => e.ahkName));
+  for (const name of g_bifs) {
+    if (!tracked_bifs.has(name)) fail(`core-builtins.json misses g_BIF ${name}`);
+  }
+  for (const name of tracked_bifs) {
+    if (!g_bifs.has(name)) fail(`core-builtins.json has ${name} not in script.cpp g_BIF`);
+  }
+
+  const directives = new Set(
+    [...script.matchAll(/IS_DIRECTIVE_MATCH\(_T\("#([A-Za-z]+)"\)\)/g)].map((m) => m[1]),
+  );
+  const tracked_directives = new Set(
+    [...doc.matchAll(/^\| `#([A-Za-z]+)` \|/gm)].map((m) => m[1]),
+  );
+  for (const name of directives) {
+    if (!tracked_directives.has(name)) fail(`directives-and-syntax.md misses #${name}`);
+  }
+  for (const name of tracked_directives) {
+    if (!directives.has(name)) fail(`directives-and-syntax.md has #${name} not in script.cpp`);
+  }
+
+  const builtins = JSON.parse(await readFile(resolve(root, "docs/api/builtins.json"), "utf8")) as {
+    domains: Record<string, Array<{ name: string }>>;
+  };
+  const tracked_vars = new Set(
+    Object.values(builtins.domains).flatMap((list) => list.map((e) => e.name)),
+  );
+  const g_biv_section = script.slice(
+    script.indexOf("g_BIV_A[]"),
+    script.indexOf("};", script.indexOf("g_BIV_A[]")),
+  );
+  const g_bivs = new Set(
+    [...g_biv_section.matchAll(/A_[_wx]*\(([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => `A_${m[1]}`),
+  );
+  for (const name of g_bivs) {
+    if (!tracked_vars.has(name)) fail(`builtins.json misses g_BIV_A ${name}`);
+  }
+  // Documented v1/alias names kept for readers; each records its reason in `source`.
+  const aliases = new Set([
+    "A_Args",
+    "A_TempDir",
+    "A_Computer",
+    "A_CaretX",
+    "A_CaretY",
+    "A_Gui",
+    "A_GuiControl",
+    "A_LoopFileLongPath",
+    "A_LoopFileTime",
+    "A_Paused",
+    "A_CoordMode",
+  ]);
+  for (const name of tracked_vars) {
+    if (!g_bivs.has(name) && !aliases.has(name)) {
+      fail(`builtins.json has ${name} not in script.cpp g_BIV_A and not a documented alias`);
+    }
+  }
+
+  console.log(
+    `Denominator frozen: ${md_funcs.size} md_func + ${g_bifs.size} g_BIF + ${directives.size} directives + ${g_bivs.size} builtin vars`,
+  );
+}
 
 const columns = [
   "AHK Function",
@@ -121,6 +220,7 @@ async function render(): Promise<string> {
   return normalize_newlines(lines.join("\n"));
 }
 
+await checkDrift();
 const expected = await render();
 const write = process.argv.includes("--write");
 if (write) {
