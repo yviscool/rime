@@ -42,6 +42,9 @@ rime::action::Result ClipboardExecutor::execute(const rime::action::Action& acti
     return fail(action, Code::InvalidContract, "clipboard.write payload requires a string text");
   }
 
+  // No per-call timeout here by design: the clipboard write is synchronous
+  // and short (no UI queue wait), so the kernel's pre-dispatch and
+  // post-commit deadline checks are the timeout enforcement for this action.
   const std::string value = text->as_string();
   if (const auto write_error = service_.write_text(value); !write_error.ok()) {
     return fail(action, write_error.code, write_error.message);

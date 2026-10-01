@@ -1,5 +1,5 @@
 import { expect, mock, test } from "bun:test";
-import { bindActionOptions, runAction } from "../../sdk/src/action";
+import { ActionError, bindActionOptions, runAction } from "../../sdk/src/action";
 
 const ids = { next: 1, cancelled: [] as number[], released: [] as number[] };
 
@@ -97,4 +97,60 @@ test("without options the call receives no native options", async () => {
     return "ok";
   });
   expect(seen).toBeUndefined();
+});
+
+test("idempotencyKey and parentActionId pass through to native options", async () => {
+  let seen: unknown;
+  await runAction({ idempotencyKey: "k-1", parentActionId: 9, deadlineMs: 100 }, async (native) => {
+    seen = native;
+    return "ok";
+  });
+  expect(seen).toEqual({ deadlineMs: 100, parentActionId: 9, idempotencyKey: "k-1" });
+});
+
+test("a signal without listener methods still binds and releases", async () => {
+  ids.cancelled.length = 0;
+  ids.released.length = 0;
+  const bare = { aborted: false } as { aborted: boolean; reason?: unknown };
+  let seen: { cancellationId?: number } | undefined;
+  await runAction({ signal: bare }, async (native) => {
+    seen = native;
+    return "ok";
+  });
+  const boundId = seen?.cancellationId ?? 0;
+  expect(boundId).toBeGreaterThan(0);
+  expect(ids.released).toContain(boundId);
+  expect(ids.cancelled).toEqual([]);
+});
+
+test("aborting mid-flight cancels the runtime id and still releases", async () => {
+  ids.cancelled.length = 0;
+  ids.released.length = 0;
+  const signal = new FakeSignal();
+  let seenId = 0;
+  await expect(
+    runAction({ signal }, async (native) => {
+      seenId = native?.cancellationId ?? 0;
+      signal.abort(new Error("mid-flight abort"));
+      throw Object.assign(new Error("cancelled by runtime"), { code: "cancelled" });
+    }),
+  ).rejects.toBeInstanceOf(ActionError);
+  expect(seenId).toBeGreaterThan(0);
+  expect(ids.cancelled).toContain(seenId);
+  expect(ids.released).toContain(seenId);
+});
+
+test("runAction maps coded rejections to ActionError and passes through the rest", async () => {
+  const coded = await runAction(undefined, async () => {
+    throw Object.assign(new Error("deadline"), { code: "timeout" });
+  }).catch((error: unknown) => error);
+  expect(coded).toBeInstanceOf(ActionError);
+  expect((coded as ActionError).code).toBe("timeout");
+
+  const plain = new Error("plain boom");
+  await expect(
+    runAction(undefined, async () => {
+      throw plain;
+    }),
+  ).rejects.toBe(plain);
 });

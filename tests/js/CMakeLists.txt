@@ -16,6 +16,10 @@ if (WIN32 AND TARGET rime_win32_js)
   if (MINGW)
     target_link_options(rime_js_bundle PRIVATE -static-libstdc++ -static-libgcc)
   endif()
+  # rime_js_bundle starts WindowService like the window slice tests, so it
+  # needs the same desktop environment as the window tests below.
+  add_test(NAME quickjs_bundle_smoke
+           COMMAND rime_js_bundle ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/ping.mjs)
 endif()
 
 add_executable(rime_js_runtime runtime_smoke.cpp)

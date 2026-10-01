@@ -315,6 +315,9 @@ DecodedResult decode_result(const std::string_view text) {
     }
     result.error = {parsed_code, message->as_string()};
     result.detail = message->as_string();
+    // TODO(retryable): the wire `retryable` boolean is validated above but
+    // intentionally not stored: Result carries no retryable field, so the
+    // decode drops it. Promote it into Result if callers need it.
   } else if (!result.succeeded) {
     return {std::nullopt, invalid("result-v1.error: failed results require an error object")};
   }
@@ -342,6 +345,9 @@ std::optional<std::string> encode_result(const Result& result) {
     Value entry = Value::object();
     entry.set("code", Value::string(rime::core::error_code_name(error.code)));
     entry.set("message", Value::string(error.message));
+    // Only QueueFull is marked retryable on the wire. Timeout stays false
+    // here: retrying under a fresh deadline may be valid, but that decision
+    // belongs to the caller, not the codec.
     entry.set("retryable", Value::boolean(error.code == rime::core::Error::Code::QueueFull));
     root.set("error", std::move(entry));
   }

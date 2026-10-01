@@ -7,6 +7,7 @@
 #include "async_task.hpp"
 #include "quickjs.h"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -22,11 +23,12 @@ ProcessModuleBinding* binding_of(JSContext* context) {
 }
 
 // Reads an optional string property; returns false (with a TypeError raised)
-// when present but not a string. Missing/undefined yields `out` untouched.
+// when present but not a string. Missing/undefined/null yields `out`
+// untouched.
 bool optional_string(JSContext* context, JSValueConst object, const char* name, std::string& out) {
   JSValue property = JS_GetPropertyStr(context, object, name);
   if (JS_IsException(property)) return false;
-  if (!JS_IsUndefined(property)) {
+  if (!JS_IsUndefined(property) && !JS_IsNull(property)) {
     if (!JS_IsString(property)) {
       JS_FreeValue(context, property);
       JS_ThrowTypeError(context, "options.%s must be a string", name);
@@ -59,16 +61,19 @@ JSValue process_list(JSContext* context, JSValueConst, int argc, JSValueConst* a
   ProcessService* service = binding->service;
   return start_async(
       context,
-      [kernel, service]() -> std::pair<bool, std::string> {
+      [kernel, service]() -> AsyncOutcome {
         if (!kernel->allows(kProcessInspectCapability)) {
-          return {false, std::string("required capability was not granted: ") +
-                             kProcessInspectCapability};
+          return async_failure("capability_denied",
+                               std::string("required capability was not granted: ") +
+                                   kProcessInspectCapability);
         }
         std::vector<ProcessInfo> processes;
-        if (const auto error = service->list(processes); !error.ok()) return {false, error.message};
+        if (const auto error = service->list(processes); !error.ok()) {
+          return async_failure(error);
+        }
         json::Value array = json::Value::array();
         for (const auto& process : processes) array.push(process_info_json(process));
-        return {true, json::stringify(array)};
+        return async_success(json::stringify(array));
       },
       options.cancellation_id);
 }
@@ -81,8 +86,11 @@ JSValue process_info(JSContext* context, JSValueConst, int argc, JSValueConst* a
   }
   if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "info(pid, options?)");
   int64_t raw_pid = 0;
-  if (JS_ToInt64(context, &raw_pid, argv[0])) return JS_EXCEPTION;
+  if (!js_int64_strict(context, argv[0], raw_pid, "info(pid)")) return JS_EXCEPTION;
   if (raw_pid <= 0) return JS_ThrowTypeError(context, "info(pid): pid must be positive");
+  if (raw_pid > static_cast<int64_t>(UINT32_MAX)) {
+    return JS_ThrowTypeError(context, "info(pid): pid is out of range");
+  }
   const std::uint32_t pid = static_cast<std::uint32_t>(raw_pid);
   ActionOptions options;
   if (argc == 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
@@ -90,14 +98,17 @@ JSValue process_info(JSContext* context, JSValueConst, int argc, JSValueConst* a
   ProcessService* service = binding->service;
   return start_async(
       context,
-      [kernel, service, pid]() -> std::pair<bool, std::string> {
+      [kernel, service, pid]() -> AsyncOutcome {
         if (!kernel->allows(kProcessInspectCapability)) {
-          return {false, std::string("required capability was not granted: ") +
-                             kProcessInspectCapability};
+          return async_failure("capability_denied",
+                               std::string("required capability was not granted: ") +
+                                   kProcessInspectCapability);
         }
         ProcessInfo info;
-        if (const auto error = service->info(pid, info); !error.ok()) return {false, error.message};
-        return {true, json::stringify(process_info_json(info))};
+        if (const auto error = service->info(pid, info); !error.ok()) {
+          return async_failure(error);
+        }
+        return async_success(json::stringify(process_info_json(info)));
       },
       options.cancellation_id);
 }
@@ -161,8 +172,11 @@ JSValue process_terminate(JSContext* context, JSValueConst, int argc, JSValueCon
   }
   if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "terminate(pid, options?)");
   int64_t raw_pid = 0;
-  if (JS_ToInt64(context, &raw_pid, argv[0])) return JS_EXCEPTION;
+  if (!js_int64_strict(context, argv[0], raw_pid, "terminate(pid)")) return JS_EXCEPTION;
   if (raw_pid <= 0) return JS_ThrowTypeError(context, "terminate(pid): pid must be positive");
+  if (raw_pid > static_cast<int64_t>(UINT32_MAX)) {
+    return JS_ThrowTypeError(context, "terminate(pid): pid is out of range");
+  }
   ActionOptions options;
   if (argc == 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
 
@@ -186,7 +200,11 @@ int process_module_init(JSContext* context, JSModuleDef* module) {
       JS_FreeValue(context, process);
       return false;
     }
-    JS_SetPropertyStr(context, process, name, value);
+    // JS_SetPropertyStr consumes `value` on both success and failure.
+    if (JS_SetPropertyStr(context, process, name, value) < 0) {
+      JS_FreeValue(context, process);
+      return false;
+    }
     return true;
   };
   if (!add("list", process_list, 0) || !add("info", process_info, 1) ||

@@ -13,11 +13,13 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <thread>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -134,18 +136,89 @@ int main() {
         "  throw new Error('wrong rejection: ' + globalThis.failure);",
         "slice-bad-placement-check.mjs");
 
-  // Segment 3: the 'active' target resolves the foreground window. Try to
-  // take the foreground (ALT modifier lifts the lock); when another window
-  // keeps it, that window is the resolved target and is restored after.
-  keybd_event(VK_MENU, 0, KEYEVENTF_EXTENDEDKEY, 0);
-  (void)service.focus(id);
-  keybd_event(VK_MENU, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+  // Segment 2b: an exhausted deadline never reaches the executor -- the
+  // kernel rejects with Timeout (deadlineMs:1 leaves no budget for the
+  // timer hop plus the UI round-trip).
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.deadlineOutcome = null;\n"
+        "windows.move(" + id_text +
+            ", 'left', { deadlineMs: 1 })\n"
+            "  .then(() => { globalThis.deadlineOutcome = 'unexpected resolution'; },\n"
+            "        e => { globalThis.deadlineOutcome = (e && e.code) || String(e); });",
+        "slice-deadline.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.deadlineOutcome !== 'timeout')\n"
+        "  throw new Error('deadline must reject with timeout, got: ' + globalThis.deadlineOutcome);",
+        "slice-deadline-check.mjs");
+
+  // Segment 2c: a malformed deadlineMs throws TypeError synchronously
+  // instead of producing a promise.
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.badDeadlineIsTypeError = false;\n"
+        "try { windows.move(" + id_text + ", 'left', { deadlineMs: -1 }); }\n"
+        "catch (e) { globalThis.badDeadlineIsTypeError = (e instanceof TypeError); }",
+        "slice-bad-deadline.mjs");
+  check(runtime,
+        "if (!globalThis.badDeadlineIsTypeError)\n"
+        "  throw new Error('negative deadlineMs must throw TypeError');",
+        "slice-bad-deadline-check.mjs");
+
+  // Segment 3: focus and the 'active' target, scoped to OUR window only.
+  // No global input injection (keybd_event) and no foreign window is ever
+  // moved: the 'active' move runs only when our window owns the foreground,
+  // otherwise the segment is skipped with a diagnostic.
+  const bool focused = service.focus(id).ok();
+
+  // JS focus: resolves, or rejects only with the foreground-lock denial
+  // (SetForegroundWindow may be refused while another window owns the
+  // foreground; that is not a binding failure).
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.focusHandle = null;\n"
+        "globalThis.focusFailure = null;\n"
+        "windows.focus(" + id_text +
+            ")\n"
+            "  .then(w => { globalThis.focusHandle = w; },\n"
+            "        e => { globalThis.focusFailure = String(e); });",
+        "slice-focus.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.focusFailure &&\n"
+        "    !globalThis.focusFailure.includes('foreground lock'))\n"
+        "  throw new Error('focus failed unexpectedly: ' + globalThis.focusFailure);\n"
+        "if (globalThis.focusHandle && globalThis.focusHandle.id !== " + id_text + ")\n"
+        "  throw new Error('focus resolved the wrong window');",
+        "slice-focus-check.mjs");
+
+  // JS active read: observation only, safe regardless of who owns the
+  // foreground -- resolves null or a snapshot with a numeric id.
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.activeInfo = 'unset';\n"
+        "globalThis.activeFailure = null;\n"
+        "windows.active()\n"
+        "  .then(w => { globalThis.activeInfo = w; },\n"
+        "        e => { globalThis.activeFailure = String(e); });",
+        "slice-active-read.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.activeFailure) throw new Error(globalThis.activeFailure);\n"
+        "if (globalThis.activeInfo !== null && typeof globalThis.activeInfo.id !== 'number')\n"
+        "  throw new Error('active() must resolve null or a snapshot');",
+        "slice-active-read-check.mjs");
+
+  // Re-check ownership right before deciding: the JS focus attempt above may
+  // have succeeded after the first native request was refused. Deciding on a
+  // stale read could move a foreign window.
   std::optional<WindowInfo> foreground;
   assert(service.active(foreground).ok());
+  const bool ours_foreground = foreground.has_value() && foreground->id == id;
 
-  if (foreground.has_value()) {
-    const std::uint64_t expected = foreground->id;
-    const bool ours_foreground = expected == id;
+  bool active_move_ran = false;
+  if (ours_foreground) {
     check(runtime,
           "import { windows } from 'rime:window';\n"
           "globalThis.moved = null;\n"
@@ -157,18 +230,14 @@ int main() {
     assert(runtime.settle(5000ms).ok());
     check(runtime,
           "if (globalThis.failure) throw new Error(globalThis.failure);\n"
-          "if (globalThis.moved.id !== " + std::to_string(expected) +
+          "if (globalThis.moved.id !== " + id_text +
               ") throw new Error('active resolved to the wrong window');",
           "slice-active-check.mjs");
-    if (ours_foreground) {
-      WindowInfo active_moved;
-      assert(service.info(id, active_moved).ok());
-      assert(active_moved.rect == primary_left_half());
-    } else {
-      // A foreign window was moved; put its geometry back.
-      assert(service.move_rect(expected, foreground->rect).ok());
-    }
-  } else {
+    WindowInfo active_moved;
+    assert(service.info(id, active_moved).ok());
+    assert(active_moved.rect == primary_left_half());
+    active_move_ran = true;
+  } else if (!foreground.has_value()) {
     check(runtime,
           "import { windows } from 'rime:window';\n"
           "globalThis.failure = null;\n"
@@ -181,6 +250,13 @@ int main() {
           "if (!globalThis.failure.includes('no active window'))\n"
           "  throw new Error('wrong rejection: ' + globalThis.failure);",
           "slice-active-none-check.mjs");
+  } else {
+    // SKIP: a foreign window owns the foreground. Moving 'active' would
+    // move it and restoring by hand races with user input -- never touch it.
+    std::fprintf(stderr,
+                 "SKIP: slice active-move (foreign window owns the foreground; "
+                 "focus requested ok=%d)\n",
+                 focused ? 1 : 0);
   }
 
   // Segment 4: WinTitle queries and the extended snapshot fields. An exact
@@ -253,15 +329,82 @@ int main() {
   assert(service.info(id, shown_after_js).ok());
   assert(shown_after_js.visible);
 
-  // Segment 6: destroying the window turns later moves into rejections.
-  assert(service.ui().call([&] { DestroyWindow(created); }).ok());
+  // Segment 5b: the info read round-trips the extended snapshot fields.
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.infoSnap = null;\n"
+        "globalThis.infoFailure = null;\n"
+        "windows.info(" + id_text +
+            ")\n"
+            "  .then(s => { globalThis.infoSnap = s; },\n"
+            "        e => { globalThis.infoFailure = String(e); });",
+        "slice-info.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.infoFailure) throw new Error(globalThis.infoFailure);\n"
+        "if (globalThis.infoSnap.id !== " + id_text +
+            ") throw new Error('info resolved the wrong id');\n"
+        "if (globalThis.infoSnap.className !== 'Static') throw new Error('info className missing');\n"
+        "if (globalThis.infoSnap.state !== 'normal') throw new Error('info state must be normal');",
+        "slice-info-check.mjs");
+
+  // Segment 5c: minimize -> maximize -> restore round-trip the state machine
+  // through JS, each step verified both in the returned snapshot and natively.
+  for (const auto& step : std::vector<std::pair<const char*, const char*>>{
+           {"minimize", "minimized"}, {"maximize", "maximized"}, {"restore", "normal"}}) {
+    const std::string call = step.first;
+    const std::string expected_state = step.second;
+    check(runtime,
+          "import { windows } from 'rime:window';\n"
+          "globalThis.stateFailure = null;\n"
+          "globalThis.stateSnap = null;\n"
+          "windows." + call + "(" + id_text +
+              ")\n"
+              "  .then(w => { globalThis.stateSnap = w; },\n"
+              "        e => { globalThis.stateFailure = String(e); });",
+          "slice-" + call + ".mjs");
+    assert(runtime.settle(5000ms).ok());
+    check(runtime,
+          "if (globalThis.stateFailure) throw new Error(globalThis.stateFailure);\n"
+          "if (globalThis.stateSnap.state !== '" + expected_state + "')\n"
+          "  throw new Error('" + call + " must report " + expected_state + "');",
+          "slice-" + call + "-check.mjs");
+    WindowInfo native_state;
+    assert(service.info(id, native_state).ok());
+    if (native_state.state != expected_state) {
+      std::fprintf(stderr, "native state after %s was %s, expected %s\n", call.c_str(),
+                   native_state.state.c_str(), expected_state.c_str());
+      std::abort();
+    }
+  }
+
+  // Segment 6: close destroys the window through the executor (the result
+  // snapshot is taken before WM_CLOSE); later operations on the id reject.
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.closedSnap = null;\n"
+        "globalThis.closeFailure = null;\n"
+        "windows.close(" + id_text +
+            ")\n"
+            "  .then(s => { globalThis.closedSnap = s; },\n"
+            "        e => { globalThis.closeFailure = String(e); });",
+        "slice-close.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.closeFailure) throw new Error(globalThis.closeFailure);\n"
+        "if (!globalThis.closedSnap || globalThis.closedSnap.id !== " + id_text +
+            ")\n"
+            "  throw new Error('close must resolve the pre-close snapshot');",
+        "slice-close-check.mjs");
+  WindowInfo gone;
+  assert(!service.info(id, gone).ok());
   check(runtime,
         "import { windows } from 'rime:window';\n"
         "globalThis.failure = null;\n"
         "windows.move(" + id_text +
             ", 'left')\n"
-        "  .then(() => { globalThis.failure = 'unexpected resolution'; },\n"
-        "        e => { globalThis.failure = String(e); });",
+            "  .then(() => { globalThis.failure = 'unexpected resolution'; },\n"
+            "        e => { globalThis.failure = String(e); });",
         "slice-stale.mjs");
   assert(runtime.settle(5000ms).ok());
   check(runtime,
@@ -269,16 +412,47 @@ int main() {
         "  throw new Error('wrong rejection: ' + globalThis.failure);",
         "slice-stale-check.mjs");
 
-  // Every action reached the kernel and produced a trace pair.
-  std::size_t started = 0;
-  std::size_t finished = 0;
+  // Trace, grouped by action type (no fragile global totals). Sources:
+  // - window.focus/hide/show/minimize/maximize/restore/close: one Started +
+  //   one Finished each (segments 3/5/5b/5c/6);
+  // - window.move: segment 1 (move), segment 2 (bad placement), segment 2b
+  //   (exhausted deadline), segment 6 (stale id), plus the optional active
+  //   move. The deadline action always records Finished but records Started
+  //   only when it survives kernel pre-dispatch, so Started is base/base+1
+  //   and Finished is Started/Started+1.
+  std::map<std::string, std::size_t> started_count;
+  std::map<std::string, std::size_t> finished_count;
   for (const auto& entry : trace->snapshot()) {
-    if (entry.subject != "window.move") continue;
-    if (entry.kind == rime::core::TraceKind::ActionStarted) ++started;
-    if (entry.kind == rime::core::TraceKind::ActionFinished) ++finished;
+    if (entry.kind == rime::core::TraceKind::ActionStarted) ++started_count[entry.subject];
+    if (entry.kind == rime::core::TraceKind::ActionFinished) ++finished_count[entry.subject];
   }
-  assert(started == 4);
-  assert(finished == 4);
+  for (const auto& [subject, count] : started_count) {
+    const auto finished = finished_count.find(subject);
+    assert(finished != finished_count.end());
+    if (subject == "window.move") continue;  // bounded below, not exactly paired
+    assert(finished->second == count);
+  }
+  const std::size_t move_base = active_move_ran ? 4u : 3u;  // seg 1+2+stale [+active]
+  const std::size_t move_started = started_count["window.move"];
+  const std::size_t move_finished = finished_count["window.move"];
+  // +1 Started when the deadline action survived kernel pre-dispatch.
+  assert(move_started == move_base || move_started == move_base + 1);
+  // +1 Finished when the deadline action died in pre-dispatch (no Started).
+  assert(move_finished == move_started || move_finished == move_started + 1);
+  for (const char* type : {"window.focus", "window.hide", "window.show", "window.minimize",
+                           "window.maximize", "window.restore", "window.close"}) {
+    assert(started_count[type] == 1);
+  }
+  // The exhausted deadline left a Finished entry naming the timeout.
+  bool saw_deadline_timeout = false;
+  for (const auto& entry : trace->snapshot()) {
+    if (entry.kind == rime::core::TraceKind::ActionFinished &&
+        entry.subject == "window.move" &&
+        entry.detail.find("deadline exceeded") != std::string::npos) {
+      saw_deadline_timeout = true;
+    }
+  }
+  assert(saw_deadline_timeout);
 
   assert(runtime.stop().ok());
 

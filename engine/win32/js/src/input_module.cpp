@@ -7,6 +7,7 @@
 #include "quickjs.h"
 
 #include <atomic>
+#include <cmath>
 #include <memory>
 #include <string>
 
@@ -23,6 +24,28 @@ InputModuleBinding* binding_of(JSContext* context) {
   auto* host = host_of(context);
   if (!host) return nullptr;
   return static_cast<InputModuleBinding*>(host->module_data("rime:input"));
+}
+
+// Strict JS number -> int64: non-numbers, NaN/Infinity, fractions and
+// out-of-range values raise a TypeError instead of truncating.
+bool strict_int64(JSContext* context, JSValueConst value, std::int64_t& out, const char* what) {
+  if (!JS_IsNumber(value)) {
+    JS_ThrowTypeError(context, "%s: id must be a number", what);
+    return false;
+  }
+  double number = 0;
+  if (JS_ToFloat64(context, &number, value)) return false;
+  if (!std::isfinite(number) || std::trunc(number) != number) {
+    JS_ThrowTypeError(context, "%s: id must be an integer", what);
+    return false;
+  }
+  constexpr double kMaxSafeInteger = 9007199254740991.0;  // 2^53 - 1
+  if (number < -kMaxSafeInteger || number > kMaxSafeInteger) {
+    JS_ThrowTypeError(context, "%s: id is out of range", what);
+    return false;
+  }
+  if (JS_ToInt64(context, &out, value)) return false;
+  return true;
 }
 
 std::string event_json(const InputEvent& event) {
@@ -79,11 +102,19 @@ JSValue input_subscribe(JSContext* context, JSValueConst, int argc, JSValueConst
   // denial is a thrown Error).
   if (!binding->kernel->allows("windows.hook.global")) {
     JSValue error = JS_NewError(context);
-    JS_DefinePropertyValueStr(context, error, "message",
-                              JS_NewString(context,
-                                           "required capability was not granted: "
-                                           "windows.hook.global"),
-                              JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    if (JS_IsException(error)) return JS_EXCEPTION;
+    JSValue message = JS_NewString(context,
+                                   "required capability was not granted: windows.hook.global");
+    if (JS_IsException(message)) {
+      JS_FreeValue(context, error);
+      return JS_EXCEPTION;
+    }
+    // JS_DefinePropertyValueStr consumes `message` on both success and failure.
+    if (JS_DefinePropertyValueStr(context, error, "message", message,
+                                  JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0) {
+      JS_FreeValue(context, error);
+      return JS_EXCEPTION;
+    }
     return JS_Throw(context, error);
   }
 
@@ -124,7 +155,7 @@ JSValue input_unsubscribe(JSContext* context, JSValueConst, int argc, JSValueCon
   }
   if (argc < 1) return JS_ThrowTypeError(context, "unsubscribe(subscriptionId)");
   std::int64_t raw_id = 0;
-  if (JS_ToInt64(context, &raw_id, argv[0])) return JS_EXCEPTION;
+  if (!strict_int64(context, argv[0], raw_id, "unsubscribe(subscriptionId)")) return JS_EXCEPTION;
   if (raw_id <= 0) return JS_NewBool(context, 0);
   const std::uint64_t subscription_id = static_cast<std::uint64_t>(raw_id);
 
@@ -151,7 +182,11 @@ int input_module_init(JSContext* context, JSModuleDef* module) {
       JS_FreeValue(context, input);
       return false;
     }
-    JS_SetPropertyStr(context, input, name, value);
+    // JS_SetPropertyStr consumes `value` on both success and failure.
+    if (JS_SetPropertyStr(context, input, name, value) < 0) {
+      JS_FreeValue(context, input);
+      return false;
+    }
     return true;
   };
   if (!add("subscribe", input_subscribe, 1) || !add("unsubscribe", input_unsubscribe, 1)) {

@@ -10,7 +10,9 @@ namespace rime::win32 {
 // restore. Payload contract: `window.move` requires
 // {"position": "left|right|top|bottom|full"}; the state actions take an empty
 // object. Target contract: {"kind": "window", "id": "<numeric id>" | "active"}.
-// The action deadline bounds every UI round-trip and reports Timeout.
+// The action deadline bounds the queued UI phase: the remaining time is
+// recomputed before every UI round-trip (resolve/info/op/info) and passed
+// as that call's per-call timeout; an expired deadline fails with Timeout.
 class WindowExecutor final : public rime::action::Executor {
  public:
   explicit WindowExecutor(WindowService& service) : service_(service) {}

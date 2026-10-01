@@ -7,8 +7,14 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cassert>
+#include <chrono>
+#include <cstdint>
+#include <limits>
 #include <string>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace rime::win32 {
 namespace {
@@ -60,8 +66,11 @@ bool resolve_placement(const RECT& work, const std::string_view placement, Rect&
   return true;
 }
 
-// Case-insensitive ASCII folding for stable comparisons across UTF-8 inputs.
-std::string fold_ascii(std::string_view text) {
+// Case-insensitive ASCII folding for ahk_exe basename compares. The rule is
+// ASCII-only by design: bytes >= 0x80 compare unchanged, so non-ASCII image
+// names fall back to exact-byte equality after folding. This documents the
+// matching behavior; it does not normalize Unicode case.
+[[nodiscard]] std::string fold_ascii(std::string_view text) {
   std::string folded(text);
   for (char& character : folded) {
     if (character >= 'A' && character <= 'Z') character = static_cast<char>(character - 'A' + 'a');
@@ -69,38 +78,65 @@ std::string fold_ascii(std::string_view text) {
   return folded;
 }
 
-std::wstring fold_wide(const std::wstring& text) {
-  std::wstring folded(text);
-  for (wchar_t& character : folded) {
-    if (character >= L'A' && character <= L'Z') {
-      character = static_cast<wchar_t>(character - L'A' + L'a');
-    }
+// File-local RAII for process handles (mirrors process.cpp HandleGuard style;
+// kept local so window.cpp owns its lifetime explicitly, no cross-file reuse).
+struct ProcessHandleGuard {
+  explicit ProcessHandleGuard(HANDLE raw) : handle(raw) {}
+  ProcessHandleGuard(const ProcessHandleGuard&) = delete;
+  ProcessHandleGuard& operator=(const ProcessHandleGuard&) = delete;
+  ~ProcessHandleGuard() {
+    if (handle != nullptr && handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
   }
-  return folded;
-}
+  [[nodiscard]] HANDLE get() const { return handle; }
+  HANDLE handle = nullptr;
+};
 
-// Basename of the process image behind `pid`; empty when it cannot be read.
-std::string process_image_name(const DWORD process_id) {
+// Raw image basename behind `pid` as UTF-16 (extension kept); empty when it
+// cannot be read.
+[[nodiscard]] std::wstring process_image_basename_w(const DWORD process_id) {
   if (process_id == 0) return {};
-  const HANDLE process =
-      OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process_id);
-  if (!process) return {};
+  ProcessHandleGuard process(
+      OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process_id));
+  if (!process.get()) return {};
   std::wstring path(32768, L'\0');
   DWORD size = static_cast<DWORD>(path.size());
-  const BOOL ok = QueryFullProcessImageNameW(process, 0, path.data(), &size);
-  CloseHandle(process);
-  if (!ok || size == 0) return {};
+  if (!QueryFullProcessImageNameW(process.get(), 0, path.data(), &size) || size == 0) {
+    return {};
+  }
   path.resize(size);
   const std::size_t slash = path.find_last_of(L'\\');
   if (slash != std::wstring::npos) path = path.substr(slash + 1);
-  return to_utf8(path);
+  return path;
 }
 
-std::string window_class_name(HWND window) {
+[[nodiscard]] std::string process_image_name(const DWORD process_id) {
+  return to_utf8(process_image_basename_w(process_id));
+}
+
+// Per-enumeration pid -> basename cache. A single query() enum touches every
+// top-level window; without this each window pays OpenProcess plus a 64KB path
+// buffer even when dozens share one pid. The snapshot still reads processName
+// per window, so the cache only dedupes repeated pids.
+using PidNameCache = std::unordered_map<std::uint32_t, std::wstring>;
+
+[[nodiscard]] std::wstring process_basename_cached(const DWORD process_id,
+                                                  PidNameCache* cache) {
+  if (process_id == 0) return {};
+  if (cache == nullptr) return process_image_basename_w(process_id);
+  const auto found = cache->find(process_id);
+  if (found != cache->end()) return found->second;
+  std::wstring name = process_image_basename_w(process_id);
+  cache->emplace(process_id, name);
+  return name;
+}
+
+// UTF-16 class name for direct ordinal compares; callers convert once via
+// to_utf8 instead of round-tripping through UTF-8.
+[[nodiscard]] std::wstring window_class_name_w(HWND window) {
   wchar_t class_name[256] = {};
   const int copied = GetClassNameW(window, class_name, 256);
   if (copied <= 0) return {};
-  return to_utf8(std::wstring(class_name, static_cast<std::size_t>(copied)));
+  return std::wstring(class_name, static_cast<std::size_t>(copied));
 }
 
 // UI-thread-only mapping from stable ids to live HWNDs. Stale entries are
@@ -140,14 +176,15 @@ class WindowRegistry final {
   std::uint64_t next_id_{0};
 };
 
-lane::Error build_info(WindowRegistry& registry, HWND window, WindowInfo& out) {
+lane::Error build_info_impl(WindowRegistry& registry, HWND window, WindowInfo& out,
+                            PidNameCache* names) {
   if (!window || !IsWindow(window)) {
     return {lane::Error::Code::InvalidState, "window no longer exists"};
   }
   out = WindowInfo{};
   out.id = registry.id_for(window);
   out.title = to_utf8(window_text(window));
-  out.class_name = window_class_name(window);
+  out.class_name = to_utf8(window_class_name_w(window));
   RECT rectangle{};
   if (GetWindowRect(window, &rectangle)) out.rect = to_rect(rectangle);
   out.visible = IsWindowVisible(window) != FALSE;
@@ -155,7 +192,7 @@ lane::Error build_info(WindowRegistry& registry, HWND window, WindowInfo& out) {
   DWORD process_id = 0;
   GetWindowThreadProcessId(window, &process_id);
   out.process_id = process_id;
-  out.process_name = process_image_name(process_id);
+  out.process_name = to_utf8(process_basename_cached(process_id, names));
 
   WINDOWPLACEMENT placement{};
   placement.length = sizeof(placement);
@@ -173,32 +210,50 @@ lane::Error build_info(WindowRegistry& registry, HWND window, WindowInfo& out) {
   return lane::Error::none();
 }
 
-// WinTitle-style matching evaluated on the UI lane only.
+lane::Error build_info(WindowRegistry& registry, HWND window, WindowInfo& out) {
+  return build_info_impl(registry, window, out, nullptr);
+}
+
+// WinTitle-style matching evaluated on the UI lane only. `cache` dedupes
+// pid -> basename lookups within one enumeration; pass nullptr for single
+// foreground lookups.
 bool matches_query(WindowRegistry& registry, HWND window, const WindowQuery& query,
-                   const bool has_selectors) {
+                   const bool has_selectors, PidNameCache* cache) {
   if (!query.include_hidden && !IsWindowVisible(window)) return false;
   if (query.id != 0 && registry.id_for(window) != query.id) return false;
-  if (!query.title.empty() && query.title != "A") {
+  if (!query.title.empty()) {
     const std::wstring text = window_text(window);
     const std::wstring needle = from_utf8(query.title);
+    // from_utf8 returns empty on invalid UTF-8; an empty needle would match
+    // everything via FindStringOrdinal, so fail closed instead.
+    if (needle.empty()) return false;
     if (query.exact_title) {
       if (CompareStringOrdinal(text.c_str(), -1, needle.c_str(), -1, TRUE) != CSTR_EQUAL) {
         return false;
       }
-    } else if (FindStringOrdinal(0, text.c_str(), static_cast<int>(text.size()),
-                                 needle.c_str(), static_cast<int>(needle.size()), TRUE) < 0) {
-      return false;
+    } else {
+      constexpr std::size_t kIntMax = static_cast<std::size_t>((std::numeric_limits<int>::max)());
+      if (text.size() > kIntMax || needle.size() > kIntMax) return false;
+      if (FindStringOrdinal(FIND_FROMSTART, text.c_str(), static_cast<int>(text.size()),
+                            needle.c_str(), static_cast<int>(needle.size()), TRUE) < 0) {
+        return false;
+      }
     }
   }
   if (!query.class_name.empty()) {
-    const std::wstring actual = from_utf8(window_class_name(window));
+    // Same ordinal rule as title: case-insensitive CompareStringOrdinal on
+    // UTF-16, no ASCII-fold round-trip through UTF-8.
+    const std::wstring actual = window_class_name_w(window);
     const std::wstring expected = from_utf8(query.class_name);
-    if (fold_wide(actual) != fold_wide(expected)) return false;
+    if (expected.empty() || actual.empty()) return false;
+    if (CompareStringOrdinal(actual.c_str(), -1, expected.c_str(), -1, TRUE) != CSTR_EQUAL) {
+      return false;
+    }
   }
   if (!query.process_name.empty()) {
     DWORD process_id = 0;
     GetWindowThreadProcessId(window, &process_id);
-    const std::string actual = process_image_name(process_id);
+    const std::string actual = to_utf8(process_basename_cached(process_id, cache));
     if (fold_ascii(actual) != fold_ascii(query.process_name)) return false;
   }
   // A selector-less query keeps the list() convention of skipping untitled
@@ -217,15 +272,23 @@ struct EnumContext {
   const WindowQuery* query;
   bool selectors;
   std::vector<WindowInfo>* windows;
+  PidNameCache* names;  // per-query pid cache; never null on the enum path
 };
 
 BOOL CALLBACK collect_matching(HWND window, LPARAM parameter) {
   auto* context = reinterpret_cast<EnumContext*>(parameter);
-  if (!matches_query(*context->registry, window, *context->query, context->selectors)) {
+  // EnumWindows contract: parameter always carries the query context above.
+  assert(context != nullptr);
+  assert(context->registry != nullptr);
+  assert(context->query != nullptr);
+  assert(context->windows != nullptr);
+  assert(context->names != nullptr);
+  if (!matches_query(*context->registry, window, *context->query, context->selectors,
+                     context->names)) {
     return TRUE;
   }
   WindowInfo info;
-  if (!build_info(*context->registry, window, info).ok()) return TRUE;
+  if (!build_info_impl(*context->registry, window, info, context->names).ok()) return TRUE;
   context->windows->push_back(std::move(info));
   return TRUE;
 }
@@ -282,7 +345,7 @@ rime::core::Error WindowService::list(std::vector<WindowInfo>& out,
           result = lane_error;
           return;
         }
-        EnumContext context{&impl_->registry, nullptr, false, &windows};
+        EnumContext context{&impl_->registry, nullptr, false, &windows, nullptr};
         EnumWindows(
             [](HWND window, LPARAM parameter) -> BOOL {
               auto* enum_context = reinterpret_cast<EnumContext*>(parameter);
@@ -314,11 +377,11 @@ rime::core::Error WindowService::query(const WindowQuery& query, std::vector<Win
           result = lane_error;
           return;
         }
-        const bool foreground_selection =
-            query.active || (!query.title.empty() && query.title == "A");
+        const bool foreground_selection = query.active;
         if (foreground_selection) {
           const HWND foreground = GetForegroundWindow();
-          if (foreground != nullptr && matches_query(impl_->registry, foreground, query, true)) {
+          if (foreground != nullptr && matches_query(impl_->registry, foreground, query, true,
+                                                     nullptr)) {
             WindowInfo info;
             if (build_info(impl_->registry, foreground, info).ok()) {
               windows.push_back(std::move(info));
@@ -326,7 +389,8 @@ rime::core::Error WindowService::query(const WindowQuery& query, std::vector<Win
           }
           return;
         }
-        EnumContext context{&impl_->registry, &query, selectors, &windows};
+        PidNameCache names;
+        EnumContext context{&impl_->registry, &query, selectors, &windows, &names};
         EnumWindows(collect_matching, reinterpret_cast<LPARAM>(&context));
       },
       timeout);
@@ -486,8 +550,12 @@ rime::core::Error WindowService::close(const std::uint64_t id,
                                        const std::chrono::milliseconds timeout) {
   if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
   rime::core::Error result = rime::core::Error::none();
+  // Absolute deadline: ui.call() already spends part of `timeout` while queued,
+  // so recompute the remainder inside the lane instead of reusing the full
+  // timeout for SendMessageTimeoutW (which would double-count the queue wait).
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
   const auto call_error = impl_->ui.call(
-      [&] {
+      [&, deadline] {
         if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
           result = lane_error;
           return;
@@ -497,8 +565,14 @@ rime::core::Error WindowService::close(const std::uint64_t id,
           result = {rime::core::Error::Code::InvalidState, "window no longer exists"};
           return;
         }
+        const auto remaining = deadline - std::chrono::steady_clock::now();
+        if (remaining <= std::chrono::steady_clock::duration::zero()) {
+          result = expired_deadline();
+          return;
+        }
+        const auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(remaining);
         const auto bounded = std::clamp<std::uint64_t>(
-            static_cast<std::uint64_t>(timeout.count()), 1, 0xffffffffu);
+            static_cast<std::uint64_t>(remaining_ms.count()), 1, 0xffffffffu);
         DWORD_PTR delivered = 0;
         SetLastError(0);
         const LRESULT sent = SendMessageTimeoutW(window, WM_CLOSE, 0, 0,
@@ -608,7 +682,9 @@ rime::core::Error WindowService::restore(const std::uint64_t id,
   return result;
 }
 
-rime::core::Error WindowService::placement_rect(const std::string_view placement, Rect& out) {
+rime::core::Error WindowService::placement_rect(const std::string_view placement, Rect& out,
+                                                 const std::chrono::milliseconds timeout) {
+  if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
   const std::string placement_text(placement);
   rime::core::Error result = rime::core::Error::none();
   Rect resolved{};
@@ -628,7 +704,8 @@ rime::core::Error WindowService::placement_rect(const std::string_view placement
           result = {rime::core::Error::Code::InvalidContract,
                     "unknown window placement: " + placement_text};
         }
-      });
+      },
+      timeout);
   if (!call_error.ok()) return call_error;
   if (!result.ok()) return result;
   out = resolved;

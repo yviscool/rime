@@ -44,8 +44,8 @@ struct WindowInfo {
 rime::core::json::Value window_info_json(const WindowInfo& info);
 
 // WinTitle-style selector resolved entirely on the UI lane. JS never sees an
-// HWND: `id` is the stable window id, `title == "A"` (or `active`) selects the
-// foreground window, `exact_title` switches contains-matching to equality.
+// HWND: `id` is the stable window id, `active` selects the foreground window,
+// `exact_title` switches contains-matching to equality.
 struct WindowQuery {
   std::string title;   // UTF-8
   bool exact_title{false};
@@ -83,6 +83,9 @@ class WindowService final {
   // Moves the window to a named placement: left, right, top, bottom, full.
   rime::core::Error move(std::uint64_t id, std::string_view placement,
                          std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Internal/test-only geometry helpers (kept public for CLI/tests; not a
+  // general placement API): move_rect positions by rect, placement_rect
+  // resolves a named placement against the primary monitor work area.
   rime::core::Error move_rect(std::uint64_t id, const Rect& rect,
                               std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // Restores when minimized and requests foreground activation.
@@ -104,7 +107,8 @@ class WindowService final {
   rime::core::Error restore(std::uint64_t id,
                             std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // Resolves a placement against the primary monitor work area.
-  rime::core::Error placement_rect(std::string_view placement, Rect& out);
+  rime::core::Error placement_rect(std::string_view placement, Rect& out,
+                                   std::chrono::milliseconds timeout = std::chrono::seconds(5));
 
   UiThread& ui();
   [[nodiscard]] UiThreadState state() const;

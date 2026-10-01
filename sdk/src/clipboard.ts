@@ -17,12 +17,19 @@ async function clipboardBridge(): Promise<ClipboardBridge> {
 }
 
 export const clipboard = {
+  /**
+   * Reads text from the clipboard.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
   read(options?: ActionOptions): Promise<ClipboardText> {
     return runAction(options, (bridgeOptions) =>
       clipboardBridge().then((bridge) => bridge.read(bridgeOptions)),
     );
   },
-  /** Writes text through the `windows.clipboard.write` action pipeline. */
+  /**
+   * Writes text through the `windows.clipboard.write` action pipeline.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
   write(text: string, options?: ActionOptions): Promise<ClipboardText> {
     return runAction(options, (bridgeOptions) =>
       clipboardBridge().then((bridge) => bridge.write(text, bridgeOptions)),

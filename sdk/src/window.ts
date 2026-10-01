@@ -1,4 +1,10 @@
 import { runAction, type ActionOptions, type NativeActionOptions } from "./action";
+import type { ProcessId } from "./process";
+
+export type Brand<K, T> = K & { readonly __brand: T };
+
+/** Stable window id issued by the UI-lane registry (never a raw HWND). */
+export type WindowId = Brand<number, "WindowId">;
 
 export type WindowPlacement = "left" | "right" | "top" | "bottom" | "full";
 
@@ -13,7 +19,7 @@ export interface WindowRect {
 
 /** Snapshot returned by every window read and mutation (window-v1 snapshot). */
 export interface WindowHandle {
-  id: number;
+  id: WindowId;
   title: string;
   /** Win32 class name, e.g. "Static" or "CabinetWClass". */
   className: string;
@@ -23,16 +29,20 @@ export interface WindowHandle {
   visible: boolean;
   minimized: boolean;
   state: WindowState;
-  processId: number;
+  processId: ProcessId;
 }
 
 /** WinTitle-style selector fields shared by reads (window-v1 query). */
 export interface WindowQueryFields {
+  /** Case-insensitive substring (`contains`) or exact (`exact`) title match. */
   title?: string;
   matchMode?: "exact" | "contains";
+  /** Case-insensitive Win32 class-name match. */
   ahkClass?: string;
+  /** Case-insensitive match against the process image basename only. */
   ahkExe?: string;
-  ahkId?: number | string;
+  ahkId?: WindowId | string;
+  /** When true, hidden windows are included — still-unheaded (title-less) windows stay filtered. */
   includeHidden?: boolean;
   /** Selects the foreground window (same as `title: "A"`). */
   active?: boolean;
@@ -46,20 +56,20 @@ export interface WindowsBridge {
   list(options?: WindowsListOptions): Promise<WindowHandle[]>;
   /** Resolves null when no window is foreground. */
   active(options?: NativeActionOptions): Promise<WindowHandle | null>;
-  info(windowId: number, options?: NativeActionOptions): Promise<WindowHandle>;
+  info(windowId: WindowId, options?: NativeActionOptions): Promise<WindowHandle>;
   /** `target` is a window id or the string "active". */
   move(
-    target: number | "active",
+    target: WindowId | "active",
     position: WindowPlacement,
     options?: NativeActionOptions,
   ): Promise<WindowHandle>;
-  focus(target: number | "active", options?: NativeActionOptions): Promise<WindowHandle>;
-  close(target: number | "active", options?: NativeActionOptions): Promise<WindowHandle>;
-  hide(target: number | "active", options?: NativeActionOptions): Promise<WindowHandle>;
-  show(target: number | "active", options?: NativeActionOptions): Promise<WindowHandle>;
-  minimize(target: number | "active", options?: NativeActionOptions): Promise<WindowHandle>;
-  maximize(target: number | "active", options?: NativeActionOptions): Promise<WindowHandle>;
-  restore(target: number | "active", options?: NativeActionOptions): Promise<WindowHandle>;
+  focus(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
+  close(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
+  hide(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
+  show(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
+  minimize(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
+  maximize(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
+  restore(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
 }
 
 async function windowBridge(): Promise<WindowsBridge> {
@@ -80,8 +90,8 @@ export interface ActiveWindowRequest {
 }
 
 function mutation(
-  pick: (bridge: WindowsBridge) => (target: number | "active", options?: NativeActionOptions) => Promise<WindowHandle>,
-): (target: number, options?: ActionOptions) => Promise<WindowHandle> {
+  pick: (bridge: WindowsBridge) => (target: WindowId | "active", options?: NativeActionOptions) => Promise<WindowHandle>,
+): (target: WindowId, options?: ActionOptions) => Promise<WindowHandle> {
   return (target, options) =>
     runAction(options, (native) => windowBridge().then((windows) => pick(windows)(target, native)));
 }
@@ -124,18 +134,34 @@ export const Window = {
         ),
     };
   },
-  move(windowId: number, position: WindowPlacement, options?: ActionOptions): Promise<WindowHandle> {
+  /**
+   * Moves a window through the `window.move` action pipeline.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
+  move(windowId: WindowId, position: WindowPlacement, options?: ActionOptions): Promise<WindowHandle> {
     return runAction(options, (native) =>
       windowBridge().then((windows) => windows.move(windowId, position, native)),
     );
   },
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
   focus: mutation((windows) => windows.focus),
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
   close: mutation((windows) => windows.close),
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
   hide: mutation((windows) => windows.hide),
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
   show: mutation((windows) => windows.show),
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
   minimize: mutation((windows) => windows.minimize),
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
   maximize: mutation((windows) => windows.maximize),
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
   restore: mutation((windows) => windows.restore),
+  /**
+   * Lists windows matching the query (window-v1 query; `schemaVersion` stays
+   * in the vocabulary and never goes on the wire).
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
   list(query?: WindowQueryFields & ActionOptions): Promise<WindowHandle[]> {
     // `signal` never reaches the wire; it is converted to a cancellation id.
     const { signal: _signal, ...fields } = query ?? {};
@@ -143,7 +169,11 @@ export const Window = {
       windowBridge().then((windows) => windows.list({ ...fields, ...native })),
     );
   },
-  info(windowId: number, options?: ActionOptions): Promise<WindowHandle> {
+  /**
+   * Reads one window snapshot by id.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
+  info(windowId: WindowId, options?: ActionOptions): Promise<WindowHandle> {
     return runAction(options, (native) =>
       windowBridge().then((windows) => windows.info(windowId, native)),
     );

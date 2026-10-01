@@ -21,7 +21,7 @@ The root `package.json`, `bunfig.toml`, `tsconfig.json` and `rime.config.ts` (si
 
 QuickJS-ng is pinned to `v0.17.0` (`6d46d07d04041b40f4f49eaa7fdebe44c314c699`) and is enabled with the `quickjs` CMake preset. The default `dev` preset keeps network-fetched engine dependencies disabled so core validation remains offline and repeatable.
 
-`bun run quickjs:test` builds the QuickJS integration suite (`engine/js`, `engine/win32/js`, `tests/js`) in `build/quickjs`; the first run fetches the pinned QuickJS-ng source over the network. `bun run test` runs this suite together with the contract, TypeScript and MSVC checks.
+`bun run quickjs:test` builds the QuickJS integration suite (`engine/js`, `engine/win32/js`, `tests/js`) in `build/quickjs`; the first run fetches the pinned QuickJS-ng source over the network. `bun run test` runs this suite together with the contract, TypeScript and MSVC checks. Slice/JS tests require `--preset quickjs` (msvc/dev presets keep QuickJS disabled).
 
 TypeScript applications are built with `bun run ts:build`. The output remains an ES module and imports the native `rime:runtime` module; it is not executed by Bun. `bun run ts:quickjs` builds the QuickJS preset and hands the Rim bundle to `rime_js_bundle`, which registers the `rime:*` native modules the SDK imports (`runtime`, `window`, `input`, `process`, `clipboard`), runs the bundle on a dedicated JS Thread in `rime::js::Runtime`, settles pending tasks, surfaces async failures through `globalThis.__rim_failure`, and verifies deterministic shutdown. `bun run test` includes this path.
 

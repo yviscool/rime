@@ -90,7 +90,9 @@ int main() {
   assert(service.info(id, resized).ok());
   assert(resized.rect == target);
 
-  // focus: foreground-lock denial is acceptable, stale ids are not.
+  // focus is a weak assertion by necessity: SetForegroundWindow may refuse
+  // while another window owns the foreground (interactive/CI dependent), so
+  // a foreground-lock ExecutionFailed is acceptable; stale ids are not.
   const auto focus_result = service.focus(id);
   assert(focus_result.ok() ||
          focus_result.code == rime::core::Error::Code::ExecutionFailed);
@@ -212,7 +214,9 @@ int main() {
   WindowInfo gone;
   assert(service.info(close_id, gone).code == rime::core::Error::Code::InvalidState);
 
-  // active() resolves to a live, inspectable window.
+  // active() is a weak assertion by necessity: there may be no foreground
+  // window at all (headless/locked session), so only a present value must
+  // resolve to a live, inspectable window.
   std::optional<WindowInfo> active;
   assert(service.active(active).ok());
   if (active.has_value()) {
@@ -266,21 +270,102 @@ int main() {
   }();
   assert(started_entries == 1);
 
-  // Capability denial happens before the executor runs.
+  // The executor dispatches every other write type through the kernel: each
+  // resolves a snapshot and round-trips the visible state machine. focus is
+  // weak (foreground-lock denial is environment-dependent, see above).
+  const auto run_window_action = [&](const char* type, const std::string& payload,
+                                     std::uint64_t action_id) {
+    rime::action::Action action = move_action;
+    action.id = action_id;
+    action.type = type;
+    action.payload = payload;
+    return kernel.execute(action);
+  };
+  const auto focus_executed = run_window_action("window.focus", "{}", 6);
+  assert(focus_executed.succeeded ||
+         focus_executed.error.code == rime::core::Error::Code::ExecutionFailed);
+
+  const auto hide_executed = run_window_action("window.hide", "{}", 7);
+  assert(hide_executed.succeeded);
+  assert(hide_executed.value.is_object());
+  WindowInfo executor_hidden;
+  const auto hidden_info = service.info(id, executor_hidden);
+  assert(hidden_info.ok());
+  assert(executor_hidden.state == "hidden");
+
+  const auto show_executed = run_window_action("window.show", "{}", 8);
+  assert(show_executed.succeeded);
+  assert(show_executed.value.is_object());
+  WindowInfo executor_shown;
+  const auto shown_info = service.info(id, executor_shown);
+  assert(shown_info.ok());
+  assert(executor_shown.state == "normal");
+
+  const auto minimize_executed = run_window_action("window.minimize", "{}", 9);
+  assert(minimize_executed.succeeded);
+  assert(minimize_executed.value.is_object());
+  WindowInfo executor_minimized;
+  const auto minimized_info = service.info(id, executor_minimized);
+  assert(minimized_info.ok());
+  assert(executor_minimized.state == "minimized");
+
+  const auto restore_executed = run_window_action("window.restore", "{}", 10);
+  assert(restore_executed.succeeded);
+  assert(restore_executed.value.is_object());
+  WindowInfo executor_restored;
+  const auto restored_info = service.info(id, executor_restored);
+  assert(restored_info.ok());
+  assert(executor_restored.state == "normal");
+
+  const auto maximize_executed = run_window_action("window.maximize", "{}", 11);
+  assert(maximize_executed.succeeded);
+  assert(maximize_executed.value.is_object());
+  WindowInfo executor_maximized;
+  const auto maximized_info = service.info(id, executor_maximized);
+  assert(maximized_info.ok());
+  assert(executor_maximized.state == "maximized");
+
+  const auto restore_again = run_window_action("window.restore", "{}", 12);
+  assert(restore_again.succeeded);
+  WindowInfo executor_normal;
+  const auto normal_info = service.info(id, executor_normal);
+  assert(normal_info.ok());
+  assert(executor_normal.state == "normal");
+
+  // Capability denial happens before the executor runs: every registered
+  // type is refused once under an empty policy and the window is untouched
+  // (denial precedes dispatch, so even window.close is side-effect free).
+  WindowInfo before_denied;
+  const auto denied_snapshot = service.info(id, before_denied);
+  assert(denied_snapshot.ok());
   rime::action::Kernel denied(
       std::make_shared<rime::action::StaticCapabilityPolicy>(
           std::unordered_set<std::string>{}),
       trace);
-  assert(denied
-             .register_executor("window.move",
-                                std::make_shared<rime::win32::WindowExecutor>(service))
-             .ok());
-  const auto denied_result = denied.execute(move_action);
-  assert(!denied_result.succeeded);
-  assert(denied_result.error.code == rime::core::Error::Code::CapabilityDenied);
+  constexpr const char* kDeniedTypes[] = {"window.move",  "window.focus",    "window.close",
+                                          "window.hide",  "window.show",     "window.minimize",
+                                          "window.maximize", "window.restore"};
+  for (const char* type : kDeniedTypes) {
+    const auto registered = denied.register_executor(type, window_executor);
+    assert(registered.ok());
+  }
+  std::uint64_t denied_id = 20;
+  for (const char* type : kDeniedTypes) {
+    rime::action::Action refused_action = move_action;
+    refused_action.id = denied_id++;
+    refused_action.type = type;
+    refused_action.payload =
+        std::string(type) == "window.move" ? R"({"position":"left"})" : "{}";
+    const auto refused = denied.execute(refused_action);
+    assert(!refused.succeeded);
+    assert(refused.error.code == rime::core::Error::Code::CapabilityDenied);
+  }
   WindowInfo unchanged;
-  assert(service.info(id, unchanged).ok());
-  assert(unchanged.rect == left_half);
+  const auto unchanged_info = service.info(id, unchanged);
+  assert(unchanged_info.ok());
+  assert(unchanged.rect == before_denied.rect);
+  assert(unchanged.state == before_denied.state);
+  assert(unchanged.visible == before_denied.visible);
 
   // Malformed payload and unknown placement fail the contract check.
   rime::action::Action bad_payload = move_action;

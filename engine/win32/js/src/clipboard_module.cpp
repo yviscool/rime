@@ -37,18 +37,19 @@ JSValue clipboard_read(JSContext* context, JSValueConst, int argc, JSValueConst*
   ClipboardService* service = binding->service;
   return start_async(
       context,
-      [kernel, service]() -> std::pair<bool, std::string> {
+      [kernel, service]() -> AsyncOutcome {
         if (!kernel->allows(kClipboardReadCapability)) {
-          return {false, std::string("required capability was not granted: ") +
-                             kClipboardReadCapability};
+          return async_failure("capability_denied",
+                               std::string("required capability was not granted: ") +
+                                   kClipboardReadCapability);
         }
         std::string text;
         if (const auto error = service->read_text(text); !error.ok()) {
-          return {false, error.message};
+          return async_failure(error);
         }
         json::Value value = json::Value::object();
         value.set("text", json::Value::string(text));
-        return {true, json::stringify(value)};
+        return async_success(json::stringify(value));
       },
       options.cancellation_id);
 }
@@ -95,7 +96,11 @@ int clipboard_module_init(JSContext* context, JSModuleDef* module) {
       JS_FreeValue(context, clipboard);
       return false;
     }
-    JS_SetPropertyStr(context, clipboard, name, fn);
+    // JS_SetPropertyStr consumes `fn` on both success and failure.
+    if (JS_SetPropertyStr(context, clipboard, name, fn) < 0) {
+      JS_FreeValue(context, clipboard);
+      return false;
+    }
     return true;
   };
   if (!add("read", clipboard_read, 0) || !add("write", clipboard_write, 1)) {

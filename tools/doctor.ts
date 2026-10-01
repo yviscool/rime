@@ -20,6 +20,12 @@ const quickjs_cache = existsSync("build/quickjs/_deps/quickjs_ng-src/quickjs.h")
 const contracts = [
   "contracts/schema/action-v1.schema.json",
   "contracts/schema/result-v1.schema.json",
+  "contracts/schema/window-v1.schema.json",
+  "contracts/schema/examples/action-v1.json",
+  "contracts/schema/examples/result-v1.json",
+  "contracts/schema/examples/window-v1.json",
+  "contracts/schema/examples/window-v1-snapshot.json",
+  "contracts/schema/examples/window-v1-move-payload.json",
 ];
 
 if (!cmake) problems.push("CMake 3.24+ not found (set RIME_CMAKE)");

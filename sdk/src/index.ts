@@ -27,3 +27,4 @@ export * from "./window";
 export * from "./input";
 export * from "./process";
 export * from "./clipboard";
+export * from "./contracts";

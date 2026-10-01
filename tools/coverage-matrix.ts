@@ -52,7 +52,12 @@ const required: Array<keyof CoverageEntry> = [
 ];
 
 function escape_cell(value: string): string {
+  // Input assumption: plain cell text without pre-escaped pipes; only `|` is escaped.
   return value.replace(/\|/g, "\\|");
+}
+
+function normalize_newlines(value: string): string {
+  return value.replace(/\r\n/g, "\n");
 }
 
 async function render(): Promise<string> {
@@ -98,7 +103,7 @@ async function render(): Promise<string> {
     );
   }
   lines.push("");
-  return lines.join("\n");
+  return normalize_newlines(lines.join("\n"));
 }
 
 const expected = await render();
@@ -109,11 +114,11 @@ if (write) {
 } else {
   let actual = "";
   try {
-    actual = await readFile(matrix_path, "utf8");
+    actual = normalize_newlines(await readFile(matrix_path, "utf8"));
   } catch {
     actual = "";
   }
-  if (actual !== expected) {
+  if (normalize_newlines(actual) !== normalize_newlines(expected)) {
     console.error("docs/api/compatibility-matrix.md is stale; run: bun tools/coverage-matrix.ts --write");
     process.exit(1);
   }

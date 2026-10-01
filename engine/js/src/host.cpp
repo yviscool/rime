@@ -3,6 +3,7 @@
 #include "rime/core/json.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <string>
 #include <utility>
 
@@ -15,10 +16,60 @@ Host* host_of(JSContext* context) {
   return static_cast<Host*>(JS_GetContextOpaque(context));
 }
 
-JSValue make_error_value(JSContext* context, const std::string& message) {
+JSValue make_error_value(JSContext* context, const std::string& code,
+                           const std::string& message) {
+  // Builds the rejection reason: an Error carrying both `message` and the
+  // kernel-style `code` name (see rime::core::error_code_name). Property
+  // installation can fail under OOM; the failure is swallowed here on purpose
+  // so the caller still invokes the reject handler with a degraded reason
+  // instead of dropping the rejection.
   JSValue error = JS_NewError(context);
-  JS_SetPropertyStr(context, error, "message", JS_NewString(context, message.c_str()));
+  if (JS_IsException(error)) {
+    JSValue fallback = JS_NewString(context, message.c_str());
+    if (JS_IsException(fallback)) return JS_UNDEFINED;
+    return fallback;
+  }
+  JSValue message_value = JS_NewString(context, message.c_str());
+  if (!JS_IsException(message_value)) {
+    // SetProperty/DefineProperty consume the value on both success and
+    // failure; a failure only leaves a pending exception behind, which is
+    // fetched and dropped so later JS calls start clean.
+    if (JS_DefinePropertyValueStr(context, error, "message", message_value,
+                                  JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) < 0) {
+      JSValue pending = JS_GetException(context);
+      JS_FreeValue(context, pending);
+    }
+  }
+  JSValue code_value = JS_NewString(context, code.c_str());
+  if (!JS_IsException(code_value)) {
+    if (JS_SetPropertyStr(context, error, "code", code_value) < 0) {
+      JSValue pending = JS_GetException(context);
+      JS_FreeValue(context, pending);
+    }
+  }
   return error;
+}
+
+// Strict JS number -> int64 for cancellation/subscription ids: non-numbers,
+// NaN/Infinity, fractions and out-of-range values raise a TypeError.
+bool strict_id(JSContext* context, JSValueConst value, int64_t& out, const char* what) {
+  if (!JS_IsNumber(value)) {
+    JS_ThrowTypeError(context, "%s: id must be a number", what);
+    return false;
+  }
+  double number = 0;
+  if (JS_ToFloat64(context, &number, value)) return false;
+  if (!std::isfinite(number) || std::trunc(number) != number) {
+    JS_ThrowTypeError(context, "%s: id must be an integer", what);
+    return false;
+  }
+  constexpr double kMaxSafeInteger = 9007199254740991.0;  // 2^53 - 1
+  if (number < -kMaxSafeInteger || number > kMaxSafeInteger) {
+    JS_ThrowTypeError(context, "%s: id is out of range", what);
+    return false;
+  }
+  if (JS_ToInt64(context, &out, value)) return false;
+  return true;
 }
 
 void call_handler(JSContext* context, JSValue handler, JSValue argument) {
@@ -46,7 +97,9 @@ JSValue runtime_delay(JSContext* context, JSValueConst, int argc, JSValueConst* 
   std::uint64_t cancellation_id = 0;
   if (argc >= 3 && !JS_IsUndefined(argv[2]) && !JS_IsNull(argv[2])) {
     int64_t raw_id = 0;
-    if (JS_ToInt64(context, &raw_id, argv[2])) return JS_EXCEPTION;
+    if (!strict_id(context, argv[2], raw_id, "delay(milliseconds, value[, cancellationId])")) {
+      return JS_EXCEPTION;
+    }
     if (raw_id > 0) cancellation_id = static_cast<std::uint64_t>(raw_id);
   }
   JSValue json_value = JS_JSONStringify(context, argv[1], JS_UNDEFINED, JS_UNDEFINED);
@@ -77,7 +130,12 @@ JSValue runtime_cancel(JSContext* context, JSValueConst, int argc, JSValueConst*
   Host* host = host_of(context);
   if (!host) return JS_ThrowInternalError(context, "runtime host is gone");
   int64_t raw_id = 0;
-  if (argc < 1 || JS_ToInt64(context, &raw_id, argv[0])) return JS_EXCEPTION;
+  if (argc < 1 || !strict_id(context, argv[0], raw_id, "cancel(cancellationId)")) {
+    return JS_EXCEPTION;
+  }
+  // Cancellation ids start at 1; non-positive values can never exist, so fail
+  // explicitly instead of letting the cast below wrap into a huge id.
+  if (raw_id <= 0) return JS_NewBool(context, 0);
   return JS_NewBool(context, host->cancel_by_id(static_cast<std::uint64_t>(raw_id)));
 }
 
@@ -86,7 +144,10 @@ JSValue runtime_release_cancellation(JSContext* context, JSValueConst, int argc,
   Host* host = host_of(context);
   if (!host) return JS_ThrowInternalError(context, "runtime host is gone");
   int64_t raw_id = 0;
-  if (argc < 1 || JS_ToInt64(context, &raw_id, argv[0])) return JS_EXCEPTION;
+  if (argc < 1 || !strict_id(context, argv[0], raw_id, "releaseCancellation(cancellationId)")) {
+    return JS_EXCEPTION;
+  }
+  if (raw_id <= 0) return JS_NewBool(context, 0);
   return JS_NewBool(context, host->release_cancellation(static_cast<std::uint64_t>(raw_id)));
 }
 
@@ -107,7 +168,10 @@ JSValue runtime_unsubscribe(JSContext* context, JSValueConst, int argc, JSValueC
   Host* host = host_of(context);
   if (!host) return JS_ThrowInternalError(context, "runtime host is gone");
   int64_t raw_id = 0;
-  if (argc < 1 || JS_ToInt64(context, &raw_id, argv[0])) return JS_EXCEPTION;
+  if (argc < 1 || !strict_id(context, argv[0], raw_id, "unsubscribe(subscriptionId)")) {
+    return JS_EXCEPTION;
+  }
+  if (raw_id <= 0) return JS_NewBool(context, 0);
   return JS_NewBool(context, host->remove_callback(static_cast<std::uint64_t>(raw_id)).ok());
 }
 
@@ -120,22 +184,31 @@ JSValue runtime_inspect(JSContext* context, JSValueConst, int, JSValueConst*) {
 
 int runtime_module_init(JSContext* context, JSModuleDef* module) {
   JSValue object = JS_NewObject(context);
-  JS_SetPropertyStr(context, object, "ping", JS_NewCFunction(context, runtime_ping, "ping", 0));
-  JS_SetPropertyStr(context, object, "delay",
-                    JS_NewCFunction(context, runtime_delay, "delay", 3));
-  JS_SetPropertyStr(context, object, "cancellation",
-                    JS_NewCFunction(context, runtime_cancellation, "cancellation", 0));
-  JS_SetPropertyStr(context, object, "cancel",
-                    JS_NewCFunction(context, runtime_cancel, "cancel", 1));
-  JS_SetPropertyStr(context, object, "releaseCancellation",
-                    JS_NewCFunction(context, runtime_release_cancellation,
-                                     "releaseCancellation", 1));
-  JS_SetPropertyStr(context, object, "subscribe",
-                    JS_NewCFunction(context, runtime_subscribe, "subscribe", 1));
-  JS_SetPropertyStr(context, object, "unsubscribe",
-                    JS_NewCFunction(context, runtime_unsubscribe, "unsubscribe", 1));
-  JS_SetPropertyStr(context, object, "inspect",
-                    JS_NewCFunction(context, runtime_inspect, "inspect", 0));
+  if (JS_IsException(object)) return -1;
+  auto set = [&](const char* name, JSValue value) -> bool {
+    if (JS_IsException(value)) {
+      JS_FreeValue(context, value);
+      JS_FreeValue(context, object);
+      return false;
+    }
+    // JS_SetPropertyStr consumes `value` on both success and failure.
+    if (JS_SetPropertyStr(context, object, name, value) < 0) {
+      JS_FreeValue(context, object);
+      return false;
+    }
+    return true;
+  };
+  if (!set("ping", JS_NewCFunction(context, runtime_ping, "ping", 0)) ||
+      !set("delay", JS_NewCFunction(context, runtime_delay, "delay", 3)) ||
+      !set("cancellation", JS_NewCFunction(context, runtime_cancellation, "cancellation", 0)) ||
+      !set("cancel", JS_NewCFunction(context, runtime_cancel, "cancel", 1)) ||
+      !set("releaseCancellation",
+           JS_NewCFunction(context, runtime_release_cancellation, "releaseCancellation", 1)) ||
+      !set("subscribe", JS_NewCFunction(context, runtime_subscribe, "subscribe", 1)) ||
+      !set("unsubscribe", JS_NewCFunction(context, runtime_unsubscribe, "unsubscribe", 1)) ||
+      !set("inspect", JS_NewCFunction(context, runtime_inspect, "inspect", 0))) {
+    return -1;
+  }
   return JS_SetModuleExport(context, module, "runtime", object);
 }
 
@@ -205,15 +278,23 @@ Host::~Host() {
       for (auto& [id, callback] : callbacks_) JS_FreeValue(context_, callback);
       callbacks_.clear();
     }
+    // Settle outstanding promises before releasing their handles so JS
+    // observers see a rejection instead of a promise that never settles.
+    // Entries are moved out first so user code re-entering the host during
+    // the reject handlers cannot deadlock on async_mutex_.
+    std::vector<Pending> abandoned;
     {
       std::lock_guard lock(async_mutex_);
-      for (auto& entry : pending_) {
-        JS_FreeValue(context_, entry.resolve);
-        JS_FreeValue(context_, entry.reject);
-      }
-      pending_.clear();
+      abandoned.swap(pending_);
       completions_.clear();
       delay_timers_.clear();
+    }
+    for (auto& entry : abandoned) {
+      JSValue reason = make_error_value(context_, "cancelled", "shutdown");
+      call_handler(context_, entry.reject, reason);
+      JS_FreeValue(context_, reason);
+      JS_FreeValue(context_, entry.resolve);
+      JS_FreeValue(context_, entry.reject);
     }
     JS_FreeContext(context_);
     context_ = nullptr;
@@ -408,6 +489,9 @@ void Host::reject_async(const std::uint64_t token, std::string message) {
 }
 
 bool Host::cancel_by_id(const std::uint64_t cancellation_id) {
+  // Ids start at 1; 0 (and anything produced by wrapping a negative JS
+  // number) can never exist.
+  if (cancellation_id == 0) return false;
   {
     std::lock_guard lock(cancellation_mutex_);
     const auto found = cancellations_.find(cancellation_id);
@@ -426,10 +510,13 @@ void Host::schedule_delay(const std::uint64_t token, const std::uint32_t ms,
                           std::string value) {
   const std::uint64_t timer_id = timer_.schedule(
       std::chrono::milliseconds(ms),
+      // Ownership: captures `this` raw; TimerService::stop() in ~Host joins
+      // pending callbacks, so the host outlives the task.
       [this, token, value = std::move(value)] { complete_async(token, true, value); });
   std::lock_guard lock(async_mutex_);
   if (timer_id == 0) {
-    completions_.push_back({token, 0, CompletionKind::Reject, "timer service is stopping"});
+    completions_.push_back(
+        {token, 0, CompletionKind::Reject, "invalid_state:timer service is stopping"});
     return;
   }
   delay_timers_[token] = timer_id;
@@ -438,12 +525,13 @@ void Host::schedule_delay(const std::uint64_t token, const std::uint32_t ms,
 void Host::schedule_task(const std::uint64_t token, const std::chrono::milliseconds delay,
                          std::function<void()> task) {
   const std::uint64_t timer_id = timer_.schedule(delay, [this, token, task = std::move(task)] {
+    // Ownership: captures `this` raw; see schedule_delay above.
     try {
       task();
     } catch (const std::exception& exception) {
-      complete_async(token, false, exception.what());
+      complete_async(token, false, std::string("execution_failed:") + exception.what());
     } catch (...) {
-      complete_async(token, false, "native task failed");
+      complete_async(token, false, "execution_failed:native task failed");
     }
   });
   {
@@ -452,7 +540,8 @@ void Host::schedule_task(const std::uint64_t token, const std::chrono::milliseco
       delay_timers_[token] = timer_id;
       return;
     }
-    completions_.push_back({token, 0, CompletionKind::Reject, "timer service is stopping"});
+    completions_.push_back(
+        {token, 0, CompletionKind::Reject, "invalid_state:timer service is stopping"});
   }
   wake();
 }
@@ -465,6 +554,8 @@ std::size_t Host::pending_async() const {
 std::uint64_t Host::create_cancellation() {
   std::lock_guard lock(cancellation_mutex_);
   const std::uint64_t id = next_cancellation_++;
+  // NOTE: cancellations_ has no eviction; every id created here must be paired
+  // with release_cancellation by the caller or the map grows without bound.
   cancellations_.emplace(id, rime::core::CancellationSource{});
   return id;
 }
@@ -642,7 +733,7 @@ void Host::apply_completion(const Completion& completion) {
     }
     for (const auto& item : cancelled) {
       if (item.timer_id != 0) timer_.cancel(item.timer_id);
-      JSValue reason = make_error_value(context_, "cancelled");
+      JSValue reason = make_error_value(context_, "cancelled", "cancelled");
       call_handler(context_, item.entry.reject, reason);
       JS_FreeValue(context_, reason);
       JS_FreeValue(context_, item.entry.resolve);
@@ -668,7 +759,23 @@ void Host::apply_completion(const Completion& completion) {
   if (!found) return;
 
   if (completion.kind == CompletionKind::Reject) {
-    JSValue reason = make_error_value(context_, completion.value);
+    // Native failures arrive framed as "code:message" (see AsyncOutcome);
+    // anything else keeps its full text and defaults to "execution_failed".
+    // The prefix must be an exact error_code_name or it is treated as text,
+    // so messages containing ':' can never spoof a code.
+    std::string code = "execution_failed";
+    std::string message = completion.value;
+    if (const auto colon = completion.value.find(':'); colon != std::string::npos) {
+      rime::core::Error::Code parsed = rime::core::Error::Code::ExecutionFailed;
+      if (rime::core::error_code_from_name(
+              std::string_view(completion.value.data(), colon), parsed)) {
+        code = std::string(completion.value.data(), colon);
+        message = completion.value.substr(colon + 1);
+      }
+    }
+    JSValue reason = make_error_value(context_, code, message);
+    // The rejection is always delivered: make_error_value never returns an
+    // exception (worst case the handler observes undefined under OOM).
     call_handler(context_, entry.reject, reason);
     JS_FreeValue(context_, reason);
     JS_FreeValue(context_, entry.resolve);
@@ -677,7 +784,7 @@ void Host::apply_completion(const Completion& completion) {
   }
 
   if (entry.cancellation_id != 0 && is_cancelled(entry.cancellation_id)) {
-    JSValue reason = make_error_value(context_, "cancelled");
+    JSValue reason = make_error_value(context_, "cancelled", "cancelled");
     call_handler(context_, entry.reject, reason);
     JS_FreeValue(context_, reason);
     JS_FreeValue(context_, entry.resolve);

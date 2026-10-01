@@ -7,7 +7,10 @@
 #include "async_task.hpp"
 #include "quickjs.h"
 
+#include <charconv>
+#include <cstdint>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -26,11 +29,12 @@ WindowModuleBinding* binding_of(JSContext* context) {
 }
 
 // Reads an optional string property; returns false (with a TypeError raised)
-// when present but not a string. Missing/undefined leaves `out` untouched.
+// when present but not a string. Missing/undefined/null leaves `out`
+// untouched.
 bool optional_string(JSContext* context, JSValueConst object, const char* name, std::string& out) {
   JSValue property = JS_GetPropertyStr(context, object, name);
   if (JS_IsException(property)) return false;
-  if (!JS_IsUndefined(property)) {
+  if (!JS_IsUndefined(property) && !JS_IsNull(property)) {
     if (!JS_IsString(property)) {
       JS_FreeValue(context, property);
       JS_ThrowTypeError(context, "%s must be a string", name);
@@ -51,7 +55,7 @@ bool optional_string(JSContext* context, JSValueConst object, const char* name, 
 bool optional_bool(JSContext* context, JSValueConst object, const char* name, bool& out) {
   JSValue property = JS_GetPropertyStr(context, object, name);
   if (JS_IsException(property)) return false;
-  if (!JS_IsUndefined(property)) {
+  if (!JS_IsUndefined(property) && !JS_IsNull(property)) {
     if (!JS_IsBool(property)) {
       JS_FreeValue(context, property);
       JS_ThrowTypeError(context, "%s must be a boolean", name);
@@ -81,7 +85,7 @@ bool parse_window_query(JSContext* context, JSValueConst value, WindowQuery& out
   }
   JSValue mode = JS_GetPropertyStr(context, value, "matchMode");
   if (JS_IsException(mode)) return false;
-  if (!JS_IsUndefined(mode)) {
+  if (!JS_IsUndefined(mode) && !JS_IsNull(mode)) {
     if (!JS_IsString(mode)) {
       JS_FreeValue(context, mode);
       JS_ThrowTypeError(context, "matchMode must be 'exact' or 'contains'");
@@ -97,6 +101,7 @@ bool parse_window_query(JSContext* context, JSValueConst value, WindowQuery& out
     if (mode_text == "exact") {
       out.exact_title = true;
     } else if (mode_text != "contains") {
+      JS_FreeValue(context, mode);
       JS_ThrowTypeError(context, "matchMode must be 'exact' or 'contains'");
       return false;
     }
@@ -104,10 +109,10 @@ bool parse_window_query(JSContext* context, JSValueConst value, WindowQuery& out
   JS_FreeValue(context, mode);
   JSValue ahk_id = JS_GetPropertyStr(context, value, "ahkId");
   if (JS_IsException(ahk_id)) return false;
-  if (!JS_IsUndefined(ahk_id)) {
+  if (!JS_IsUndefined(ahk_id) && !JS_IsNull(ahk_id)) {
     if (JS_IsNumber(ahk_id)) {
       int64_t raw = 0;
-      if (JS_ToInt64(context, &raw, ahk_id)) {
+      if (!js_int64_strict(context, ahk_id, raw, "ahkId")) {
         JS_FreeValue(context, ahk_id);
         return false;
       }
@@ -125,12 +130,19 @@ bool parse_window_query(JSContext* context, JSValueConst value, WindowQuery& out
       }
       const std::string id_text(text);
       JS_FreeCString(context, text);
-      if (id_text.empty() || id_text.find_first_not_of("0123456789") != std::string::npos) {
+      // Strict digits via from_chars (same rule as window_executor's
+      // parse_window_id): rejects empty/non-digits/overflow, and "0"/"00"
+      // parse to 0 so they are refused like numeric 0.
+      std::uint64_t parsed = 0;
+      const char* begin = id_text.data();
+      const char* end = begin + id_text.size();
+      const auto converted = std::from_chars(begin, end, parsed);
+      if (converted.ec != std::errc{} || converted.ptr != end || parsed == 0) {
         JS_FreeValue(context, ahk_id);
         JS_ThrowTypeError(context, "ahkId must be a positive window id");
         return false;
       }
-      out.id = std::stoull(id_text);
+      out.id = parsed;
     } else {
       JS_FreeValue(context, ahk_id);
       JS_ThrowTypeError(context, "ahkId must be a window id");
@@ -154,27 +166,30 @@ JSValue run_window_read(JSContext* context, std::uint64_t cancellation_id,
   const auto timeout = std::chrono::milliseconds(deadline_ms);
   return start_async(
       context,
-      [kernel, service, query, use_query, timeout]() -> std::pair<bool, std::string> {
+      [kernel, service, query, use_query, timeout]() -> AsyncOutcome {
+        // Ownership: kernel/service (raw) outlive the host; the task always
+        // settles its promise, so no outcome is dropped.
         if (!kernel->allows(kWindowReadCapability)) {
-          return {false, std::string("required capability was not granted: ") +
-                             kWindowReadCapability};
+          return async_failure("capability_denied",
+                               std::string("required capability was not granted: ") +
+                                   kWindowReadCapability);
         }
         if (use_query) {
           std::vector<WindowInfo> windows;
           if (const auto error = service->query(query, windows, timeout); !error.ok()) {
-            return {false, error.message};
+            return async_failure(error);
           }
           json::Value array = json::Value::array();
           for (const auto& window : windows) array.push(window_info_json(window));
-          return {true, json::stringify(array)};
+          return async_success(json::stringify(array));
         }
         std::vector<WindowInfo> windows;
         if (const auto error = service->list(windows, timeout); !error.ok()) {
-          return {false, error.message};
+          return async_failure(error);
         }
         json::Value array = json::Value::array();
         for (const auto& window : windows) array.push(window_info_json(window));
-        return {true, json::stringify(array)};
+        return async_success(json::stringify(array));
       },
       cancellation_id);
 }
@@ -204,23 +219,26 @@ JSValue windows_active(JSContext* context, JSValueConst, int argc, JSValueConst*
   }
   if (argc > 1) return JS_ThrowTypeError(context, "active(options?)");
   ActionOptions options;
+  // NOTE: unknown options fields are ignored here; only the shared
+  // ActionOptions (deadlineMs/cancellationId/...) are consumed.
   if (argc == 1 && !parse_action_options(context, argv[0], options)) return JS_EXCEPTION;
   rime::action::Kernel* kernel = binding->kernel;
   WindowService* service = binding->service;
   const auto timeout = std::chrono::milliseconds(options.deadline_ms);
   return start_async(
       context,
-      [kernel, service, timeout]() -> std::pair<bool, std::string> {
+      [kernel, service, timeout]() -> AsyncOutcome {
         if (!kernel->allows(kWindowReadCapability)) {
-          return {false, std::string("required capability was not granted: ") +
-                             kWindowReadCapability};
+          return async_failure("capability_denied",
+                               std::string("required capability was not granted: ") +
+                                   kWindowReadCapability);
         }
         std::optional<WindowInfo> active;
         if (const auto error = service->active(active, timeout); !error.ok()) {
-          return {false, error.message};
+          return async_failure(error);
         }
-        if (!active.has_value()) return {true, "null"};
-        return {true, json::stringify(window_info_json(*active))};
+        if (!active.has_value()) return async_success("null");
+        return async_success(json::stringify(window_info_json(*active)));
       },
       options.cancellation_id);
 }
@@ -233,7 +251,7 @@ JSValue windows_info(JSContext* context, JSValueConst, int argc, JSValueConst* a
   }
   if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "info(windowId, options?)");
   int64_t raw_id = 0;
-  if (JS_ToInt64(context, &raw_id, argv[0])) return JS_EXCEPTION;
+  if (!js_int64_strict(context, argv[0], raw_id, "info(windowId)")) return JS_EXCEPTION;
   if (raw_id <= 0) return JS_ThrowTypeError(context, "info(windowId): id must be positive");
   const std::uint64_t window_id = static_cast<std::uint64_t>(raw_id);
   ActionOptions options;
@@ -243,16 +261,17 @@ JSValue windows_info(JSContext* context, JSValueConst, int argc, JSValueConst* a
   const auto timeout = std::chrono::milliseconds(options.deadline_ms);
   return start_async(
       context,
-      [kernel, service, window_id, timeout]() -> std::pair<bool, std::string> {
+      [kernel, service, window_id, timeout]() -> AsyncOutcome {
         if (!kernel->allows(kWindowReadCapability)) {
-          return {false, std::string("required capability was not granted: ") +
-                             kWindowReadCapability};
+          return async_failure("capability_denied",
+                               std::string("required capability was not granted: ") +
+                                   kWindowReadCapability);
         }
         WindowInfo info;
         if (const auto error = service->info(window_id, info, timeout); !error.ok()) {
-          return {false, error.message};
+          return async_failure(error);
         }
-        return {true, json::stringify(window_info_json(info))};
+        return async_success(json::stringify(window_info_json(info)));
       },
       options.cancellation_id);
 }
@@ -272,11 +291,23 @@ bool parse_window_target(JSContext* context, JSValueConst value, std::string& ou
       JS_ThrowTypeError(context, "target id must be positive");
       return false;
     }
+    if (out != "active") {
+      // Numeric strings go through from_chars so "0"/"00" are refused like
+      // numeric 0 instead of being passed through verbatim.
+      std::uint64_t parsed = 0;
+      const char* begin = out.data();
+      const char* end = begin + out.size();
+      const auto converted = std::from_chars(begin, end, parsed);
+      if (converted.ec != std::errc{} || converted.ptr != end || parsed == 0) {
+        JS_ThrowTypeError(context, "target id must be positive");
+        return false;
+      }
+    }
     return true;
   }
   if (JS_IsNumber(value)) {
     int64_t raw_id = 0;
-    if (JS_ToInt64(context, &raw_id, value)) return false;
+    if (!js_int64_strict(context, value, raw_id, "target")) return false;
     if (raw_id <= 0) {
       JS_ThrowTypeError(context, "target id must be positive");
       return false;
@@ -305,7 +336,7 @@ JSValue run_window_mutation(JSContext* context, int argc, JSValueConst* argv,
 
   int cursor = 1;
   std::string placement;
-  if (action_type == std::string("window.move")) {
+  if (std::string_view(action_type) == "window.move") {
     if (argc < 2) return JS_ThrowTypeError(context, "%s(target, position)", function_name);
     if (!JS_IsString(argv[1])) {
       return JS_ThrowTypeError(context, "%s(target, position): position must be a string",
@@ -338,6 +369,8 @@ JSValue run_window_mutation(JSContext* context, int argc, JSValueConst* argv,
 
 JSValue windows_move(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                      void*) {
+  // NOTE: required_args stays 1 here; the (target, position) arity for move is
+  // enforced by the window.move branch inside run_window_mutation.
   return run_window_mutation(context, argc, argv, "move", "window.move", 1);
 }
 
@@ -389,7 +422,11 @@ int window_module_init(JSContext* context, JSModuleDef* module) {
       JS_FreeValue(context, windows);
       return false;
     }
-    JS_SetPropertyStr(context, windows, name, value);
+    // JS_SetPropertyStr consumes `value` on both success and failure.
+    if (JS_SetPropertyStr(context, windows, name, value) < 0) {
+      JS_FreeValue(context, windows);
+      return false;
+    }
     return true;
   };
   if (!add("list", windows_list, 0) || !add("active", windows_active, 0) ||

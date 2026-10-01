@@ -1,3 +1,4 @@
+// Needs an interactive desktop, exclusive run: injects real keys/mouse and subscribes to global input.
 #include "rime/action/kernel.hpp"
 #include "rime/js/runtime.hpp"
 #include "rime/win32/input.hpp"

@@ -18,8 +18,16 @@ int main() {
   const auto post_result = runtime.post({0, rime::core::EventKind::Input, "host.ready", ""});
   if (!post_result.ok()) {
     std::cerr << "desktop host post failed: " << post_result.message << "\n";
+    // The runtime started above, so stop the host before exiting instead of
+    // leaking a running host; the exit code is unchanged (1).
+    const auto stop_after_post_error = host.stop();
+    if (!stop_after_post_error.ok()) {
+      std::cerr << "desktop host stop failed: " << stop_after_post_error.message << "\n";
+    }
     return 1;
   }
+  // pump() returns the number of dispatched events; the count is observability
+  // only here, so discard it explicitly.
   (void)runtime.pump();
   const auto stop_result = host.stop();
   if (!stop_result.ok()) {

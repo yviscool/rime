@@ -6,6 +6,43 @@
 #include <utility>
 
 namespace rime::action {
+namespace {
+
+// Wall-clock semantics: deadlines are absolute Unix-epoch milliseconds and
+// are read from system_clock (not steady_clock) so they stay comparable
+// with the Action contract's deadlineUnixMs across processes.
+std::int64_t now_unix_ms() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
+}
+
+// Expired means deadline <= now: an action whose deadline equals the current
+// time is already out of budget (no test pins the ==now boundary; kernel
+// and executors share this <=now rule).
+bool deadline_expired(const Action& action) {
+  return static_cast<std::int64_t>(action.deadline_unix_ms) <= now_unix_ms();
+}
+
+// Migration hint for the pre-alignment capability namespace (commit
+// a449766). Only renames with direct historical evidence are mapped
+// exactly; other dotted names get a heuristic hint so no phantom old name
+// is invented.
+std::string denied_message(const std::string& capability) {
+  std::string message = "required capability was not granted: " + capability;
+  if (capability == "window.write") {
+    message += " (renamed to windows.window.write)";
+  } else if (capability == "clipboard.write") {
+    message += " (renamed to windows.clipboard.write)";
+  } else if (capability.starts_with("window.")) {
+    message += " (did you mean windows.window.*?)";
+  } else if (capability.starts_with("clipboard.")) {
+    message += " (did you mean windows.clipboard.*?)";
+  }
+  return message;
+}
+
+}  // namespace
 
 Kernel::Kernel(std::shared_ptr<const CapabilityPolicy> policy,
                std::shared_ptr<rime::core::TraceSink> trace)
@@ -45,17 +82,11 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
   }
   // Deadline is absolute and enforced at dispatch: an expired action never
   // reaches an executor and reports Timeout (not ExecutionFailed).
-  {
-    const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count();
-    if (action.deadline_unix_ms < static_cast<std::uint64_t>(now_ms)) {
-      return fail(action, Code::Timeout, "action deadline exceeded");
-    }
+  if (deadline_expired(action)) {
+    return fail(action, Code::Timeout, "action deadline exceeded");
   }
   if (!policy_ || !policy_->allows(action.capability)) {
-    return fail(action, Code::CapabilityDenied,
-                "required capability was not granted: " + action.capability);
+    return fail(action, Code::CapabilityDenied, denied_message(action.capability));
   }
 
   std::shared_ptr<Executor> executor;
@@ -81,10 +112,23 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
   }
 
   result.id = action.id;
+  // Fixed priority: cancellation wins over deadline expiry so a
+  // cancel-vs-timeout race reports Cancelled deterministically instead of
+  // flapping between Cancelled and Timeout across runs.
   if (cancellation.cancelled()) {
     result.succeeded = false;
     result.cancelled = true;
-    result.error = {Code::Cancelled, "action cancelled during execution"};
+    result.error = {Code::Cancelled,
+                    "action cancelled during execution (after commit; side effects may have "
+                    "occurred)"};
+    result.detail = result.error.message;
+  } else if (result.succeeded && deadline_expired(action)) {
+    // Post-commit deadline recheck: the executor already ran, so a success
+    // that overran the deadline is rewritten to Timeout. The side effects
+    // cannot be undone, hence the note below.
+    result.succeeded = false;
+    result.error = {Code::Timeout,
+                    "action deadline exceeded after commit; side effects may have occurred"};
     result.detail = result.error.message;
   } else if (!result.succeeded && result.error.ok()) {
     result.error = {Code::ExecutionFailed, result.detail.empty() ? "action failed" : result.detail};
@@ -107,8 +151,14 @@ Result Kernel::fail(const Action& action, const rime::core::Error::Code code,
 }
 
 void Kernel::record(const Action& action, const rime::core::TraceKind kind, std::string detail) {
-  if (trace_) {
-    trace_->record({action.id, kind, action.type, std::move(detail)});
+  // TraceSink::record may throw (user-provided sink); tracing must never
+  // propagate out of the action pipeline, so failures are swallowed and every
+  // action still yields exactly one Result instead of throwing.
+  try {
+    if (trace_) {
+      trace_->record({action.id, kind, action.type, std::move(detail)});
+    }
+  } catch (...) {
   }
 }
 

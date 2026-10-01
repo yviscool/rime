@@ -253,6 +253,9 @@ rime::core::Error UiThread::call(const std::function<void()>& task,
     return {rime::core::Error::Code::InvalidState, "UI thread rejected the task"};
   }
 
+  // Timeout semantics (unchanged): `timeout` only bounds the queued phase. A
+  // task still waiting for the pump past the deadline is abandoned with
+  // Timeout; once claimed by the pump it is awaited without further bound.
   std::unique_lock lock(queued->mutex);
   const bool finished = queued->condition.wait_for(lock, timeout, [&] { return queued->done; });
   if (!finished) {

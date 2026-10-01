@@ -84,7 +84,7 @@ function render_type(
     case "array":
       return node.items ? `${render_type(node.items, context)}[]` : "unknown[]";
     case "object": {
-      if (!node.properties) return "Record<string, unknown>";
+      if (!node.properties) return "Record<string, never>";
       const required = new Set(node.required ?? []);
       const members = Object.entries(node.properties).map(([key, value]) => {
         const optional = required.has(key) ? "" : "?";

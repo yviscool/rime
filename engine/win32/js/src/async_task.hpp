@@ -9,6 +9,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -27,21 +28,62 @@ struct ActionOptions {
   std::string idempotency_key;
 };
 
-// Reads an optional uint64 property. Missing/undefined leaves `out` alone;
-// a present non-number or negative value throws a TypeError. Returns false
-// only when a throw happened.
+// Strict JS number -> int64 conversion shared by id/cancellation parsing.
+// Rejects non-numbers, NaN/Infinity, fractions and values outside the
+// exactly-representable integer range with a TypeError instead of silently
+// truncating or wrapping them.
+inline bool js_int64_strict(JSContext* context, JSValueConst value, int64_t& out,
+                            const char* what) {
+  if (!JS_IsNumber(value)) {
+    JS_ThrowTypeError(context, "%s must be a number", what);
+    return false;
+  }
+  double number = 0;
+  if (JS_ToFloat64(context, &number, value)) return false;
+  if (!std::isfinite(number) || std::trunc(number) != number) {
+    JS_ThrowTypeError(context, "%s must be an integer", what);
+    return false;
+  }
+  constexpr double kMaxSafeInteger = 9007199254740991.0;  // 2^53 - 1
+  if (number < -kMaxSafeInteger || number > kMaxSafeInteger) {
+    JS_ThrowTypeError(context, "%s is out of range", what);
+    return false;
+  }
+  if (JS_ToInt64(context, &out, value)) return false;
+  return true;
+}
+
+// Outcome of an async native body: JSON payload on success; kernel-style code
+// name (see rime::core::error_code_name) plus message on failure. Failures are
+// framed as "code:message" through complete_async so Host::apply_completion
+// can reject with an Error carrying both properties.
+struct AsyncOutcome {
+  bool ok{false};
+  std::string code;
+  std::string payload;
+};
+
+inline AsyncOutcome async_success(std::string payload) { return {true, {}, std::move(payload)}; }
+
+inline AsyncOutcome async_failure(std::string code, std::string message) {
+  return {false, std::move(code), std::move(message)};
+}
+
+inline AsyncOutcome async_failure(rime::core::Error error) {
+  return {false, rime::core::error_code_name(error.code), std::move(error.message)};
+}
+
+// Reads an optional uint64 property. Missing/undefined/null leaves `out`
+// alone; a present NaN, fraction, negative or out-of-range value throws a
+// TypeError. Returns false only when a throw happened.
 inline bool optional_u64(JSContext* context, JSValueConst object, const char* name,
                          std::uint64_t& out) {
   JSValue property = JS_GetPropertyStr(context, object, name);
   if (JS_IsException(property)) return false;
-  if (!JS_IsUndefined(property)) {
-    if (!JS_IsNumber(property)) {
-      JS_FreeValue(context, property);
-      JS_ThrowTypeError(context, "options.%s must be a number", name);
-      return false;
-    }
+  if (!JS_IsUndefined(property) && !JS_IsNull(property)) {
+    std::string label = std::string("options.") + name;
     int64_t raw = 0;
-    if (JS_ToInt64(context, &raw, property)) {
+    if (!js_int64_strict(context, property, raw, label.c_str())) {
       JS_FreeValue(context, property);
       return false;
     }
@@ -71,7 +113,7 @@ inline bool parse_action_options(JSContext* context, JSValueConst value, ActionO
   }
   JSValue key = JS_GetPropertyStr(context, value, "idempotencyKey");
   if (JS_IsException(key)) return false;
-  if (!JS_IsUndefined(key)) {
+  if (!JS_IsUndefined(key) && !JS_IsNull(key)) {
     if (!JS_IsString(key)) {
       JS_FreeValue(context, key);
       JS_ThrowTypeError(context, "options.idempotencyKey must be a string");
@@ -90,10 +132,11 @@ inline bool parse_action_options(JSContext* context, JSValueConst value, ActionO
 }
 
 // Runs `work` on the timer thread and settles the returned promise with its
-// (succeeded, payload) outcome. Payload resolves as JSON on success and
-// rejects as an Error message on failure. Shared by the native modules so
-// every async query/mutation drains through the same host accounting. When
-// `cancellation_id` is bound, cancelling it rejects the pending promise.
+// AsyncOutcome. Success resolves as JSON; failure rejects with an Error
+// carrying the kernel-style `code` name plus the message. Shared by the native
+// modules so every async query/mutation drains through the same host
+// accounting. When `cancellation_id` is bound, cancelling it rejects the
+// pending promise.
 template <typename Work>
 JSValue start_async(JSContext* context, Work work, std::uint64_t cancellation_id = 0) {
   auto* host = static_cast<rime::js::Host*>(JS_GetContextOpaque(context));
@@ -105,13 +148,23 @@ JSValue start_async(JSContext* context, Work work, std::uint64_t cancellation_id
   }
   host->schedule_task(token, std::chrono::milliseconds(0),
                       [host, token, work = std::move(work)]() mutable {
+                        // Ownership: `host` (raw) outlives every scheduled task;
+                        // TimerService::stop runs before Host teardown completes.
                         try {
-                          auto outcome = work();
-                          host->complete_async(token, outcome.first, std::move(outcome.second));
+                          AsyncOutcome outcome = work();
+                          if (outcome.ok) {
+                            host->complete_async(token, true, std::move(outcome.payload));
+                          } else {
+                            host->complete_async(token, false,
+                                                 outcome.code + ":" + outcome.payload);
+                          }
                         } catch (const std::exception& exception) {
-                          host->complete_async(token, false, exception.what());
+                          host->complete_async(
+                              token, false,
+                              std::string("execution_failed:") + exception.what());
                         } catch (...) {
-                          host->complete_async(token, false, "native module task failed");
+                          host->complete_async(token, false,
+                                               "execution_failed:native module task failed");
                         }
                       });
   return promise;
@@ -135,11 +188,14 @@ inline rime::action::Action make_action(std::atomic<std::uint64_t>& next_action_
   action.payload = std::move(payload);
   action.parent_action_id = options.parent_action_id;
   action.idempotency_key = options.idempotency_key;
-  action.deadline_unix_ms = static_cast<std::uint64_t>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count() +
-      static_cast<std::int64_t>(options.deadline_ms));
+  const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+  const std::uint64_t now_u = now_ms > 0 ? static_cast<std::uint64_t>(now_ms) : 0;
+  // Saturate instead of wrapping: an extreme deadlineMs pins the deadline at
+  // the end of the uint64 range instead of overflowing into the past.
+  action.deadline_unix_ms =
+      options.deadline_ms > UINT64_MAX - now_u ? UINT64_MAX : now_u + options.deadline_ms;
   return action;
 }
 
@@ -162,18 +218,24 @@ inline JSValue run_action(JSContext* context, rime::action::Kernel& kernel,
   host->schedule_task(
       token, std::chrono::milliseconds(0),
       [host, token, kernel_ptr, action = std::move(action), cancellation]() mutable {
+        // Ownership: `host`/`kernel_ptr` (raw) outlive every scheduled task;
+        // the kernel and host teardown only after pending tasks settle.
         try {
           const auto result = kernel_ptr->execute(action, cancellation);
           if (result.succeeded) {
             host->complete_async(token, true, rime::core::json::stringify(result.value));
           } else {
-            host->complete_async(token, false,
-                                 result.error.ok() ? result.detail : result.error.message);
+            const bool has_error = !result.error.ok();
+            const std::string code =
+                has_error ? rime::core::error_code_name(result.error.code) : "execution_failed";
+            const std::string& message = has_error ? result.error.message : result.detail;
+            host->complete_async(token, false, code + ":" + message);
           }
         } catch (const std::exception& exception) {
-          host->complete_async(token, false, exception.what());
+          host->complete_async(token, false,
+                                std::string("execution_failed:") + exception.what());
         } catch (...) {
-          host->complete_async(token, false, "native module task failed");
+          host->complete_async(token, false, "execution_failed:native module task failed");
         }
       });
   return promise;

@@ -6,13 +6,13 @@
   "additionalProperties": false,
   "required": ["schemaVersion"],
   "properties": {
-    "schemaVersion": { "const": 1 },
-    "title": { "type": "string" },
-    "matchMode": { "enum": ["exact", "contains"] },
-    "ahkClass": { "type": "string", "minLength": 1 },
-    "ahkExe": { "type": "string", "minLength": 1 },
-    "ahkId": { "type": "string", "minLength": 1 },
-    "includeHidden": { "type": "boolean" },
+    "schemaVersion": { "const": 1, "description": "Vocabulary marker only; never sent on the wire." },
+    "title": { "type": "string", "description": "Case-insensitive title filter (exact or substring per matchMode)." },
+    "matchMode": { "enum": ["exact", "contains"], "default": "contains" },
+    "ahkClass": { "type": "string", "minLength": 1, "description": "Case-insensitive Win32 class-name filter." },
+    "ahkExe": { "type": "string", "minLength": 1, "description": "Case-insensitive filter on the process image basename only; directory parts are ignored." },
+    "ahkId": { "type": ["string", "integer"], "minLength": 1 },
+    "includeHidden": { "type": "boolean", "description": "When true, hidden windows are included; title-less windows are still filtered out." },
     "active": { "type": "boolean" }
   },
   "$defs": {

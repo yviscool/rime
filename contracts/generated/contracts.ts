@@ -23,7 +23,7 @@ export interface ActionV1 {
   preconditions: ActionV1Precondition[];
   deadlineUnixMs: number;
   parentActionId?: number | null;
-  payload: Record<string, unknown>;
+  payload: Record<string, never>;
   idempotencyKey?: string;
 }
 // --- contracts/schema/result-v1.schema.json ---
@@ -38,7 +38,7 @@ export interface ActionResultV1 {
   schemaVersion: 1;
   actionId: number;
   status: "succeeded" | "failed" | "cancelled";
-  value?: Record<string, unknown>;
+  value?: Record<string, never>;
   error: ActionResultV1Error;
 }
 // --- contracts/schema/window-v1.schema.json ---
@@ -70,7 +70,7 @@ export interface WindowV1MovePayload {
   position: WindowV1Placement;
 }
 
-export type WindowV1EmptyPayload = Record<string, unknown>;
+export type WindowV1EmptyPayload = Record<string, never>;
 
 export type WindowV1ActionType = "window.move" | "window.focus" | "window.close" | "window.hide" | "window.show" | "window.minimize" | "window.maximize" | "window.restore";
 
@@ -80,7 +80,7 @@ export interface WindowV1 {
   matchMode?: "exact" | "contains";
   ahkClass?: string;
   ahkExe?: string;
-  ahkId?: string;
+  ahkId?: string | number;
   includeHidden?: boolean;
   active?: boolean;
 }

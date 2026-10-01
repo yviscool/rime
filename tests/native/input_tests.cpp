@@ -1,3 +1,4 @@
+// Needs an interactive desktop, exclusive run: injects real keys/mouse and hooks global input.
 #include "rime/win32/input.hpp"
 
 #include <windows.h>
@@ -55,6 +56,11 @@ bool wait_for(Predicate predicate, const std::chrono::milliseconds timeout = 3s)
 }
 
 }  // namespace
+
+using rime::win32::InputEvent;
+using rime::win32::InputEventKind;
+using rime::win32::InputService;
+using rime::win32::MouseAction;
 
 int main() {
   InputService service;

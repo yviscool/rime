@@ -1,3 +1,13 @@
+/** Error thrown by {@link runAction} when the bridge rejects with a `code`. */
+export class ActionError extends Error {
+  code: string;
+  constructor(code: string, message?: string, options?: ErrorOptions) {
+    super(message ?? code, options);
+    this.name = "ActionError";
+    this.code = code;
+  }
+}
+
 /** Options every Action accepts from the SDK (mirrors native ActionOptions). */
 export interface NativeActionOptions {
   /** Relative budget in milliseconds; applied when the Action is built (default 5000). */
@@ -47,29 +57,44 @@ async function runtimeBridge() {
  * Resolves SDK options into native options. An aborted signal short-circuits
  * (`aborted: true`); a live signal allocates a runtime cancellation id, flips
  * it on abort, and is released in `release()`.
+ *
+ * When both `signal` and an explicit `cancellationId` are present, the signal
+ * wins: the explicit id is ignored and the signal-bound id is forwarded.
  */
 export async function bindActionOptions(options?: ActionOptions): Promise<BoundActionOptions> {
   if (!options) return { aborted: false, release() {} };
+  const sig = options.signal;
+  if (options.deadlineMs !== undefined) {
+    if (Number.isNaN(options.deadlineMs) || options.deadlineMs < 0) {
+      throw new TypeError(`deadlineMs must be a non-negative finite number, got ${options.deadlineMs}`);
+    }
+    // NOTE: Infinity is also rejected by Number.isNaN? No — but native
+    // optional_u64 rejects all non-finite values; keep the minimal
+    // negative/NaN guard here and let the native layer reject the rest.
+    if (!Number.isFinite(options.deadlineMs)) {
+      throw new TypeError(`deadlineMs must be a non-negative finite number, got ${options.deadlineMs}`);
+    }
+  }
   const native: NativeActionOptions = {};
   if (options.deadlineMs !== undefined) native.deadlineMs = options.deadlineMs;
   if (options.parentActionId !== undefined) native.parentActionId = options.parentActionId;
   if (options.idempotencyKey !== undefined) native.idempotencyKey = options.idempotencyKey;
-  if (options.signal) {
-    if (options.signal.aborted) {
-      return { aborted: true, reason: options.signal.reason, release() {} };
+  if (sig) {
+    if (sig.aborted) {
+      return { aborted: true, reason: sig.reason, release() {} };
     }
     const runtime = await runtimeBridge();
     const id = runtime.cancellation();
     const onAbort = () => {
       runtime.cancel(id);
     };
-    options.signal.addEventListener?.("abort", onAbort);
+    sig.addEventListener?.("abort", onAbort);
     native.cancellationId = id;
     return {
       native,
       aborted: false,
       release() {
-        options.signal?.removeEventListener?.("abort", onAbort);
+        sig.removeEventListener?.("abort", onAbort);
         runtime.releaseCancellation(id);
       },
     };
@@ -81,6 +106,8 @@ export async function bindActionOptions(options?: ActionOptions): Promise<BoundA
 /**
  * Runs one bridge call with the options pipeline: resolves options, rejects
  * early when the signal is already aborted, and always releases bindings.
+ * A rejection carrying a string `code` is mapped to {@link ActionError};
+ * rejections without a code are rethrown unchanged.
  */
 export async function runAction<T>(
   options: ActionOptions | undefined,
@@ -90,6 +117,20 @@ export async function runAction<T>(
   if (binding.aborted) throw binding.reason ?? new Error("action aborted");
   try {
     return await call(binding.native);
+  } catch (error) {
+    if (error instanceof ActionError) throw error;
+    if (
+      error !== null &&
+      typeof error === "object" &&
+      "code" in error &&
+      typeof (error as { code: unknown }).code === "string"
+    ) {
+      const code = (error as { code: string }).code;
+      const maybeMessage = (error as unknown as { message?: unknown }).message;
+      const message = typeof maybeMessage === "string" ? maybeMessage : code;
+      throw new ActionError(code, message, { cause: error });
+    }
+    throw error;
   } finally {
     binding.release();
   }

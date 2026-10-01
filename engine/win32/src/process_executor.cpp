@@ -99,6 +99,9 @@ rime::action::Result ProcessExecutor::execute(const rime::action::Action& action
   if (cancellation.cancelled()) {
     return cancelled(action, "action was cancelled before execution");
   }
+  // No per-call timeout here by design: ProcessService calls are synchronous
+  // and short (no UI queue wait), so the kernel's pre-dispatch and
+  // post-commit deadline checks are the timeout enforcement for these actions.
   if (action.type == "process.launch") {
     return run_launch(action, service_, cancellation);
   }
