@@ -157,7 +157,7 @@ int main(int argc, char** argv) {
           rime::core::Error::Code::QueueClosed, rime::core::Error::Code::QueueFull,
           rime::core::Error::Code::Cancelled, rime::core::Error::Code::CapabilityDenied,
           rime::core::Error::Code::InvalidContract, rime::core::Error::Code::Unsupported,
-          rime::core::Error::Code::ExecutionFailed}) {
+          rime::core::Error::Code::ExecutionFailed, rime::core::Error::Code::TargetGone}) {
       rime::core::Error::Code parsed{};
       assert(rime::core::error_code_from_name(rime::core::error_code_name(code), parsed));
       assert(parsed == code);

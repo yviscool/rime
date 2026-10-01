@@ -22,6 +22,7 @@ constexpr std::array k_error_code_names{
     ErrorCodeName{Error::Code::InvalidContract, "invalid_contract"},
     ErrorCodeName{Error::Code::Unsupported, "unsupported"},
     ErrorCodeName{Error::Code::ExecutionFailed, "execution_failed"},
+    ErrorCodeName{Error::Code::TargetGone, "target_gone"},
 };
 
 }  // namespace

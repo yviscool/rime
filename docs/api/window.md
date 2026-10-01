@@ -4,7 +4,7 @@
 
 源码证据：`rime-research/AutoHotkey-alpha/source/lib/functions.h` 的 `Win*`、`WinGroup*`；`source/window.cpp`、`source/window.h`；Rime 的 `engine/win32/src/window.cpp` 和 `engine/win32/src/ui_thread.cpp`。
 
-核心类型使用稳定 `WindowId`、不可变 `WindowSnapshot` 和 `WindowQuery`。JS 不接收 `HWND`。查询、快照和等待走 Promise；纯字段访问同步。写操作生成 Action 并记录 Trace。窗口消失时返回 `InvalidState`，ID 在服务生命周期内单调不复用（跨服务 generation 尚未实现，见 `docs/api/future-runtime.md`）。
+核心类型使用稳定 `WindowId`、不可变 `WindowSnapshot` 和 `WindowQuery`。JS 不接收 `HWND`。查询、快照和等待走 Promise；纯字段访问同步。写操作生成 Action 并记录 Trace。目标消失时返回 `target_gone`（窗口已销毁，或 ID 属于上一个服务实例）；ID 形如 `[generation:32][sequence:32]`，进程内跨服务单调不复用（约束见 `docs/api/future-runtime.md`）。
 
 ## 测试覆盖（如实）
 

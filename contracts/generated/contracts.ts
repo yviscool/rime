@@ -29,7 +29,7 @@ export interface ActionV1 {
 // --- contracts/schema/result-v1.schema.json ---
 
 export type ActionResultV1Error = {
-  code: "none" | "invalid_state" | "queue_closed" | "queue_full" | "cancelled" | "timeout" | "capability_denied" | "invalid_contract" | "unsupported" | "execution_failed";
+  code: "none" | "invalid_state" | "queue_closed" | "queue_full" | "cancelled" | "timeout" | "capability_denied" | "invalid_contract" | "unsupported" | "execution_failed" | "target_gone";
   message: string;
   retryable: boolean;
 } | null;

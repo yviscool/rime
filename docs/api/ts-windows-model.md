@@ -32,7 +32,7 @@ interface WindowRef {
 }
 ```
 
-Native pointers never enter this surface. Resource references are revocable capabilities: every operation revalidates the ID, generation and owner lane. A destroyed resource produces `InvalidState`.
+Native pointers never enter this surface. Resource references are revocable capabilities: every operation revalidates the ID, generation and owner lane. A destroyed resource produces `TargetGone`.
 
 ## Object member policy
 

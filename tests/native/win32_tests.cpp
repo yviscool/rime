@@ -212,7 +212,7 @@ int main() {
   const std::uint64_t close_id = close_match.front().id;
   assert(service.close(close_id).ok());
   WindowInfo gone;
-  assert(service.info(close_id, gone).code == rime::core::Error::Code::InvalidState);
+  assert(service.info(close_id, gone).code == rime::core::Error::Code::TargetGone);
 
   // active() is a weak assertion by necessity: there may be no foreground
   // window at all (headless/locked session), so only a present value must
@@ -411,7 +411,7 @@ int main() {
   assert(close_result.value.find("title") != nullptr);
   WindowInfo close_gone;
   assert(service.info(exec_close_match.front().id, close_gone).code ==
-         rime::core::Error::Code::InvalidState);
+         rime::core::Error::Code::TargetGone);
 
   // An expired deadline is rejected by the kernel with Timeout.
   rime::action::Action expired = move_action;
@@ -444,8 +444,8 @@ int main() {
   // Destroying the window invalidates its id.
   assert(service.ui().call([&] { DestroyWindow(created); }).ok());
   WindowInfo dead;
-  assert(service.info(id, dead).code == rime::core::Error::Code::InvalidState);
-  assert(service.move(id, "left").code == rime::core::Error::Code::InvalidState);
+  assert(service.info(id, dead).code == rime::core::Error::Code::TargetGone);
+  assert(service.move(id, "left").code == rime::core::Error::Code::TargetGone);
 
   // Stop is repeatable; work afterwards is rejected.
   assert(service.stop().ok());
@@ -458,6 +458,10 @@ int main() {
 
   WindowService second;
   assert(second.start().ok());
+  // The generation inside the id keeps a reference issued by the first
+  // service from ever resolving inside the second one.
+  WindowInfo stale_generation;
+  assert(second.info(id, stale_generation).code == rime::core::Error::Code::TargetGone);
   assert(second.stop().ok());
 
   return 0;

@@ -118,7 +118,7 @@ TS windows.list/query/ref
 规则：
 
 1. `HWND` 只存在 UI lane；JS 只收到稳定 `WindowId` 和快照。
-2. ID 在一个 WindowService 生命周期内不复用；窗口销毁后返回 `InvalidState`。
+2. ID 形如 `[generation:32][sequence:32]`（generation 每个 WindowService 实例递增），跨服务也不复用；窗口销毁或 ID 属于旧服务实例时返回 `target_gone`。
 3. `list/active/info` 在当前 Native 层是同步 C++ 调用，但 JS binding 必须返回 Promise，因为它跨 JS/UI lane。
 4. `move/activate/close/show/hide/set*` 必须生成 Action，检查 capability、deadline、前置条件并写 Trace。
 5. Window query 在 UI lane 解析，不能在 JS 线程保存 HWND 或依赖窗口标题的瞬时匹配结果。

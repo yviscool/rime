@@ -21,6 +21,10 @@ struct Error {
     InvalidContract,
     Unsupported,
     ExecutionFailed,
+    // Appended after the v1 codes so existing numeric values never shift:
+    // the directed target of an operation (e.g. a WindowId) resolved to
+    // nothing - destroyed, or issued by a previous service generation.
+    TargetGone,
   };
 
   Code code{Code::None};

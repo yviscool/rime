@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -139,8 +140,18 @@ using PidNameCache = std::unordered_map<std::uint32_t, std::wstring>;
   return std::wstring(class_name, static_cast<std::size_t>(copied));
 }
 
+// Process-wide generation handed out once per registry, so ids issued by one
+// WindowService can never resolve inside a newer one: an id is
+// [generation:32][sequence:32], generation only grows, and lookups reject
+// foreign generations before scanning. That turns a stale id held across a
+// service restart into target_gone instead of a different window with the
+// same sequence number.
+std::atomic<std::uint32_t> next_window_generation{1};
+
 // UI-thread-only mapping from stable ids to live HWNDs. Stale entries are
-// dropped on lookup; ids are never recycled inside one service.
+// dropped on lookup; ids are never recycled inside one service (the
+// sequence is masked to its 32 bits, which cannot wrap in a service's
+// lifetime).
 class WindowRegistry final {
  public:
   std::uint64_t id_for(HWND window) {
@@ -148,12 +159,14 @@ class WindowRegistry final {
     for (const auto& [id, hwnd] : entries_) {
       if (hwnd == window) return id;
     }
-    const std::uint64_t id = ++next_id_;
+    const std::uint64_t id = (static_cast<std::uint64_t>(generation_) << 32) |
+                             (++next_id_ & 0xFFFFFFFFull);
     entries_.emplace_back(id, window);
     return id;
   }
 
   HWND hwnd_for(const std::uint64_t id) {
+    if (static_cast<std::uint32_t>(id >> 32) != generation_) return nullptr;
     prune();
     for (const auto& [entry_id, hwnd] : entries_) {
       if (entry_id == id) return hwnd;
@@ -173,13 +186,14 @@ class WindowRegistry final {
   }
 
   std::vector<std::pair<std::uint64_t, HWND>> entries_;
+  const std::uint32_t generation_{next_window_generation.fetch_add(1)};
   std::uint64_t next_id_{0};
 };
 
 lane::Error build_info_impl(WindowRegistry& registry, HWND window, WindowInfo& out,
                             PidNameCache* names) {
   if (!window || !IsWindow(window)) {
-    return {lane::Error::Code::InvalidState, "window no longer exists"};
+    return {lane::Error::Code::TargetGone, "window no longer exists"};
   }
   out = WindowInfo{};
   out.id = registry.id_for(window);
@@ -456,7 +470,7 @@ rime::core::Error WindowService::move(const std::uint64_t id, const std::string_
         }
         const HWND window = impl_->registry.hwnd_for(id);
         if (!window) {
-          result = {rime::core::Error::Code::InvalidState, "window no longer exists"};
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
           return;
         }
         RECT work{};
@@ -494,7 +508,7 @@ rime::core::Error WindowService::move_rect(const std::uint64_t id, const Rect& r
         }
         const HWND window = impl_->registry.hwnd_for(id);
         if (!window) {
-          result = {rime::core::Error::Code::InvalidState, "window no longer exists"};
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
           return;
         }
         if (IsIconic(window)) ShowWindow(window, SW_RESTORE);
@@ -520,7 +534,7 @@ rime::core::Error WindowService::focus(const std::uint64_t id,
         }
         const HWND window = impl_->registry.hwnd_for(id);
         if (!window) {
-          result = {rime::core::Error::Code::InvalidState, "window no longer exists"};
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
           return;
         }
         if (IsIconic(window)) ShowWindow(window, SW_RESTORE);
@@ -539,7 +553,7 @@ namespace {
 // Shared body for the flag-based state mutations (hide/show/min/max/restore).
 lane::Error show_window_op(WindowRegistry& registry, const std::uint64_t id, const int command) {
   const HWND window = registry.hwnd_for(id);
-  if (!window) return {lane::Error::Code::InvalidState, "window no longer exists"};
+  if (!window) return {lane::Error::Code::TargetGone, "window no longer exists"};
   ShowWindow(window, command);
   return lane::Error::none();
 }
@@ -562,7 +576,7 @@ rime::core::Error WindowService::close(const std::uint64_t id,
         }
         const HWND window = impl_->registry.hwnd_for(id);
         if (!window) {
-          result = {rime::core::Error::Code::InvalidState, "window no longer exists"};
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
           return;
         }
         const auto remaining = deadline - std::chrono::steady_clock::now();
@@ -654,7 +668,7 @@ rime::core::Error WindowService::maximize(const std::uint64_t id,
         }
         const HWND window = impl_->registry.hwnd_for(id);
         if (!window) {
-          result = {rime::core::Error::Code::InvalidState, "window no longer exists"};
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
           return;
         }
         if (IsIconic(window)) ShowWindow(window, SW_RESTORE);

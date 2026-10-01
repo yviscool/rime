@@ -136,26 +136,26 @@ export const Window = {
   },
   /**
    * Moves a window through the `window.move` action pipeline.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
    */
   move(windowId: WindowId, position: WindowPlacement, options?: ActionOptions): Promise<WindowHandle> {
     return runAction(options, (native) =>
       windowBridge().then((windows) => windows.move(windowId, position, native)),
     );
   },
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
   focus: mutation((windows) => windows.focus),
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
   close: mutation((windows) => windows.close),
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
   hide: mutation((windows) => windows.hide),
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
   show: mutation((windows) => windows.show),
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
   minimize: mutation((windows) => windows.minimize),
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
   maximize: mutation((windows) => windows.maximize),
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied`. */
+  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
   restore: mutation((windows) => windows.restore),
   /**
    * Lists windows matching the query (window-v1 query; `schemaVersion` stays
@@ -171,7 +171,7 @@ export const Window = {
   },
   /**
    * Reads one window snapshot by id.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
    */
   info(windowId: WindowId, options?: ActionOptions): Promise<WindowHandle> {
     return runAction(options, (native) =>

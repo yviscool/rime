@@ -19,7 +19,7 @@
       "required": ["code", "message", "retryable"],
       "properties": {
         "code": {
-          "enum": ["none", "invalid_state", "queue_closed", "queue_full", "cancelled", "timeout", "capability_denied", "invalid_contract", "unsupported", "execution_failed"]
+          "enum": ["none", "invalid_state", "queue_closed", "queue_full", "cancelled", "timeout", "capability_denied", "invalid_contract", "unsupported", "execution_failed", "target_gone"]
         },
         "message": { "type": "string" },
         "retryable": { "type": "boolean" }
