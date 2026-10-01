@@ -121,6 +121,10 @@ int main() {
     const auto& entry = entries[index];
     if (entry.kind == rime::core::TraceKind::ActionStarted) {
       assert(entry.action_id != 0);
+      // Envelope: Started carries the capability, but no result yet.
+      assert(!entry.capability.empty());
+      assert(entry.result_code.empty());
+      assert(entry.duration_ms == 0);
       bool paired = false;
       for (std::size_t later = index + 1; later < entries.size(); ++later) {
         if (entries[later].action_id == entry.action_id &&
@@ -132,10 +136,32 @@ int main() {
       assert(paired);
     } else if (entry.kind == rime::core::TraceKind::ActionFinished) {
       assert(entry.action_id != 0);
+      // Envelope: Finished always names the capability, the contract result
+      // code, and a measured executor duration (0 only if sub-millisecond).
+      assert(!entry.capability.empty());
+      assert(!entry.result_code.empty());
+      assert(entry.duration_ms < 60'000);
     } else {
       assert(entry.action_id == 0);
+      // Envelope is action-only: event/state entries never carry it.
+      assert(entry.capability.empty());
+      assert(entry.result_code.empty());
+      assert(entry.duration_ms == 0);
     }
   }
+  // Result codes reflect the pipeline outcome, not just the executor's.
+  auto result_code_for = [&](rime::core::ActionId id) {
+    for (const auto& entry : entries) {
+      if (entry.action_id == id && entry.kind == rime::core::TraceKind::ActionFinished) {
+        return entry.result_code;
+      }
+    }
+    return std::string{};
+  };
+  assert(result_code_for(42) == "none");
+  assert(result_code_for(43) == "capability_denied");
+  assert(result_code_for(44) == "unsupported");
+  assert(result_code_for(45) == "timeout");
 
   rime::core::Runtime host_runtime(2);
   rime::desktop::DesktopHost desktop_host(host_runtime);

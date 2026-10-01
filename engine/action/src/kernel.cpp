@@ -101,6 +101,8 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
 
   record(action, rime::core::TraceKind::ActionStarted, "execution started");
   Result result;
+  std::uint64_t duration_ms = 0;
+  const auto executor_started = std::chrono::steady_clock::now();
   try {
     result = executor->execute(action, cancellation);
   } catch (const std::exception& exception) {
@@ -110,6 +112,10 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
     result = {action.id, false, false, "executor threw an unknown exception",
               {Code::ExecutionFailed, "executor threw an unknown exception"}};
   }
+  duration_ms = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                            executor_started)
+          .count());
 
   result.id = action.id;
   // Fixed priority: cancellation wins over deadline expiry so a
@@ -134,7 +140,8 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
     result.error = {Code::ExecutionFailed, result.detail.empty() ? "action failed" : result.detail};
   }
   record(action, rime::core::TraceKind::ActionFinished,
-         result.succeeded ? "succeeded" : (result.cancelled ? "cancelled" : result.error.message));
+         result.succeeded ? "succeeded" : (result.cancelled ? "cancelled" : result.error.message),
+         rime::core::error_code_name(result.error.code), duration_ms);
   return result;
 }
 
@@ -146,17 +153,20 @@ Result Kernel::fail(const Action& action, const rime::core::Error::Code code,
                     std::string message) {
   Result result{action.id, false, code == rime::core::Error::Code::Cancelled, message,
                 {code, std::move(message)}};
-  record(action, rime::core::TraceKind::ActionFinished, result.error.message);
+  record(action, rime::core::TraceKind::ActionFinished, result.error.message,
+         rime::core::error_code_name(code));
   return result;
 }
 
-void Kernel::record(const Action& action, const rime::core::TraceKind kind, std::string detail) {
+void Kernel::record(const Action& action, const rime::core::TraceKind kind, std::string detail,
+                    std::string result_code, const std::uint64_t duration_ms) {
   // TraceSink::record may throw (user-provided sink); tracing must never
   // propagate out of the action pipeline, so failures are swallowed and every
   // action still yields exactly one Result instead of throwing.
   try {
     if (trace_) {
-      trace_->record({0, kind, action.type, std::move(detail), action.id});
+      trace_->record({0, kind, action.type, std::move(detail), action.id, action.capability,
+                      std::move(result_code), duration_ms});
     }
   } catch (...) {
   }

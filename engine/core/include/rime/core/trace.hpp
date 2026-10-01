@@ -34,12 +34,23 @@ inline Sequence next_trace_sequence() {
 // lock so `snapshot()` order equals emission order even when producers race
 // on different threads. `action_id` is the Action identity for
 // ActionStarted/ActionFinished entries and 0 for state/event entries.
+//
+// Action envelope (filled by the Action Kernel on action entries; empty/0 on
+// event/state entries): `capability` is the authority the action required;
+// `subject` doubles as the executor registration key (executors register per
+// action type); `result_code` is the contract error-code name of the outcome
+// ("none" for success), empty on Started because no result exists yet;
+// `duration_ms` measures executor wall time (steady_clock) and stays 0 on
+// Started and on pre-dispatch failures that never reach an executor.
 struct TraceEntry {
   Sequence sequence{0};
   TraceKind kind{TraceKind::EventAccepted};
   std::string subject;
   std::string detail;
   std::uint64_t action_id{0};
+  std::string capability;
+  std::string result_code;
+  std::uint64_t duration_ms{0};
 };
 
 class TraceSink {

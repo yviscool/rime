@@ -42,7 +42,8 @@ class Kernel final {
 
  private:
   Result fail(const Action& action, rime::core::Error::Code code, std::string message);
-  void record(const Action& action, rime::core::TraceKind kind, std::string detail);
+  void record(const Action& action, rime::core::TraceKind kind, std::string detail,
+              std::string result_code = {}, std::uint64_t duration_ms = 0);
 
   std::shared_ptr<const CapabilityPolicy> policy_;
   std::shared_ptr<rime::core::TraceSink> trace_;
