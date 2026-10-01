@@ -88,6 +88,11 @@ struct UiThread::Impl {
   }
 };
 
+void UiThread::dispatch_task_message(void* userdata) {
+  auto* impl = static_cast<Impl*>(userdata);
+  if (impl) impl->drain_queue();
+}
+
 const char* ui_thread_state_name(const UiThreadState state) {
   switch (state) {
     case UiThreadState::Created:
@@ -110,8 +115,8 @@ namespace {
 
 LRESULT CALLBACK ui_thread_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
   if (message == kTaskMessage) {
-    auto* impl = reinterpret_cast<UiThread::Impl*>(GetWindowLongPtrW(window, GWLP_USERDATA));
-    if (impl) impl->drain_queue();
+    UiThread::dispatch_task_message(
+        reinterpret_cast<void*>(GetWindowLongPtrW(window, GWLP_USERDATA)));
     return 0;
   }
   return DefWindowProcW(window, message, wparam, lparam);
@@ -253,7 +258,7 @@ rime::core::Error UiThread::call(const std::function<void()>& task,
   if (!finished) {
     if (!queued->claimed) {
       queued->abandoned = true;
-      return {rime::core::Error::Code::ExecutionFailed, "UI call timed out while queued"};
+      return {rime::core::Error::Code::Timeout, "UI call timed out while queued"};
     }
     queued->condition.wait(lock, [&] { return queued->done; });
   }

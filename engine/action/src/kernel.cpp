@@ -1,6 +1,7 @@
 #include "rime/action/kernel.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <exception>
 #include <utility>
 
@@ -42,6 +43,16 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
   if (cancellation.cancelled()) {
     return fail(action, Code::Cancelled, "action was cancelled before execution");
   }
+  // Deadline is absolute and enforced at dispatch: an expired action never
+  // reaches an executor and reports Timeout (not ExecutionFailed).
+  {
+    const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+    if (action.deadline_unix_ms < static_cast<std::uint64_t>(now_ms)) {
+      return fail(action, Code::Timeout, "action deadline exceeded");
+    }
+  }
   if (!policy_ || !policy_->allows(action.capability)) {
     return fail(action, Code::CapabilityDenied,
                 "required capability was not granted: " + action.capability);
@@ -81,6 +92,10 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
   record(action, rime::core::TraceKind::ActionFinished,
          result.succeeded ? "succeeded" : (result.cancelled ? "cancelled" : result.error.message));
   return result;
+}
+
+bool Kernel::allows(const std::string& capability) const {
+  return policy_ && policy_->allows(capability);
 }
 
 Result Kernel::fail(const Action& action, const rime::core::Error::Code code,

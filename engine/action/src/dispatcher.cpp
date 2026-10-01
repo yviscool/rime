@@ -12,10 +12,29 @@ Dispatcher::Dispatcher(Kernel& kernel, rime::core::SchedulerPolicy policy)
     : kernel_(kernel), policy_(policy) {}
 
 std::string Dispatcher::coalesce_key(const Action& action) {
+  // Explicit idempotency keys are preserved as-is so retries coalesce.
   if (!action.idempotency_key.empty()) return action.idempotency_key;
-  return action.type + "|" + action.target.kind + ":" + action.target.id;
+  // NOTE: key must include capability + payload, not just type + target.
+  // Otherwise window.move left would swallow a queued window.move right
+  // because both share type/target but differ in payload.
+  std::string key;
+  key.reserve(action.type.size() + action.capability.size() + action.target.kind.size() +
+              action.target.id.size() + action.payload.size() + 8);
+  key.append(action.type);
+  key.push_back('|');
+  key.append(action.capability);
+  key.push_back('|');
+  key.append(action.target.kind);
+  key.push_back(':');
+  key.append(action.target.id);
+  key.push_back('|');
+  key.append(action.payload);
+  return key;
 }
 
+// NOTE: requires the caller to already hold mutex_. Kept non-locking because
+// submit() and pump() call it while holding the queue lock; do not add a
+// lock here (would self-deadlock on std::mutex).
 void Dispatcher::suppress(Action action, std::string reason) {
   Result result;
   result.id = action.id;
@@ -75,7 +94,20 @@ std::vector<Result> Dispatcher::pump(const std::size_t budget,
   }
 
   results.reserve(batch.size());
-  for (const auto& action : batch) results.push_back(kernel_.execute(action, cancellation));
+  for (const auto& action : batch) {
+    // Check cancellation before every step so a cancelled batch still yields
+    // one Result per action instead of swallowing the remainder.
+    if (cancellation.cancelled()) {
+      Result cancelled;
+      cancelled.id = action.id;
+      cancelled.cancelled = true;
+      cancelled.detail = "cancelled before execute";
+      cancelled.error = {rime::core::Error::Code::Cancelled, cancelled.detail};
+      results.push_back(std::move(cancelled));
+      continue;
+    }
+    results.push_back(kernel_.execute(action, cancellation));
+  }
 
   std::lock_guard lock(mutex_);
   for (Result& result : suppressed_) results.push_back(std::move(result));
@@ -83,7 +115,9 @@ std::vector<Result> Dispatcher::pump(const std::size_t budget,
   return results;
 }
 
-void Dispatcher::close() noexcept {
+// NOTE: not noexcept on purpose: std::lock_guard<std::mutex> can throw on
+// lock acquisition, and a throwing close() inside noexcept would terminate.
+void Dispatcher::close() {
   std::lock_guard lock(mutex_);
   closed_ = true;
 }

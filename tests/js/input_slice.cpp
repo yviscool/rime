@@ -1,3 +1,4 @@
+#include "rime/action/kernel.hpp"
 #include "rime/js/runtime.hpp"
 #include "rime/win32/input.hpp"
 #include "rime/win32/js_input.hpp"
@@ -9,7 +10,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <string>
+#include <unordered_set>
 
 namespace {
 
@@ -23,7 +26,10 @@ void send_vk(const WORD virtual_key) {
   inputs[1].type = INPUT_KEYBOARD;
   inputs[1].ki.wVk = virtual_key;
   inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-  assert(SendInput(2, inputs, sizeof(INPUT)) == 2);
+  // NOTE: hoisted out of assert() so the SendInput side effect still runs
+  // under NDEBUG where assert() is compiled out.
+  const UINT sent = SendInput(2, inputs, sizeof(INPUT));
+  assert(sent == 2);
 }
 
 void send_mouse_to(const int x, const int y) {
@@ -35,7 +41,10 @@ void send_mouse_to(const int x, const int y) {
   input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
   input.mi.dx = static_cast<LONG>(x * 65535 / (width - 1));
   input.mi.dy = static_cast<LONG>(y * 65535 / (height - 1));
-  assert(SendInput(1, &input, sizeof(INPUT)) == 1);
+  // NOTE: hoisted out of assert() so the SendInput side effect still runs
+  // under NDEBUG where assert() is compiled out.
+  const UINT sent = SendInput(1, &input, sizeof(INPUT));
+  assert(sent == 1);
 }
 
 void run(rime::js::Runtime& runtime, const std::string& source, const std::string& filename) {
@@ -52,8 +61,11 @@ int main() {
   InputService service;
   assert(service.start().ok());
 
+  rime::action::Kernel kernel(std::make_shared<rime::action::StaticCapabilityPolicy>(
+      std::unordered_set<std::string>{"windows.hook.global"}));
   rime::win32::InputModuleBinding binding;
   binding.service = &service;
+  binding.kernel = &kernel;
   rime::js::Runtime runtime;
   assert(rime::win32::register_input_module(runtime, &binding).ok());
   assert(runtime.start().ok());
@@ -139,6 +151,34 @@ int main() {
   run(runtime, "globalThis.sid2 = input.subscribe(() => {});", "input-resubscribe.mjs");
   assert(runtime.stop().ok());
   assert(runtime.stop().ok());
+
+  // Capability gate: after the first runtime released the JS lane, a fresh
+  // runtime with an empty policy sees subscribe denied by Error (not
+  // TypeError) naming the capability. The check runs before the service is
+  // touched, so the stopped input service is irrelevant here.
+  {
+    rime::action::Kernel denied_kernel(std::make_shared<rime::action::StaticCapabilityPolicy>(
+        std::unordered_set<std::string>{}));
+    rime::win32::InputModuleBinding denied_binding;
+    denied_binding.service = &service;
+    denied_binding.kernel = &denied_kernel;
+    rime::js::Runtime denied_runtime;
+    assert(rime::win32::register_input_module(denied_runtime, &denied_binding).ok());
+    assert(denied_runtime.start().ok());
+    run(denied_runtime,
+        "import { input } from 'rime:input';\n"
+        "globalThis.denied = null;\n"
+        "try { input.subscribe(() => {}); }\n"
+        "catch (e) { globalThis.denied = e.message; }",
+        "input-deny.mjs");
+    run(denied_runtime,
+        "if (!globalThis.denied || !globalThis.denied.includes('windows.hook.global'))\n"
+        "  throw new Error('subscribe must be denied with the capability name: ' +\n"
+        "                  globalThis.denied);",
+        "input-deny-check.mjs");
+    assert(denied_runtime.stop().ok());
+  }
+
   assert(service.stop().ok());
   assert(service.stop().ok());
   return 0;

@@ -152,14 +152,16 @@ int main(int argc, char** argv) {
   rime::action::Action bad_payload = launch;
   bad_payload.id = 3;
   bad_payload.payload = "{}";
-  assert(!kernel.execute(bad_payload).succeeded);
-  assert(kernel.execute(bad_payload).error.code == rime::core::Error::Code::InvalidContract);
+  const auto bad_payload_result = kernel.execute(bad_payload);
+  assert(!bad_payload_result.succeeded);
+  assert(bad_payload_result.error.code == rime::core::Error::Code::InvalidContract);
 
   rime::action::Action bad_target = terminate;
   bad_target.id = 4;
   bad_target.target = {"process", "0"};
-  assert(!kernel.execute(bad_target).succeeded);
-  assert(kernel.execute(bad_target).error.code == rime::core::Error::Code::InvalidContract);
+  const auto bad_target_result = kernel.execute(bad_target);
+  assert(!bad_target_result.succeeded);
+  assert(bad_target_result.error.code == rime::core::Error::Code::InvalidContract);
 
   // A policy without the capability denies before the executor runs.
   rime::action::Kernel denied(

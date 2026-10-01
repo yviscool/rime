@@ -24,12 +24,20 @@ class Runtime final {
   explicit Runtime(SchedulerPolicy policy, std::shared_ptr<TraceSink> trace = {});
   ~Runtime();
 
-  Error start();
-  Error post(Event event);
+  // NOTE: destroying a Runtime from inside its own event handler is
+  // forbidden (stop() would deadlock waiting for the pump to drain).
+  [[nodiscard]] Error start();
+  // NOTE: Deduped/Coalesced deliveries report success (Error::none()); see
+  // Runtime::post for the "deduplication is success" contract.
+  [[nodiscard]] Error post(Event event);
   // Dispatches pending events on the calling thread. Nested calls on the
   // pump thread (modal loops) dispatch through the same scheduler and keep
   // FIFO order; calls from other threads are ignored while a pump is active.
   std::size_t pump(std::size_t budget = 1);
+  // NOTE: stop() blocks until in-flight pump() calls drain. Handlers must
+  // cooperatively observe the shutdown token and return; a handler that
+  // never returns will block stop() forever. Must not be called from
+  // inside an event handler on the pump thread (returns InvalidState).
   Error stop();
 
   void set_handler(EventHandler handler);

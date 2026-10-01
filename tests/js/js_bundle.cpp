@@ -33,17 +33,20 @@ int main(int argc, char** argv) {
   const std::string source((std::istreambuf_iterator<char>(input)), {});
 
   // Services outlive the runtime (destroyed after it) so teardown never
-  // touches a dangling binding. Queries bypass the kernel; mutations would
-  // fail the empty capability policy with a clear reason.
+  // touches a dangling binding. The policy grants exactly what the demo app
+  // needs (reads plus the input hook); mutations still fail the policy with
+  // a clear reason.
   rime::win32::InputService input_service;
   rime::win32::ProcessService process_service;
   rime::win32::ClipboardService clipboard_service;
   rime::win32::WindowService window_service;
   rime::action::Kernel kernel(std::make_shared<rime::action::StaticCapabilityPolicy>(
-      std::unordered_set<std::string>{}));
+      std::unordered_set<std::string>{"windows.window.read", "windows.clipboard.read",
+                                      "process.inspect", "windows.hook.global"}));
   std::atomic<std::uint64_t> next_action_id{0};
   rime::win32::InputModuleBinding input_binding;
   input_binding.service = &input_service;
+  input_binding.kernel = &kernel;
   rime::win32::ProcessModuleBinding process_binding{&process_service, &kernel, &next_action_id};
   rime::win32::ClipboardModuleBinding clipboard_binding{&clipboard_service, &kernel,
                                                         &next_action_id};
@@ -79,21 +82,21 @@ int main(int argc, char** argv) {
   const auto startup = runtime.start();
   if (!startup.ok()) {
     std::cerr << "QuickJS runtime failed to start: " << startup.message << '\n';
-    window_service.stop();
+    (void)window_service.stop();
     return 1;
   }
   const auto error = runtime.evaluate_module(source, argv[1]).get();
   if (!error.ok()) {
     std::cerr << "QuickJS bundle failed: " << error.message << '\n';
-    runtime.stop();
-    window_service.stop();
+    (void)runtime.stop();
+    (void)window_service.stop();
     return 1;
   }
   // Let async bundle work (SDK queries, delay chains) run to completion.
   if (const auto settled = runtime.settle(std::chrono::seconds(5)); !settled.ok()) {
     std::cerr << "QuickJS bundle did not settle: " << settled.message << '\n';
-    runtime.stop();
-    window_service.stop();
+    (void)runtime.stop();
+    (void)window_service.stop();
     return 1;
   }
   // Bundles report async failures by publishing globalThis.__rim_failure.
@@ -105,11 +108,16 @@ int main(int argc, char** argv) {
                            .get();
   if (!failure.ok()) {
     std::cerr << "QuickJS bundle async failure: " << failure.message << '\n';
-    runtime.stop();
-    window_service.stop();
+    (void)runtime.stop();
+    (void)window_service.stop();
     return 1;
   }
-  runtime.stop();
-  window_service.stop();
+  const auto runtime_stopped = runtime.stop();
+  if (!runtime_stopped.ok()) {
+    std::cerr << "QuickJS runtime stop failed: " << runtime_stopped.message << '\n';
+    (void)window_service.stop();
+    return 1;
+  }
+  (void)window_service.stop();
   return 0;
 }

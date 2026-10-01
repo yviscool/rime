@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rime.runtime/contracts/window-v1.schema.json",
+  "title": "Rime Window Query v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "title": { "type": "string" },
+    "matchMode": { "enum": ["exact", "contains"] },
+    "ahkClass": { "type": "string", "minLength": 1 },
+    "ahkExe": { "type": "string", "minLength": 1 },
+    "ahkId": { "type": "string", "minLength": 1 },
+    "includeHidden": { "type": "boolean" },
+    "active": { "type": "boolean" }
+  },
+  "$defs": {
+    "rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left", "top", "right", "bottom"],
+      "properties": {
+        "left": { "type": "integer" },
+        "top": { "type": "integer" },
+        "right": { "type": "integer" },
+        "bottom": { "type": "integer" }
+      }
+    },
+    "state": { "enum": ["normal", "minimized", "maximized", "hidden"] },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "className",
+        "processName",
+        "rect",
+        "visible",
+        "minimized",
+        "state",
+        "processId"
+      ],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "title": { "type": "string" },
+        "className": { "type": "string" },
+        "processName": { "type": "string" },
+        "rect": { "$ref": "#/$defs/rect" },
+        "visible": { "type": "boolean" },
+        "minimized": { "type": "boolean" },
+        "state": { "$ref": "#/$defs/state" },
+        "processId": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+      }
+    },
+    "placement": { "enum": ["left", "right", "top", "bottom", "full"] },
+    "movePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position"],
+      "properties": {
+        "position": { "$ref": "#/$defs/placement" }
+      }
+    },
+    "emptyPayload": {
+      "type": "object",
+      "additionalProperties": false
+    },
+    "actionType": {
+      "enum": [
+        "window.move",
+        "window.focus",
+        "window.close",
+        "window.hide",
+        "window.show",
+        "window.minimize",
+        "window.maximize",
+        "window.restore"
+      ]
+    }
+  }
+}

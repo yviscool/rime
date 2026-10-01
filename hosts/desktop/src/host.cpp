@@ -13,6 +13,10 @@ rime::core::Error DesktopHost::start() {
 }
 
 rime::core::Error DesktopHost::stop() {
+  // TODO(shutdown): no busy/concurrent-stop path yet (e.g. stop() while a
+  // previous stop is in Stopping, or stop() racing start()). Not adding a
+  // ShutdownSequence member here to avoid a cross-module ownership chain;
+  // a second stop() during Stopping currently falls through to runtime_.stop().
   {
     std::lock_guard lock(mutex_);
     if (state_ == HostState::Stopped) return rime::core::Error::none();

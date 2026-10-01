@@ -34,6 +34,9 @@ char* duplicate(JSContext* context, const std::string& value) {
 }  // namespace
 
 void ModuleRegistry::add_native(std::string name, NativeFactory factory) {
+  // NOTE: return type intentionally stays void (changing it cascades).
+  // Callers guarantee a non-empty, unique name and a valid factory; empty or
+  // duplicate registrations are caller bugs. load() resolves by first match.
   std::lock_guard lock(mutex_);
   natives_.emplace_back(std::move(name), std::move(factory));
 }
@@ -150,6 +153,9 @@ JSModuleDef* ModuleRegistry::load(JSContext* context, const char* module_name) {
       loaded_files_.push_back(name);
     }
   }
+  // NOTE: JS_VALUE_GET_PTR is the only low-level accessor used here; it is
+  // tied to the pinned quickjs-ng version — do not introduce newer JS_* APIs
+  // without bumping/locking that dependency.
   auto* module = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(value));
   JS_FreeValue(context, value);
   return module;

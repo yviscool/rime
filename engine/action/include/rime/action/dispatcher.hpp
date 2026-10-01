@@ -23,17 +23,25 @@ class Dispatcher final {
   // actions that were dropped or coalesced by the queue policy so every
   // submitted action always produces exactly one Result.
   std::vector<Result> pump(std::size_t budget, rime::core::CancellationToken cancellation = {});
-  void close() noexcept;
+  // NOTE: not noexcept: close() takes mutex_ via std::lock_guard, which may
+  // throw; marking it noexcept would risk std::terminate.
+  void close();
   [[nodiscard]] bool closed() const;
   [[nodiscard]] std::size_t size() const;
   [[nodiscard]] std::size_t dropped() const;
 
  private:
   static std::string coalesce_key(const Action& action);
+  // NOTE: requires the caller to already hold mutex_ (called from submit()
+  // while the queue lock is held). Name is kept for existing call sites.
   void suppress(Action action, std::string reason);
 
   Kernel& kernel_;
   rime::core::SchedulerPolicy policy_;
+  // TODO(trace): record submit/pump/suppress/close decisions (input, Context,
+  // executor, result, error) into TraceSink. Not injected here to avoid a
+  // cross-module constructor/ownership chain; keep Dispatcher trace-free until
+  // the Trace ownership design lands.
   mutable std::mutex mutex_;
   std::deque<Action> pending_;
   std::vector<Result> suppressed_;

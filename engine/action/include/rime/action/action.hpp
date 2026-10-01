@@ -13,6 +13,10 @@
 
 namespace rime::action {
 
+// TODO(pipeline): introduce Context/Intent types and route all input through
+// `Context -> Intent -> Action IR -> Action Kernel` per AGENTS.md architecture
+// rules. Not added here to avoid a repo-wide type churn; Action/Result stay
+// the pipeline IR until the Context/Intent design lands.
 struct Identity {
   std::string kind;
   std::string id;

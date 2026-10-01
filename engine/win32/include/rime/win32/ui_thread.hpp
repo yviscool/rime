@@ -34,16 +34,20 @@ class UiThread final {
   // Repeatable: rejects new work, quits the pump, joins and releases the
   // UI lane.
   rime::core::Error stop();
-  [[nodiscard]] UiThreadState state() const;
-  [[nodiscard]] bool on_ui_thread() const;
+   [[nodiscard]] UiThreadState state() const;
+   [[nodiscard]] bool on_ui_thread() const;
 
- private:
- public:
-  // Opaque pump state; defined in ui_thread.cpp.
-  struct Impl;
+   // Internal: invoked by the message-window procedure (a free function that
+   // cannot name the private Impl). Takes void* to avoid pulling windows.h
+   // into this header.
+   static void dispatch_task_message(void* userdata);
 
- private:
-  std::unique_ptr<Impl> impl_;
+  private:
+   // Opaque pump state; defined in ui_thread.cpp.
+   struct Impl;
+
+  private:
+   std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace rime::win32

@@ -29,9 +29,9 @@ class EventQueue {
   explicit EventQueue(std::size_t capacity);
   explicit EventQueue(SchedulerPolicy policy);
 
-  QueueStatus push(Event event);
-  std::optional<Event> wait_pop();
-  std::optional<Event> try_pop();
+  [[nodiscard]] QueueStatus push(Event event);
+  [[nodiscard]] std::optional<Event> wait_pop();
+  [[nodiscard]] std::optional<Event> try_pop();
   void close();
 
   [[nodiscard]] bool closed() const;

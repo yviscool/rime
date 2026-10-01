@@ -68,18 +68,36 @@ JSValue input_subscribe(JSContext* context, JSValueConst, int argc, JSValueConst
                         void* opaque) {
   auto* binding = static_cast<InputModuleBinding*>(opaque);
   auto* host = host_of(context);
-  if (!host || !binding || !binding->service) {
+  if (!host || !binding || !binding->service || !binding->kernel) {
     return JS_ThrowInternalError(context, "rime:input is not wired");
   }
   if (argc < 1 || !JS_IsFunction(context, argv[0])) {
     return JS_ThrowTypeError(context, "subscribe(handler)");
   }
+  // Installing a global hook is a privileged operation; the same policy the
+  // kernel enforces decides here (subscribe returns synchronously, so the
+  // denial is a thrown Error).
+  if (!binding->kernel->allows("windows.hook.global")) {
+    JSValue error = JS_NewError(context);
+    JS_DefinePropertyValueStr(context, error, "message",
+                              JS_NewString(context,
+                                           "required capability was not granted: "
+                                           "windows.hook.global"),
+                              JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    return JS_Throw(context, error);
+  }
 
   const auto queue = host->event_queue();
   auto callback_id = std::make_shared<std::atomic<std::uint64_t>>(0);
+  // TODO: stringify once per event and fan out to every subscriber instead of
+  // running json::stringify on the hook thread once per subscription; kept
+  // per-subscriber for now to avoid restructuring the delivery chain.
   const std::uint64_t subscription_id = binding->service->subscribe(
       [queue, callback_id](const InputEvent& event) {
         const std::uint64_t id = callback_id->load(std::memory_order_acquire);
+        // queue->push is bounded and can drop under pressure: the window
+        // between the hook thread and the JS thread is expected loss, visible
+        // via dropped_events(), not an error.
         if (id != 0) (void)queue->push(id, event_json(event));
       });
   if (subscription_id == 0) {
@@ -122,7 +140,7 @@ JSValue input_unsubscribe(JSContext* context, JSValueConst, int argc, JSValueCon
 
 int input_module_init(JSContext* context, JSModuleDef* module) {
   auto* binding = binding_of(context);
-  if (!binding || !binding->service) {
+  if (!binding || !binding->service || !binding->kernel) {
     JS_ThrowInternalError(context, "rime:input requires an input module binding");
     return -1;
   }
@@ -150,9 +168,9 @@ JSModuleDef* create_input_module(JSContext* context) {
 }
 
 rime::core::Error check_binding(const InputModuleBinding* binding) {
-  if (!binding || !binding->service) {
+  if (!binding || !binding->service || !binding->kernel) {
     return {rime::core::Error::Code::InvalidContract,
-            "rime:input requires an input service"};
+            "rime:input requires an input service and kernel"};
   }
   return rime::core::Error::none();
 }

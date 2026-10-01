@@ -1,9 +1,11 @@
 #include "rime/core/json.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 
 namespace rime::core::json {
 namespace {
@@ -281,9 +283,9 @@ void stringify_string(const std::string& value, std::string& out) {
       case '\t': out += "\\t"; break;
       default:
         if (character < 0x20) {
-          char buffer[7];
-          std::snprintf(buffer, sizeof(buffer), "\\u%04x", character);
-          out += buffer;
+          std::array<char, 7> buffer{};
+          std::snprintf(buffer.data(), buffer.size(), "\\u%04x", character);
+          out += buffer.data();
         } else {
           out.push_back(static_cast<char>(character));
         }
@@ -298,14 +300,14 @@ void stringify_number(double value, std::string& out) {
     return;
   }
   if (value == std::floor(value) && std::fabs(value) <= k_max_safe_integer) {
-    char buffer[32];
-    std::snprintf(buffer, sizeof(buffer), "%lld", static_cast<long long>(value));
-    out += buffer;
+    std::array<char, 32> buffer{};
+    std::snprintf(buffer.data(), buffer.size(), "%lld", static_cast<long long>(value));
+    out += buffer.data();
     return;
   }
-  char buffer[40];
-  std::snprintf(buffer, sizeof(buffer), "%.17g", value);
-  out += buffer;
+  std::array<char, 40> buffer{};
+  std::snprintf(buffer.data(), buffer.size(), "%.17g", value);
+  out += buffer.data();
 }
 
 void stringify_value(const Value& value, std::string& out) {
@@ -394,6 +396,14 @@ double Value::as_number(const double fallback) const noexcept {
 
 std::int64_t Value::as_integer(const std::int64_t fallback) const noexcept {
   if (type_ != Type::Number) return fallback;
+  // Reject NaN/inf and values outside the int64 range; fractional parts are
+  // truncated by the cast below to preserve existing semantics.
+  if (!std::isfinite(number_)) return fallback;
+  // NOTE: static_cast<double>(INT64_MAX) rounds up to 2^63, so compare
+  // against the exclusive upper bound 2^63 instead of INT64_MAX directly.
+  constexpr double k_min = static_cast<double>(std::numeric_limits<std::int64_t>::min());
+  constexpr double k_max_exclusive = 9223372036854775808.0;  // 2^63
+  if (number_ < k_min || number_ >= k_max_exclusive) return fallback;
   return static_cast<std::int64_t>(number_);
 }
 

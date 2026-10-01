@@ -127,27 +127,28 @@ export const hooks: { keyboard(cb: (e: KeyboardEvent)=>void, o?: HookOptions): S
 
 ## 10. 权限、错误与兼容性
 
-模块按 `windows.window.read/write`、`windows.input.inject`、`windows.hook.global`、`process.launch/terminate`、`clipboard.read/write`、`screen.capture` 声明权限；高风险能力默认拒绝。错误码至少包括 `PermissionDenied`、`InvalidState`、`Timeout`、`Cancelled`、`ForegroundDenied`、`HungWindow`、`UiaUnavailable`、`QueueFull`、`Unsupported`。
+模块按 `windows.window.read/write`、`windows.input.inject`、`windows.hook.global`、`process.launch/terminate`、`windows.clipboard.read/write`、`screen.capture` 声明权限；高风险能力默认拒绝。错误码至少包括 `PermissionDenied`、`InvalidState`、`Timeout`、`Cancelled`、`ForegroundDenied`、`HungWindow`、`UiaUnavailable`、`QueueFull`、`Unsupported`。
 
 兼容性采用 `@rime/ahk-compat` 适配层：保留 AHK 名称的薄包装，但内部全部生成标准 Action IR；新代码使用 `windows`、`controls`、`keyboard`、`mouse`、`process`、`clipboard`、`screen` 模块。每个兼容函数的测试必须覆盖输入解析、Win32/UIA 执行、取消竞态、资源卸载和 Trace。
 
 ## 11. 与当前实现的垂直切片
 
-现有 `WindowService` 已验证 UI-thread registry、UTF-8 快照、`active/list/info/move/focus`。下一步按此文档补齐：
+现有 `WindowService` 已验证 UI-thread registry、UTF-8 快照、`active/list/info/move/focus`，以及 WinTitle 查询（`title`/`matchMode`/`ahkClass`/`ahkExe`/`ahkId`/`includeHidden`/`active`）和状态操作（`close/hide/show/minimize/maximize/restore`）。`rime:window` 提供对应 Promise binding：读路径校验 `windows.window.read`，写路径经 Action Kernel 校验 `windows.window.write` 并写入 Trace；读写接受 `deadlineMs`/`cancellationId`（SDK 侧 `AbortSignal` 自动绑定并释放 cancellation id），deadline 过期与 UI 排队超时返回 `timeout`。`window-v1` contract 见 `contracts/schema/window-v1.schema.json`。剩余步骤：
 
 1. 将 `WindowInfo` 映射为 `WindowSnapshot`，把 `uint64 id` 编码为 branded `WindowId`。
-2. 为 `list/active/info/move/focus` 增加 Promise + `AbortSignal` 的 JS module binding。
-3. 新增 `WindowQuery` 与 WinTitle 兼容解析器，保留 `A/ahk_id/ahk_exe`。
-4. 接入 Action Trace、权限检查和关闭时订阅排空。
-5. 再扩展 Control/UIA、输入和进程模块；不把 AHK 全局状态复制到 Runtime。
+2. 补齐 WinWait*/WinSet*/zOrder/redraw/region 等窗口扩展项与等待订阅的关闭排空。
+3. 再扩展 Control/UIA、输入和进程模块；不把 AHK 全局状态复制到 Runtime。
 
 ## 12. 对齐审计（2026-10-01）
 
 本设计文档是 API 目标蓝图，不代表当前 Runtime 已经实现全部 AHK 功能。对照
 `rime-research/AutoHotkey-alpha/source/lib/functions.h`（253 个内建函数）逐项检查后，
-当前 C++/TS 垂直切片实际只有 `Window.list/active/info/move`、`input.subscribe/unsubscribe`
-以及对应的 `WindowService`/输入 Hook；其余 API 尚未有 JS binding、Action executor 和 contract
-测试。因此不能宣称“所有功能已对齐”。
+当前 C++/TS 垂直切片已有 `rime:window`（含 WinTitle 查询的 `list`、`active/info/move`、
+`focus/close/hide/show/minimize/maximize/restore`）、`rime:input`（`subscribe/unsubscribe`）、
+`rime:process`（`list/info/launch/terminate`）与 `rime:clipboard`（`read/write`）binding，及
+对应的 service、executor、capability 校验和 contract/slice 测试；但 `functions.h` 函数级条目
+仍无一项 `implemented`，其余 API 尚未有 JS binding、Action executor 和 contract 测试。
+因此不能宣称“所有功能已对齐”。
 
 可执行的领域规范和逐项覆盖矩阵已拆到 [`docs/api/`](./api/README.md)。本文件只保留跨领域
 原则、架构决策和垂直切片顺序；实现任务必须以领域规范和 `coverage.json` 为准。
@@ -167,11 +168,11 @@ export const hooks: { keyboard(cb: (e: KeyboardEvent)=>void, o?: HookOptions): S
 
 | AHK 功能域 | functions.h 代表函数 | 文档状态 | Runtime 状态 |
 |---|---|---|---|
-| 窗口查询/操作 | WinActivate、WinClose、WinGet*、WinMove、WinSet*、WinWait*（约 44） | 已定义目标接口及 WinTitle 映射；`zOrder/redraw/region` 仍是扩展项 | 仅 list/active/info/move 已实现；其余未实现 |
+| 窗口查询/操作 | WinActivate、WinClose、WinGet*、WinMove、WinSet*、WinWait*（约 44） | 已定义目标接口及 WinTitle 映射；`zOrder/redraw/region` 仍是扩展项 | `list`（含 WinTitle 查询）/`active/info/move/focus/close/hide/show/minimize/maximize/restore` 已实现；`WinWait*`、`WinSet*` 扩展未实现 |
 | 控件/UIA | Control* 全集、Edit*、ListViewGetContent、StatusBar*、Gui*（约 48） | 仅定义通用 `controls` 抽象，未逐函数列签名/返回值/失败语义 | 未实现 UIA/Win32 fallback |
 | 键鼠/热键/Hook | MouseClick*、Send*、Hotkey、Hotstring、KeyWait、Install*Hook、BlockInput、GetKey*、Set*KeyState | 定义基础 `keyboard`/`mouse`/`hooks`；AHK 解析细节尚未形成语法规范 | 仅低级输入事件订阅；注入和热键未实现 |
-| 剪贴板/消息 | ClipWait、OnClipboardChange、SendMessage、OnMessage | 仅概念提及 | 未实现 clipboard/message binding |
-| 进程/启动 | Run、RunWait、RunAs、Process*、Shutdown | 定义 `process` 目标 API 和权限 | 未实现 |
+| 剪贴板/消息 | ClipWait、OnClipboardChange、SendMessage、OnMessage | 仅概念提及 | `clipboard.read/write` binding 已实现（`windows.clipboard.read/write` capability）；`ClipWait`/`OnClipboardChange`/`OnMessage` 未实现 |
+| 进程/启动 | Run、RunWait、RunAs、Process*、Shutdown | 定义 `process` 目标 API 和权限 | `process.list/info/launch/terminate` binding 已实现（`process.launch/terminate`、`process.inspect`）；`Run*`/`Shutdown` 未实现 |
 | 屏幕/图像 | PixelGetColor、PixelSearch、ImageSearch、MonitorGet*、SysGet* | 定义 `screen.pixel*`；monitor/system 信息缺少接口 | 未实现 |
 | 文件/目录/环境 | File*、Dir*、Env*、Ini*、Download、Drive*、SplitPath | 未定义 TS 模块或权限模型 | 未实现 |
 | 定时/调度/运行时 | SetTimer、Sleep、Critical、Persistent、ExitApp、Reload、Suspend、Pause、OnExit/OnError | 仅 `timers.every/after` 草案；生命周期契约在核心文档 | 未实现 JS API |

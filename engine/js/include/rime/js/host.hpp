@@ -93,6 +93,10 @@ class Host final {
   // Cancellation ids shared with JS (runtime.cancellation/runtime.cancel).
   std::uint64_t create_cancellation();
   bool is_cancelled(std::uint64_t id);
+  // Any thread: a token bound to the same source cancel_by_id flips, so
+  // native executors can observe JS-side AbortSignal cancellation. Unknown
+  // ids yield a never-cancelled token.
+  rime::core::CancellationToken cancellation_token(std::uint64_t id);
   bool release_cancellation(std::uint64_t id);
 
   // JS callbacks registered through rime:runtime.subscribe.

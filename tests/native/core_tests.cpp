@@ -4,11 +4,31 @@
 #include "rime/desktop/host.hpp"
 
 #include <cassert>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <unordered_set>
 
 namespace {
+
+// Actions in tests carry a live deadline; the kernel rejects expired ones
+// with Timeout before reaching the executor.
+std::uint64_t future_deadline() {
+  return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count() +
+      60'000);
+}
+
+std::uint64_t expired_deadline() {
+  return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count() -
+      1'000);
+}
+
 class EchoExecutor final : public rime::action::Executor {
  public:
   rime::action::Result execute(const rime::action::Action& action,
@@ -47,30 +67,34 @@ int main() {
   assert(!trace->snapshot().empty());
 
   auto policy = std::make_shared<rime::action::StaticCapabilityPolicy>(
-      std::unordered_set<std::string>{"window.write"});
+      std::unordered_set<std::string>{"windows.window.write"});
   rime::action::Kernel kernel(policy, trace);
   assert(kernel.register_executor("window.move", std::make_shared<EchoExecutor>()).ok());
   const rime::action::Action action{42,
                                     1,
                                     {"user", "local"},
                                     "window.move",
-                                    "window.write",
+                                    "windows.window.write",
                                     {"window", "active"},
                                     {},
-                                    1,
+                                    future_deadline(),
                                     0,
                                     "{\"position\":\"left\"}",
                                     "move-active-1"};
   const auto success = kernel.execute(action);
   assert(success.succeeded && success.id == 42);
   const auto denied = kernel.execute(
-      {43, 1, {"user", "local"}, "window.move", "process.launch", {"window", "active"}, {}, 1,
-       0, "{}", ""});
+      {43, 1, {"user", "local"}, "window.move", "process.launch", {"window", "active"}, {},
+       future_deadline(), 0, "{}", ""});
   assert(denied.error.code == rime::core::Error::Code::CapabilityDenied);
   const auto unsupported = kernel.execute(
-      {44, 1, {"user", "local"}, "window.close", "window.write", {"window", "active"}, {}, 1,
-       0, "{}", ""});
+      {44, 1, {"user", "local"}, "window.close", "windows.window.write", {"window", "active"}, {},
+       future_deadline(), 0, "{}", ""});
   assert(unsupported.error.code == rime::core::Error::Code::Unsupported);
+  const auto expired = kernel.execute(
+      {45, 1, {"user", "local"}, "window.move", "windows.window.write", {"window", "active"}, {},
+       expired_deadline(), 0, "{}", ""});
+  assert(expired.error.code == rime::core::Error::Code::Timeout);
   rime::core::CancellationSource cancelled;
   cancelled.cancel();
   const auto cancelled_result = kernel.execute(action, cancelled.token());

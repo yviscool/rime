@@ -25,13 +25,13 @@ struct SchedulerPolicy {
   // dropped as duplicates. 0 disables time-based deduplication.
   std::uint64_t dedupe_window_ms{0};
 
-  static SchedulerPolicy bounded(std::size_t capacity) {
+  [[nodiscard]] static SchedulerPolicy bounded(std::size_t capacity) {
     SchedulerPolicy policy;
     policy.capacity = capacity;
     return policy;
   }
 
-  static SchedulerPolicy coalescing(std::size_t capacity, std::uint64_t dedupe_window_ms = 0) {
+  [[nodiscard]] static SchedulerPolicy coalescing(std::size_t capacity, std::uint64_t dedupe_window_ms = 0) {
     SchedulerPolicy policy;
     policy.capacity = capacity;
     policy.overflow = OverflowPolicy::CoalesceByKey;
@@ -39,7 +39,7 @@ struct SchedulerPolicy {
     return policy;
   }
 
-  static SchedulerPolicy dropping(std::size_t capacity) {
+  [[nodiscard]] static SchedulerPolicy dropping(std::size_t capacity) {
     SchedulerPolicy policy;
     policy.capacity = capacity;
     policy.overflow = OverflowPolicy::DropOldest;

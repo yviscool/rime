@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
     assert(decoded.ok());
     assert(decoded.action->id == 42);
     assert(decoded.action->type == "window.move");
-    assert(decoded.action->capability == "window.write");
+    assert(decoded.action->capability == "windows.window.write");
     assert(decoded.action->source.kind == "user");
     assert(decoded.action->target.id == "active");
     assert(decoded.action->preconditions.size() == 1);

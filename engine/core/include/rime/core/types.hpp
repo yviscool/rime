@@ -16,6 +16,7 @@ struct Error {
     QueueClosed,
     QueueFull,
     Cancelled,
+    Timeout,
     CapabilityDenied,
     InvalidContract,
     Unsupported,

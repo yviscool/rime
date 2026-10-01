@@ -20,7 +20,7 @@ tools/    Bun 构建、测试、诊断和开发工具
 
 - Native 主体使用 C++20、MSVC/clang-cl、CMake 和 Ninja。
 - JavaScript 引擎使用固定版本 QuickJS-ng。不要把 Node、Bun、Chromium 或 WebView2 作为 Runtime 前提。
-- TypeScript/TSX 只在构建阶段由 SWC/esbuild 编译为 JavaScript。
+- TypeScript/TSX 只在构建阶段由 Bun build（all-in-one：包管理、类型检查、构建）编译为 JavaScript。
 - Windows API 优先使用 Win32、UIA、COM、D3D11、DXGI、DirectComposition、Direct2D 和 DirectWrite。
 - Windows 资源使用 RAII 和明确所有权。不得向 JS 暴露裸 `HANDLE`、`HWND` 或 COM 指针。
 - 公共 JS API 使用模块和稳定 ID，不使用散落的全局函数。

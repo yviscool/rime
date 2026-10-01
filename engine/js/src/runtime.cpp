@@ -25,7 +25,7 @@ std::future<std::string> failed_inspect_future(const std::string& message) {
 
 }  // namespace
 
-Runtime::~Runtime() { stop(); }
+Runtime::~Runtime() { (void)stop(); }
 
 rime::core::Error Runtime::set_file_root(std::string root) {
   std::lock_guard lock(mutex_);
@@ -64,7 +64,23 @@ rime::core::Error Runtime::start() {
     state_ = RuntimeState::Starting;
   }
 
-  thread_ = std::thread(&Runtime::run, this);
+  try {
+    thread_ = std::thread(&Runtime::run, this);
+  } catch (const std::exception& ex) {
+    std::lock_guard lock(mutex_);
+    state_ = RuntimeState::Failed;
+    startup_error_ = {rime::core::Error::Code::ExecutionFailed,
+                      std::string("failed to launch JS thread: ") + ex.what()};
+    condition_.notify_all();
+    return startup_error_;
+  } catch (...) {
+    std::lock_guard lock(mutex_);
+    state_ = RuntimeState::Failed;
+    startup_error_ = {rime::core::Error::Code::ExecutionFailed,
+                      "failed to launch JS thread"};
+    condition_.notify_all();
+    return startup_error_;
+  }
   std::unique_lock lock(mutex_);
   condition_.wait(lock, [this] { return state_ != RuntimeState::Starting; });
   return startup_error_;
@@ -103,7 +119,10 @@ rime::core::Error Runtime::settle(std::chrono::milliseconds timeout) {
   if (state_ != RuntimeState::Running) {
     return {rime::core::Error::Code::InvalidState, "runtime is not running"};
   }
-  if (!condition_.wait_for(lock, timeout, [this] { return idle_flag_; })) {
+  if (!condition_.wait_for(lock, timeout, [this] {
+        // Mirrors the hpp quiescence promise: host idle AND no queued work.
+        return idle_flag_ && tasks_.empty() && inspect_tasks_.empty();
+      })) {
     return {rime::core::Error::Code::ExecutionFailed,
             "runtime did not become idle before the timeout"};
   }
@@ -130,7 +149,9 @@ rime::core::Error Runtime::stop() {
   if (thread_.joinable()) thread_.join();
   {
     std::lock_guard lock(mutex_);
-    state_ = RuntimeState::Stopped;
+    // Preserve Failed: a failed start must stay observable, not be masked as
+    // a clean Stopped.
+    if (state_ != RuntimeState::Failed) state_ = RuntimeState::Stopped;
   }
   condition_.notify_all();
   return rime::core::Error::none();
@@ -153,6 +174,10 @@ void Runtime::run() {
 
   {
     Host host;
+    // NOTE: `data` keeps its void* type to avoid a signature cascade.
+    // Ownership stays with the add_native_module caller for the host's
+    // lifetime; never hand the raw pointer to another thread — pass stable
+    // ids or serialized snapshots instead.
     for (auto& [name, factory, data] : native_modules_) {
       if (data) host.set_module_data(name, data);
       host.modules().add_native(name, factory);
@@ -202,10 +227,14 @@ void Runtime::run() {
           }
           if (!tasks_.empty()) {
             eval_task = std::move(tasks_.front());
+            // TODO(perf): vector-as-queue erase(front) is O(N); kept as vector
+            // to avoid header churn (deque would touch the public header).
+            // Switch to std::deque if queues grow.
             tasks_.erase(tasks_.begin());
             has_eval = true;
           } else if (!inspect_tasks_.empty()) {
             inspect_task = std::move(inspect_tasks_.front());
+            // TODO(perf): see above — vector-as-queue erase(front) is O(N).
             inspect_tasks_.erase(inspect_tasks_.begin());
             has_inspect = true;
           }

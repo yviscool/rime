@@ -60,6 +60,7 @@ struct InputService::Impl {
   static std::atomic<Impl*> owner;
 
   void enqueue(InputEvent event) {
+    DWORD hook_thread = 0;
     {
       std::lock_guard lock(mutex);
       event.sequence = next_sequence++;
@@ -68,9 +69,12 @@ struct InputService::Impl {
         ++dropped;
       }
       pending.push_back(std::move(event));
+      // Snapshot thread_id under the same lock: it is written by thread_main
+      // and cleared on shutdown, so an unlocked read races.
+      hook_thread = thread_id;
     }
     // The delivery loop drains pending only when GetMessage returns; wake it.
-    if (thread_id != 0) PostThreadMessageW(thread_id, kWakeMessage, 0, 0);
+    if (hook_thread != 0) PostThreadMessageW(hook_thread, kWakeMessage, 0, 0);
   }
 
   void deliver_events() {
@@ -148,6 +152,10 @@ void InputService::Impl::thread_main() {
   MSG message;
   for (;;) {
     const BOOL received = GetMessageW(&message, nullptr, 0, 0);
+    // GetMessageW returns -1 on error and 0 on WM_QUIT; both exit the pump
+    // the same way. The error detail (GetLastError) is deliberately not acted
+    // on here to keep the pump shape unchanged; hook cleanup below still runs
+    // on either path.
     if (received <= 0 || message.message == kQuitMessage) break;
     {
       std::lock_guard lock(mutex);
@@ -358,8 +366,21 @@ bool InputService::unsubscribe(const std::uint64_t id) {
   if (found == impl_->entries.end()) return false;
   const auto entry = *found;
   entry->closed = true;
-  if (entry->in_flight > 0 && impl_->thread_id != GetCurrentThreadId()) {
-    entry->idle.wait(lock, [&entry] { return entry->in_flight == 0; });
+  // impl_->thread_id is read under impl_->mutex here (the lock is held), and
+  // enqueue() snapshots it under the same lock, so neither races thread_main.
+  const bool called_on_hook_thread =
+      impl_->thread_id != 0 && impl_->thread_id == GetCurrentThreadId();
+  if (entry->in_flight > 0 && !called_on_hook_thread) {
+    // Bounded wait: a wedged subscriber must not hang unsubscribe forever.
+    // On timeout the entry is dropped and failure is reported so the caller
+    // can diagnose the stuck callback.
+    constexpr auto kDrainTimeout = std::chrono::seconds(5);
+    const bool drained = entry->idle.wait_for(
+        lock, kDrainTimeout, [&entry] { return entry->in_flight == 0; });
+    if (!drained) {
+      impl_->entries.erase(found);
+      return false;
+    }
   }
   impl_->entries.erase(found);
   return true;

@@ -1,3 +1,5 @@
+import { runAction, type ActionOptions, type NativeActionOptions } from "./action";
+
 export interface ClipboardText {
   text: string;
 }
@@ -5,8 +7,8 @@ export interface ClipboardText {
 /** Bridge of the `rime:clipboard` module. Writes are Actions. */
 export interface ClipboardBridge {
   /** Empty `text` means the clipboard holds no text format. */
-  read(): Promise<ClipboardText>;
-  write(text: string): Promise<ClipboardText>;
+  read(options?: NativeActionOptions): Promise<ClipboardText>;
+  write(text: string, options?: NativeActionOptions): Promise<ClipboardText>;
 }
 
 async function clipboardBridge(): Promise<ClipboardBridge> {
@@ -15,11 +17,15 @@ async function clipboardBridge(): Promise<ClipboardBridge> {
 }
 
 export const clipboard = {
-  read(): Promise<ClipboardText> {
-    return clipboardBridge().then((bridge) => bridge.read());
+  read(options?: ActionOptions): Promise<ClipboardText> {
+    return runAction(options, (bridgeOptions) =>
+      clipboardBridge().then((bridge) => bridge.read(bridgeOptions)),
+    );
   },
-  /** Writes text through the `clipboard.write` action pipeline. */
-  write(text: string): Promise<ClipboardText> {
-    return clipboardBridge().then((bridge) => bridge.write(text));
+  /** Writes text through the `windows.clipboard.write` action pipeline. */
+  write(text: string, options?: ActionOptions): Promise<ClipboardText> {
+    return runAction(options, (bridgeOptions) =>
+      clipboardBridge().then((bridge) => bridge.write(text, bridgeOptions)),
+    );
   },
 };

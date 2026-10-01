@@ -16,6 +16,8 @@ std::uint64_t TimerService::schedule(std::chrono::milliseconds delay, Callback c
     id = next_sequence_++;
     const auto deadline = std::chrono::steady_clock::now() + delay;
     entries_.push_back({deadline, id, std::move(callback)});
+    // TODO(perf): full re-sort on every schedule is O(N log N); kept to avoid
+    // changing the container/headers. Revisit with a heap if timers grow.
     std::sort(entries_.begin(), entries_.end(),
               [](const Entry& left, const Entry& right) {
                 if (left.deadline != right.deadline) return left.deadline < right.deadline;
@@ -49,6 +51,9 @@ void TimerService::stop() {
     }
   }
   condition_.notify_all();
+  // Self-join guard: stop() may run on the worker itself (e.g. via a timer
+  // callback); joining the current thread would deadlock/terminate.
+  if (thread_.joinable() && std::this_thread::get_id() == thread_.get_id()) return;
   if (thread_.joinable()) thread_.join();
 }
 
@@ -76,7 +81,9 @@ void TimerService::run() {
     try {
       callback();
     } catch (...) {
-      // Timer callbacks must not throw across the worker boundary.
+      // Swallowing here is a worker-boundary requirement: exceptions must not
+      // escape the timer thread. Deliberately no on_error callback — adding
+      // one would chain new public API through this low-level service.
     }
     lock.lock();
   }

@@ -6,6 +6,8 @@
 
 #include <cstring>
 #include <string>
+#include <string_view>
+#include <utility>
 
 namespace rime::win32 {
 namespace {
@@ -14,11 +16,43 @@ using Error = rime::core::Error;
 using Code = rime::core::Error::Code;
 
 struct ClipboardGuard {
-  ~ClipboardGuard() { CloseClipboard(); }
+  ClipboardGuard() = default;
+
+  ClipboardGuard(const ClipboardGuard&) = delete;
+  ClipboardGuard& operator=(const ClipboardGuard&) = delete;
+
+  ClipboardGuard(ClipboardGuard&& other) noexcept
+      : owns(std::exchange(other.owns, false)) {}
+
+  ClipboardGuard& operator=(ClipboardGuard&& other) noexcept {
+    if (this != &other) {
+      reset();
+      owns = std::exchange(other.owns, false);
+    }
+    return *this;
+  }
+
+  ~ClipboardGuard() { reset(); }
+
+  void reset() {
+    if (owns) {
+      CloseClipboard();
+      owns = false;
+    }
+  }
+
+ private:
+  bool owns{true};
 };
 
 constexpr int kOpenAttempts = 5;
 
+// OpenClipboard requires a thread with a message queue and fails while
+// another window holds the clipboard open. Callers must route through
+// UiThread::call (or another message-queue thread); the short Sleep(10)
+// retry loop is kept intentionally to avoid behavior churn.
+// TODO: centralize this retry/throttle policy in the scheduler instead of
+// scattering Sleep-based retries across modules.
 bool open_clipboard() {
   for (int attempt = 0; attempt < kOpenAttempts; ++attempt) {
     if (OpenClipboard(nullptr)) return true;
@@ -36,14 +70,28 @@ Error ClipboardService::read_text(std::string& out) const {
   if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) return Error::none();
   const HANDLE data = GetClipboardData(CF_UNICODETEXT);
   if (!data) return {Code::ExecutionFailed, "cannot read clipboard text"};
+  // Bound the view with GlobalSize instead of trusting NUL termination: the
+  // clipboard owner could hand us an unterminated buffer.
+  const SIZE_T bytes = GlobalSize(data);
+  if (bytes == 0 || bytes % sizeof(wchar_t) != 0) {
+    return {Code::ExecutionFailed, "cannot size clipboard text"};
+  }
   const auto* text = static_cast<const wchar_t*>(GlobalLock(data));
   if (!text) return {Code::ExecutionFailed, "cannot lock clipboard text"};
-  out = to_utf8(std::wstring(text));
+  std::wstring_view view(text, bytes / sizeof(wchar_t));
+  // CF_UNICODETEXT is conventionally NUL-terminated; drop trailing NULs so an
+  // "empty" clipboard reads back as an empty string.
+  while (!view.empty() && view.back() == L'\0') view.remove_suffix(1);
+  // utf.hpp only takes std::wstring, so the bounded view is materialized here
+  // instead of changing its signature.
+  out = to_utf8(std::wstring(view));
   GlobalUnlock(data);
   return Error::none();
 }
 
 Error ClipboardService::write_text(const std::string& utf8_text) const {
+  // An empty string still stores a single NUL below, so readers observe empty
+  // text (CF_UNICODETEXT present) rather than "no text format".
   const std::wstring wide = from_utf8(utf8_text);
   if (!open_clipboard()) return {Code::ExecutionFailed, "clipboard is busy"};
   ClipboardGuard guard;

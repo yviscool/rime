@@ -33,8 +33,11 @@ class ShutdownSequence final {
 
   // Moves the sequence forward (or repeats the current phase). Moving
   // backwards, or advancing after Completed/Failed, fails.
-  Error advance(ShutdownPhase next, std::string subject = "runtime");
-  Error fail(std::string reason);
+  // NOTE: to enter Failed, call fail() instead of advance(Failed) so the
+  // failure reason is recorded; advance(Failed) is still accepted but drops
+  // the reason. Enum semantics are intentionally unchanged.
+  [[nodiscard]] Error advance(ShutdownPhase next, std::string subject = "runtime");
+  [[nodiscard]] Error fail(std::string reason);
 
   // Registers runtime-owned references (hook, window procedure, COM
   // reference, JS callback) that must be released before unload succeeds.

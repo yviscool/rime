@@ -38,7 +38,7 @@ rime::action::Action make_action(rime::core::ActionId id, std::string idempotenc
                               1,
                               {"user", "local"},
                               "window.move",
-                              "window.write",
+                              "windows.window.write",
                               {"window", "active"},
                               {},
                               4102444800000ULL,
@@ -185,7 +185,7 @@ int main() {
   // --- Dispatcher policies always produce exactly one result -------------
   {
     auto policy = std::make_shared<rime::action::StaticCapabilityPolicy>(
-        std::unordered_set<std::string>{"window.write"});
+        std::unordered_set<std::string>{"windows.window.write"});
     auto trace = std::make_shared<rime::core::InMemoryTrace>();
     rime::action::Kernel kernel(policy, trace);
     assert(kernel.register_executor("window.move", std::make_shared<EchoExecutor>()).ok());

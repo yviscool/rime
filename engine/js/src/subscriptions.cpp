@@ -12,6 +12,12 @@ rime::core::Error SubscriptionRegistry::add(std::string kind, const std::uint64_
   if (closed_) {
     return {rime::core::Error::Code::InvalidState, "runtime is shutting down"};
   }
+  const auto duplicate =
+      std::find_if(entries_.begin(), entries_.end(),
+                   [id](const auto& entry) { return entry.second == id; });
+  if (duplicate != entries_.end()) {
+    return {rime::core::Error::Code::InvalidState, "subscription id already registered"};
+  }
   entries_.emplace_back(std::move(kind), id);
   return rime::core::Error::none();
 }
@@ -29,6 +35,9 @@ rime::core::Error SubscriptionRegistry::remove(const std::uint64_t id) {
 
 void SubscriptionRegistry::close() {
   std::lock_guard lock(mutex_);
+  // NOTE: entries are intentionally NOT cleared here. close() only rejects
+  // future adds; remaining entries stay visible so unload() can diagnose
+  // leaks. Return type intentionally stays void.
   closed_ = true;
 }
 

@@ -4,7 +4,7 @@
 
 ## 已发现但尚未逐项提取
 
-- `objects.json` 中标记为 `extract-required` 的 Gui、GuiControl、Menu、InputHook、File 成员；需要从 `md_member*` 元数据提取精确参数和返回值。
+- 对象成员矩阵已按真实源码签名提取进 `objects.json`：Gui、GuiControl、Menu、InputHook、File 以及 Object、Array、Map、Func、Buffer、ClipboardAll、RegExMatch、ComObject 的每个成员都补齐了 `name/kind/parameters/returnType/sourceDefinition/lane/async/ownership/error/compatibilityTest`；剩余缺口只是 `md_member*` 元数据层的参数个数与可选参数边界仍需 CI 做漂移检查。
 - `script.cpp` 的 41 个 `BIF1` 核心内建函数；它们不在 `functions.h`，必须建立独立来源字段和兼容测试。
 - 内置变量：`builtins.json` 目前是按源码命中的分域清单，不是完整定义表；需要从 `globaldata` 的注册/解析逻辑提取所有动态变量、只读属性和更新时机。
 - `ahklib.idl` 的全部 ABI 与描述对象；需要生成版本化 Rime Host ABI contract，而不是把它归入普通函数。

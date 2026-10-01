@@ -20,6 +20,7 @@ const root = resolve(import.meta.dir, "..");
 const schema_files = [
   { file: "contracts/schema/action-v1.schema.json", name: "ActionV1" },
   { file: "contracts/schema/result-v1.schema.json", name: "ActionResultV1" },
+  { file: "contracts/schema/window-v1.schema.json", name: "WindowV1" },
 ] as const;
 const generated_path = resolve(root, "contracts/generated/contracts.ts");
 

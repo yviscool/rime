@@ -79,7 +79,8 @@ int main(int argc, char** argv) {
   auto trace = std::make_shared<rime::core::InMemoryTrace>();
   rime::action::Kernel kernel(
       std::make_shared<rime::action::StaticCapabilityPolicy>(std::unordered_set<std::string>{
-          "process.launch", "process.terminate", "clipboard.write"}),
+          "process.launch", "process.terminate", "process.inspect", "windows.clipboard.read",
+          "windows.clipboard.write"}),
       trace);
   const auto process_executor = std::make_shared<rime::win32::ProcessExecutor>(process_service);
   assert(kernel.register_executor("process.launch", process_executor).ok());

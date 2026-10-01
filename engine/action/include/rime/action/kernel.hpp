@@ -34,8 +34,11 @@ class Kernel final {
                   std::shared_ptr<rime::core::TraceSink> trace = {});
 
   rime::core::Error register_executor(std::string action_type,
-                                      std::shared_ptr<Executor> executor);
+                                       std::shared_ptr<Executor> executor);
   Result execute(const Action& action, rime::core::CancellationToken cancellation = {});
+  // Read-only capability probe so native query paths enforce the same policy
+  // as the action pipeline without building an Action.
+  [[nodiscard]] bool allows(const std::string& capability) const;
 
  private:
   Result fail(const Action& action, rime::core::Error::Code code, std::string message);

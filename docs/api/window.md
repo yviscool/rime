@@ -1,6 +1,6 @@
 # Window API
 
-状态：`specified`；`list/active/info/move/focus` 有 Native 基础实现，尚未完成 TS binding 和完整 contract。
+状态：`implemented`（Rime 原生表面）：`list`（WinTitle 查询）、`active`、`info`、`move`、`focus`、`close`、`hide`、`show`、`minimize`、`maximize`、`restore` 均有 TS binding、`windows.window.read`/`windows.window.write` capability 校验、`window-v1` contract（`contracts/schema/window-v1.schema.json`）与 native/slice 测试；读写接受 `deadlineMs`/`cancellationId` 选项，deadline 与排队超时返回 `timeout`。AHK `Win*` 函数条目在 `coverage.json` 中仍为 `contract-only`（`WinGetControls`/`WinGetText` 等扩展项未实现）。
 
 源码证据：`rime-research/AutoHotkey-alpha/source/lib/functions.h` 的 `Win*`、`WinGroup*`；`source/window.cpp`、`source/window.h`；Rime 的 `engine/win32/src/window.cpp` 和 `engine/win32/src/ui_thread.cpp`。
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rime/action/kernel.hpp"
 #include "rime/core/types.hpp"
 #include "rime/win32/input.hpp"
 
@@ -15,9 +16,10 @@ namespace rime::win32 {
 
 // Wiring for `rime:input`. The owner keeps the binding alive for the whole
 // host/runtime lifetime. The `callbacks` map is touched on the JS thread
-// only.
+// only. `kernel` gates subscriptions behind `windows.hook.global`.
 struct InputModuleBinding {
   InputService* service{nullptr};
+  rime::action::Kernel* kernel{nullptr};
   std::unordered_map<std::uint64_t, std::uint64_t> callbacks;  // service id -> host callback id
 };
 

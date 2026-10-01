@@ -68,12 +68,12 @@ struct ParseOutcome {
 
 // Deterministic JSON parser: preserves member order, rejects trailing input,
 // limits nesting depth and keeps integers inside JavaScript's safe range exact.
-ParseOutcome parse(std::string_view text);
+[[nodiscard]] ParseOutcome parse(std::string_view text);
 
 // Compact deterministic serializer. Non-finite numbers are emitted as null.
-std::string stringify(const Value& value);
+[[nodiscard]] std::string stringify(const Value& value);
 
 // Order-sensitive structural equality over parsed or generated values.
-bool equals(const Value& left, const Value& right);
+[[nodiscard]] bool equals(const Value& left, const Value& right);
 
 }  // namespace rime::core::json

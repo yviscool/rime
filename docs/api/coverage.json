@@ -81,7 +81,7 @@
       "tsModule": "@rime/clipboard",
       "status": "contract-only",
       "async": "async",
-      "capability": "windows.clipboard.read/write",
+      "capability": "windows.clipboard.read",
       "contractTest": "missing",
       "lane": "automation",
       "cancellation": "deadline+AbortSignal"
@@ -2524,7 +2524,7 @@
       "tsModule": "@rime/process-shell",
       "status": "contract-only",
       "async": "async",
-      "capability": "process.inspect",
+      "capability": "process.terminate",
       "contractTest": "missing",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
@@ -2602,7 +2602,7 @@
       "tsModule": "@rime/process-shell",
       "status": "contract-only",
       "async": "async",
-      "capability": "process.inspect",
+      "capability": "process.terminate",
       "contractTest": "missing",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
@@ -3127,7 +3127,7 @@
       "tsModule": "@rime/process-shell",
       "status": "contract-only",
       "async": "async",
-      "capability": "process.inspect",
+      "capability": "process.terminate",
       "contractTest": "missing",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"

@@ -25,7 +25,7 @@ const char* host_abi_state_name(const HostAbiState state) {
 
 HostAbi::HostAbi() = default;
 
-HostAbi::~HostAbi() { unload(); }
+HostAbi::~HostAbi() { (void)unload(); }
 
 rime::core::Error HostAbi::load(const std::string_view source, const std::string_view filename) {
   if (state_ != HostAbiState::Created) {
@@ -110,6 +110,10 @@ rime::core::Error HostAbi::unload() {
     busy = true;
     reasons << timers << " armed timer(s); ";
   }
+  if (const auto queue = host_.event_queue(); queue && !queue->empty()) {
+    busy = true;
+    reasons << "pending host event(s); ";
+  }
 
   if (busy) {
     return {rime::core::Error::Code::InvalidState,
@@ -123,6 +127,8 @@ rime::core::Error HostAbi::unload() {
 }
 
 void HostAbi::exit(const int code) {
+  // NOTE: exit() only records the code and fires on_exit; it is not an
+  // unload — subscriptions/callbacks/timers stay alive until unload().
   exit_code_ = code;
   if (on_exit_) on_exit_(code);
 }

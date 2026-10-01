@@ -14,7 +14,7 @@ Rim 是这个 Runtime 上的第一款完整应用。Runtime 本身不依赖 Rim�
 
 ## 定位
 
-项目不是 Electron、Tauri、Flutter 或新的 AutoHotkey 语法层。它继承 AutoHotkey 对 Windows 能力的抽象，但使用现代 JavaScript/TypeScript 作为应用语言，并建立独立的 Windows Runtime Host。
+项目不是 Electron、Tauri、Flutter 或新的 AutoHotkey 语法层。AutoHotkey 源码只作为研究 Windows 能力边界和调度约束的样本，不是公共命名、语法或行为兼容目标；公共 API 以现代 JavaScript/TypeScript 语义重新设计，并建立独立的 Windows Runtime Host。
 
 ```text
 JavaScript / TypeScript
@@ -41,8 +41,9 @@ Win32 / UIA / COM / Hooks / D3D / DirectComposition
 - **Win32 层**：Window、Input Hook、Process、Clipboard 四组服务，以及 `rime:window` / `rime:input` / `rime:process` / `rime:clipboard` JS 模块。
 - **SDK 与 Rim**：`@rime/sdk` 公共 API；Rim bundle 在宿主内执行窗口/进程/剪贴板查询，校验 settle 与确定性关闭。
 - **验证**：contract/typecheck/SDK 测试、MSVC CTest（/W4 /WX）、QuickJS 切片与 bundle 执行、MSVC AddressSanitizer，全部由 GitHub Actions 在 `windows-latest` 上执行。
+- **API 规范**：`docs/api/` 是逐领域规范入口；`coverage.json` 登记 `functions.h` 的 253 个函数，`core-builtins.md`/`core-builtins.json` 登记 `script.cpp` 的 41 个核心内建，`objects.json`、`builtins.json`、`abi-and-language.md` 登记对象成员、内置变量和 Host ABI 来源。
 
-尚未开始：UIA/MSAA 自动化、UI Runtime（D3D11/DirectComposition/Direct2D）、插件 Manifest 与进程隔离、SQLite 存储、OCR 与 AI。
+实现尚未开始：UIA/MSAA 自动化、UI Runtime（D3D11/DirectComposition/Direct2D）、插件 Manifest 与进程隔离、SQLite 存储、OCR 与 AI。按 `docs/api/coverage.json`，253 个函数目前是 241 项 `contract-only`、7 项 `sdk-owned`、5 项 `unsupported-by-policy`，`functions.h` 函数级条目尚无 `implemented`（AHK 函数的逐函数 TS binding 仍未开始）。Rime 原生 `Window` 垂直切片已完成：`list`（含 WinTitle 查询 `title`/`matchMode`/`ahkClass`/`ahkExe`/`ahkId`/`includeHidden`/`active`）、`active`、`info`、`move`、`focus`、`close`、`hide`、`show`、`minimize`、`maximize`、`restore` 全部经过 TS binding → `windows.window.read`/`windows.window.write` capability 校验 → Action Kernel → UI lane，并由 `window-v1` contract、native 测试与 JS slice 覆盖；读写都接受 `deadlineMs`/`cancellationId`（`AbortSignal`）选项，deadline 过期与 UI 排队超时返回 `timeout` 错误码。
 
 ## 技术栈
 
@@ -102,7 +103,7 @@ apps/       Rim、CLI 和示例应用
 plugins/    插件 SDK、Manifest 和实现
 tests/      contract、native、host、replay 和集成测试
 tools/      Bun 构建、检查、测试、打包和诊断命令
-docs/       架构与运维记录
+docs/       架构与运维记录；docs/api 是逐领域 API 规范、覆盖矩阵和设计审查
 site/       文档和 Playground 构建表面
 ```
 
@@ -196,37 +197,22 @@ Win32 / Hook / Timer / COM completion
 
 Win32 Message Pump 是 UI、Hook、Timer 和窗口回调的事件入口。消息泵可以被嵌套（例如模态对话框或系统拖放），但 Runtime 不得因此产生第二个未受监管的脚本调度器；所有嵌套泵都必须向同一个调度器报告，并遵守队列顺序、背压、取消和关闭状态。
 
-## 公共 API 方向
 
-已实现的 SDK 表面（`@rime/sdk`，底层为 `rime:*` 原生模块）：
-
-```ts
-import { Window, Process, clipboard, input, runtime } from "@rime/sdk";
-
-await Window.active().move("left");
-await Process.launch({ command: "notepad.exe" });
-await clipboard.write("hello");
-const id = input.subscribe((event) => {
-  // key / mouse 事件快照
-});
-input.unsubscribe(id);
-```
-
-自动化（UIA/MSAA）、UI Runtime 和插件模块将在后续阶段以同样的 SDK 表面接入。
+自动化（UIA/MSAA）、UI Runtime 和插件模块将在后续阶段以同样的 SDK 表面接入。未来标准库的模块划分与签名（`windows`、`keyboard`/`mouse`、`processes`、`fs`、`clipboard`、`displays`、`actions`，以及 branded `WindowId`/`WindowRef`、`CallOptions`、`Subscription`）以 `docs/api/future-runtime.md` 为准；AHK 函数名只用于覆盖矩阵追踪，不作为公共命名。
 
 系统资源必须由 Native 层通过 RAII 管理。`HWND`、`HANDLE`、`IUnknown*` 等原始指针不能直接暴露给 JavaScript，只能通过 Runtime-owned opaque object 和稳定 ID 访问。
 
-## 从 AutoHotkey 继承的 Windows 运行时经验
+## 从 AutoHotkey 研究得到的 Windows 运行时经验
 
-`AutoHotkey-alpha` 证明了桌面自动化最难的部分不是把 Win32 函数映射到脚本，而是让消息泵、输入 Hook、Timer、GUI 回调和脚本执行保持可预测的顺序。Runtime 继承这些边界经验，但不继承它的全局状态和隐式语义：
+`AutoHotkey-alpha` 证明了桌面自动化最难的部分不是把 Win32 函数映射到脚本，而是让消息泵、输入 Hook、Timer、GUI 回调和脚本执行保持可预测的顺序。Runtime 保留这些边界经验，但不保留它的全局状态和隐式语义，也不以 AHK 命名、语法或行为兼容为目标：
 
 - Win32 Message Pump 是 UI/输入事件的唯一入口；Hook、Timer、窗口消息和外部完成通知先进入事件队列，再由 JS Thread 的调度器交付。
 - JS 回调不是新的操作系统线程。它们是带有来源、优先级、取消状态和父 Action 的 Runtime task；同一 JS Context 内禁止任意重入。
 - 每个可能阻塞或改变活动窗口的操作都必须声明可中断区间。进入 SendInput、激活窗口、剪贴板交换等临界区后，新的脚本事件只能排队，不能隐式打断。
 - 最大并发、事件节流和重复触发策略必须是显式的调度策略。队列满时必须有丢弃、合并或失败结果，并写入 Trace。
 - Hook、Timer、GUI、COM callback 和 JS function reference 都属于 Runtime-owned subscription；关闭或卸载前必须先禁止新事件、取消订阅、等待回调退出，再释放其宿主对象。
-- Runtime 需要版本化的 Host ABI：加载、执行、错误回调、退出码、脚本/模块检查和卸载都必须是显式接口。若仍有 Hook、窗口过程、COM 引用或 JS 回调，卸载必须返回可诊断的 busy/failed 状态，而不是依赖进程退出清理。
-- 宿主应能检查模块、函数、源文件、行号、订阅和当前 Action；AutoHotkey 的 `Lib.Funcs`、`Lib.Vars`、`OnProblem` 说明可检查的宿主比只有执行入口更适合长期工具链。
+- Runtime 需要版本化的 Host ABI：加载、执行、错误回调、检查（inspect）、退出码和卸载（`load/execute/error/inspect/exit/unload`）都必须是显式接口。若仍有 Hook、窗口过程、COM 引用或 JS 回调，卸载必须返回可诊断的 busy/failed 状态，而不是依赖进程退出清理。
+- 宿主应能检查模块、函数、源文件、行号、订阅和当前 Action；AutoHotkey 宿主 ABI 的 `Funcs`、`Vars`、`Labels`、`OnProblem` 说明可检查的宿主比只有执行入口更适合长期工具链。
 
 这些规则取代了 AutoHotkey 中依赖全局变量、伪线程栈和隐式 `MsgSleep()` 的兼容行为。我们只保留已经被 Windows 现实验证过的调度和生命周期约束。
 
@@ -237,13 +223,16 @@ input.unsubscribe(id);
 ```json
 {
   "permissions": [
-    "window.read",
-    "window.write",
-    "clipboard.read",
+    "windows.window.read",
+    "windows.window.write",
+    "windows.clipboard.read",
+    "windows.clipboard.write",
     "process.launch"
   ]
 }
 ```
+
+权限名称与 `docs/api/coverage.json` 的 `capability` 字段同一命名空间（如 `windows.input.inject`、`windows.automation.control`、`windows.hook.global`、`filesystem.read/write`、`screen.capture`、`native.unsafe`），按能力授予，不按函数散落判断。
 
 可信插件可以进程内运行；不可信插件通过独立进程、Named Pipe/RPC 和 capability token 运行。插件 API 必须版本化，不能依赖 Rim 的内部实现。
 
@@ -260,19 +249,6 @@ input.unsubscribe(id);
 9. Plugin Manifest、权限和进程隔离
 10. Rim 第一条完整垂直切片
 
-平台成立的最小证明是以下三条路径使用同一个 Runtime：
-
-```js
-Window.active().move("left");
-```
-
-```tsx
-<App>
-  <Window>
-    <Button onClick={() => Window.active().close()} />
-  </Window>
-</App>
-```
 
 ```text
 Global Hotkey → Context → Action IR → Action Kernel → Windows
@@ -287,3 +263,4 @@ Global Hotkey → Context → Action IR → Action Kernel → Windows
 - 每个 Native 资源都有明确所有权和确定性关闭路径。
 - 每个系统能力都能被权限检查、记录和取消。
 - 公共 API 优先稳定，内部实现可以迭代。
+- AutoHotkey 源码只是能力研究样本；公共 API 不承诺 AHK 命名或行为兼容。

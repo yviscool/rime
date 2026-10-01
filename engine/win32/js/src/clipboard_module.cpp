@@ -21,19 +21,36 @@ ClipboardModuleBinding* binding_of(JSContext* context) {
   return static_cast<ClipboardModuleBinding*>(host->module_data("rime:clipboard"));
 }
 
-JSValue clipboard_read(JSContext* context, JSValueConst, int, JSValueConst*, int, void*) {
+constexpr const char* kClipboardReadCapability = "windows.clipboard.read";
+constexpr const char* kClipboardWriteCapability = "windows.clipboard.write";
+
+JSValue clipboard_read(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                       void*) {
   ClipboardModuleBinding* binding = binding_of(context);
-  if (!binding || !binding->service) {
+  if (!binding || !binding->service || !binding->kernel) {
     return JS_ThrowInternalError(context, "rime:clipboard is not wired");
   }
+  if (argc > 1) return JS_ThrowTypeError(context, "read(options?)");
+  ActionOptions options;
+  if (argc == 1 && !parse_action_options(context, argv[0], options)) return JS_EXCEPTION;
+  rime::action::Kernel* kernel = binding->kernel;
   ClipboardService* service = binding->service;
-  return start_async(context, [service]() -> std::pair<bool, std::string> {
-    std::string text;
-    if (const auto error = service->read_text(text); !error.ok()) return {false, error.message};
-    json::Value value = json::Value::object();
-    value.set("text", json::Value::string(text));
-    return {true, json::stringify(value)};
-  });
+  return start_async(
+      context,
+      [kernel, service]() -> std::pair<bool, std::string> {
+        if (!kernel->allows(kClipboardReadCapability)) {
+          return {false, std::string("required capability was not granted: ") +
+                             kClipboardReadCapability};
+        }
+        std::string text;
+        if (const auto error = service->read_text(text); !error.ok()) {
+          return {false, error.message};
+        }
+        json::Value value = json::Value::object();
+        value.set("text", json::Value::string(text));
+        return {true, json::stringify(value)};
+      },
+      options.cancellation_id);
 }
 
 JSValue clipboard_write(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
@@ -54,10 +71,15 @@ JSValue clipboard_write(JSContext* context, JSValueConst, int argc, JSValueConst
   json::Value payload = json::Value::object();
   payload.set("text", json::Value::string(value));
 
+  ActionOptions options;
+  if (argc >= 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
+  if (argc > 2) return JS_ThrowTypeError(context, "write(text, options?)");
+
   rime::action::Kernel* kernel = binding->kernel;
   auto action = make_action(*binding->next_action_id, "rime:clipboard", "clipboard.write",
-                            "clipboard.write", {"clipboard", "default"}, json::stringify(payload));
-  return run_action(context, *kernel, std::move(action));
+                            kClipboardWriteCapability, {"clipboard", "default"},
+                            json::stringify(payload), options);
+  return run_action(context, *kernel, std::move(action), options.cancellation_id);
 }
 
 int clipboard_module_init(JSContext* context, JSModuleDef* module) {

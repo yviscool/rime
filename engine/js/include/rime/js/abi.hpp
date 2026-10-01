@@ -19,6 +19,8 @@ const char* host_abi_state_name(HostAbiState state);
 
 // Synchronous embedding façade over one Host. The creating thread is the JS
 // thread; every method must be called from it.
+// NOTE: owner-thread affinity is documented, not enforced with a mutex —
+// adding one would cascade locking semantics through Host.
 class HostAbi final {
  public:
   using ErrorHandler = std::function<void(std::string_view where, std::string_view message)>;
@@ -34,18 +36,19 @@ class HostAbi final {
 
   // Stages a script. ES module vs. script is decided at execute time via
   // JS_DetectModule.
-  rime::core::Error load(std::string_view source, std::string_view filename);
+  [[nodiscard]] rime::core::Error load(std::string_view source, std::string_view filename);
   // Evaluates the staged script and drains its jobs. Repeatable while
   // Loaded/Executed. Passing `source` replaces the staged script first.
   // Failures move the ABI to Failed and fire on_error.
-  rime::core::Error execute(std::string_view source = {}, std::string_view filename = {});
+  [[nodiscard]] rime::core::Error execute(std::string_view source = {}, std::string_view filename = {});
   // Reads live host state without executing script.
   std::string inspect(std::string_view request_json = "{}");
   std::size_t drain();
   // Unloads the host. Fails with a reason list while subscriptions, JS
   // callbacks or unresolved promises are outstanding. Idempotent.
-  rime::core::Error unload();
-  // Records an embedder exit code and fires on_exit.
+  [[nodiscard]] rime::core::Error unload();
+  // Records an embedder exit code and fires on_exit. NOTE: not an unload —
+  // resources stay alive until unload() succeeds.
   void exit(int code);
   [[nodiscard]] int exit_code() const { return exit_code_; }
 

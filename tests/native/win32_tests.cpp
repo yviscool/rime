@@ -95,6 +95,123 @@ int main() {
   assert(focus_result.ok() ||
          focus_result.code == rime::core::Error::Code::ExecutionFailed);
 
+  // Snapshot fields beyond geometry: class, process image and state.
+  WindowInfo snapshot;
+  assert(service.info(id, snapshot).ok());
+  // The system class registers as "Static"; queries match it case-insensitively.
+  assert(snapshot.class_name == "Static");
+  assert(snapshot.process_name.size() > 4);
+  assert(snapshot.process_name.find(".exe") != std::string::npos ||
+         snapshot.process_name.find(".EXE") != std::string::npos);
+  assert(snapshot.state == "normal");
+  assert(!snapshot.minimized);
+
+  // WinTitle-style queries resolve on the UI lane: contains vs exact title,
+  // class and executable filters, and the hidden window rule.
+  rime::win32::WindowQuery by_title;
+  by_title.title = "Rime WindowService";
+  std::vector<WindowInfo> matched;
+  assert(service.query(by_title, matched).ok());
+  assert(find_by_title(matched).has_value());
+
+  rime::win32::WindowQuery exact;
+  exact.title = "Rime WindowService Test Window";
+  exact.exact_title = true;
+  matched.clear();
+  assert(service.query(exact, matched).ok());
+  assert(find_by_title(matched).has_value());
+
+  rime::win32::WindowQuery exact_partial;
+  exact_partial.title = "Rime WindowService";
+  exact_partial.exact_title = true;
+  matched.clear();
+  assert(service.query(exact_partial, matched).ok());
+  assert(!find_by_title(matched).has_value());
+
+  rime::win32::WindowQuery by_class;
+  by_class.class_name = "STATIC";
+  matched.clear();
+  assert(service.query(by_class, matched).ok());
+  assert(find_by_title(matched).has_value());
+
+  rime::win32::WindowQuery by_exe;
+  char executable[MAX_PATH] = {};
+  assert(GetModuleFileNameA(nullptr, executable, MAX_PATH) > 0);
+  const std::string self_name = std::string(executable).substr(
+      std::string(executable).find_last_of("\\/") + 1);
+  by_exe.process_name = self_name;
+  matched.clear();
+  assert(service.query(by_exe, matched).ok());
+  assert(find_by_title(matched).has_value());
+
+  rime::win32::WindowQuery bogus;
+  bogus.title = "No Such Window Title Anywhere";
+  matched.clear();
+  assert(service.query(bogus, matched).ok());
+  assert(matched.empty());
+
+  // State mutations: hide/show/minimize/maximize/restore round-trip through
+  // the snapshot state machine.
+  assert(service.hide(id).ok());
+  WindowInfo hidden;
+  assert(service.info(id, hidden).ok());
+  assert(!hidden.visible);
+  assert(hidden.state == "hidden");
+  matched.clear();
+  assert(service.query(by_title, matched).ok());
+  assert(!find_by_title(matched).has_value());
+  by_title.include_hidden = true;
+  matched.clear();
+  assert(service.query(by_title, matched).ok());
+  assert(find_by_title(matched).has_value());
+  by_title.include_hidden = false;
+
+  assert(service.show(id).ok());
+  WindowInfo shown;
+  assert(service.info(id, shown).ok());
+  assert(shown.visible);
+  assert(shown.state == "normal");
+
+  assert(service.minimize(id).ok());
+  WindowInfo minimized;
+  assert(service.info(id, minimized).ok());
+  assert(minimized.minimized);
+  assert(minimized.state == "minimized");
+
+  assert(service.restore(id).ok());
+  WindowInfo restored;
+  assert(service.info(id, restored).ok());
+  assert(!restored.minimized);
+  assert(restored.state == "normal");
+
+  assert(service.maximize(id).ok());
+  WindowInfo maximized;
+  assert(service.info(id, maximized).ok());
+  assert(maximized.state == "maximized");
+  assert(service.restore(id).ok());
+
+  // close(): WM_CLOSE runs inline on this thread, so the id is stale once
+  // the call returns.
+  HWND disposable = nullptr;
+  assert(service.ui()
+             .call([&] {
+               disposable = CreateWindowExW(0, L"STATIC", L"Rime Close Target",
+                                            WS_OVERLAPPED | WS_VISIBLE, 40, 40, 320, 240,
+                                            nullptr, nullptr, GetModuleHandleW(nullptr),
+                                            nullptr);
+               assert(disposable != nullptr);
+             })
+             .ok());
+  std::vector<WindowInfo> close_match;
+  rime::win32::WindowQuery close_query;
+  close_query.title = "Rime Close Target";
+  assert(service.query(close_query, close_match).ok());
+  assert(close_match.size() == 1);
+  const std::uint64_t close_id = close_match.front().id;
+  assert(service.close(close_id).ok());
+  WindowInfo gone;
+  assert(service.info(close_id, gone).code == rime::core::Error::Code::InvalidState);
+
   // active() resolves to a live, inspectable window.
   std::optional<WindowInfo> active;
   assert(service.active(active).ok());
@@ -108,18 +225,20 @@ int main() {
   auto trace = std::make_shared<rime::core::InMemoryTrace>();
   rime::action::Kernel kernel(
       std::make_shared<rime::action::StaticCapabilityPolicy>(
-          std::unordered_set<std::string>{"window.write"}),
+          std::unordered_set<std::string>{"windows.window.read", "windows.window.write"}),
       trace);
-  assert(kernel
-             .register_executor("window.move",
-                                std::make_shared<rime::win32::WindowExecutor>(service))
-             .ok());
+  const auto window_executor = std::make_shared<rime::win32::WindowExecutor>(service);
+  for (const char* type : {"window.move", "window.focus", "window.close", "window.hide",
+                           "window.show", "window.minimize", "window.maximize",
+                           "window.restore"}) {
+    assert(kernel.register_executor(type, window_executor).ok());
+  }
 
   rime::action::Action move_action;
   move_action.id = 1;
   move_action.source = {"test", "win32_tests"};
   move_action.type = "window.move";
-  move_action.capability = "window.write";
+  move_action.capability = "windows.window.write";
   move_action.target = {"window", std::to_string(id)};
   move_action.payload = R"({"position":"left"})";
   move_action.deadline_unix_ms =
@@ -179,12 +298,57 @@ int main() {
   assert(bad_placement_result.error.message.find("unknown window placement") !=
          std::string::npos);
 
-  // A slow task occupies the pump; a queued call hits its deadline.
+  // The executor dispatches window.close: the pre-close snapshot is the
+  // result value and the id goes stale immediately after.
+  HWND exec_disposable = nullptr;
+  assert(service.ui()
+             .call([&] {
+               exec_disposable = CreateWindowExW(0, L"STATIC", L"Rime Executor Close",
+                                                 WS_OVERLAPPED | WS_VISIBLE, 60, 60, 320, 240,
+                                                 nullptr, nullptr, GetModuleHandleW(nullptr),
+                                                 nullptr);
+               assert(exec_disposable != nullptr);
+             })
+             .ok());
+  std::vector<WindowInfo> exec_close_match;
+  rime::win32::WindowQuery exec_close_query;
+  exec_close_query.title = "Rime Executor Close";
+  assert(service.query(exec_close_query, exec_close_match).ok());
+  assert(exec_close_match.size() == 1);
+  rime::action::Action close_action = move_action;
+  close_action.id = 4;
+  close_action.type = "window.close";
+  close_action.payload = "{}";
+  close_action.target.id = std::to_string(exec_close_match.front().id);
+  const auto close_result = kernel.execute(close_action);
+  assert(close_result.succeeded);
+  assert(close_result.value.is_object());
+  assert(close_result.value.find("title") != nullptr);
+  WindowInfo close_gone;
+  assert(service.info(exec_close_match.front().id, close_gone).code ==
+         rime::core::Error::Code::InvalidState);
+
+  // An expired deadline is rejected by the kernel with Timeout.
+  rime::action::Action expired = move_action;
+  expired.id = 5;
+  expired.deadline_unix_ms = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count() -
+      1000);
+  const auto expired_result = kernel.execute(expired);
+  assert(!expired_result.succeeded);
+  assert(expired_result.error.code == rime::core::Error::Code::Timeout);
+
+  // A slow task occupies the pump; a queued call hits its deadline with the
+  // dedicated Timeout code.
   std::thread slow([&] {
     assert(service.ui().call([] { std::this_thread::sleep_for(500ms); }).ok());
   });
   std::this_thread::sleep_for(100ms);
-  assert(!service.ui().call([] {}, 20ms).ok());
+  const auto queued_timeout = service.ui().call([] {}, 20ms);
+  assert(!queued_timeout.ok());
+  assert(queued_timeout.code == rime::core::Error::Code::Timeout);
   slow.join();
 
   // Nested calls run inline on the UI thread.

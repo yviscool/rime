@@ -1,0 +1,11 @@
+{
+  "id": 7,
+  "title": "Untitled - Notepad",
+  "className": "Notepad",
+  "processName": "notepad.exe",
+  "rect": { "left": 0, "top": 0, "right": 800, "bottom": 600 },
+  "visible": true,
+  "minimized": false,
+  "state": "normal",
+  "processId": 4242
+}

@@ -15,8 +15,8 @@ namespace rime::js {
 class SubscriptionRegistry final {
  public:
   // Registers an entry; fails once the registry is closed.
-  rime::core::Error add(std::string kind, std::uint64_t id);
-  rime::core::Error remove(std::uint64_t id);
+  [[nodiscard]] rime::core::Error add(std::string kind, std::uint64_t id);
+  [[nodiscard]] rime::core::Error remove(std::uint64_t id);
   // Closes the registry: further adds are rejected.
   void close();
 

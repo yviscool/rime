@@ -33,11 +33,11 @@ int main(int argc, char** argv) {
              .ok());
 
   // Exceptions surface with location and message and are recorded for inspect.
-  const auto error = host.eval("throw new Error('expected failure');", "smoke.js");
+  const auto error = host.eval("throw new Error('expected failure');", "smoke.mjs");
   assert(error.code == rime::core::Error::Code::ExecutionFailed);
   assert(error.message.find("expected failure") != std::string::npos);
   assert(host.errors().size() == 1);
-  assert(host.errors()[0].where == "smoke.js");
+  assert(host.errors()[0].where == "smoke.mjs");
 
   // File-based ES modules are confined to the configured root.
   assert(host.modules().set_file_root(fixture_root).ok());

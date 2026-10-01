@@ -26,6 +26,11 @@ int main() {
   ClipboardService service;
 
   // Preserve whatever text the clipboard held before the test.
+  // NOTE: save/restore is manual here: if an assert() aborts mid-test the
+  // restore at the end never runs. A small RAII scope-guard restoring the
+  // original text in its destructor would be safer.
+  // TODO(clipboard-test): use an RAII guard for clipboard save/restore so
+  // early failures still restore the original content.
   std::string original;
   assert(service.read_text(original).ok());
 
@@ -44,7 +49,7 @@ int main() {
 
   // The executor drives clipboard.write through the kernel.
   rime::action::Kernel kernel(std::make_shared<rime::action::StaticCapabilityPolicy>(
-      std::unordered_set<std::string>{"clipboard.write"}));
+      std::unordered_set<std::string>{"windows.clipboard.write"}));
   const auto executor = std::make_shared<rime::win32::ClipboardExecutor>(service);
   assert(kernel.register_executor("clipboard.write", executor).ok());
 
@@ -52,7 +57,7 @@ int main() {
   write.id = 1;
   write.source = {"test", "clipboard_tests"};
   write.type = "clipboard.write";
-  write.capability = "clipboard.write";
+  write.capability = "windows.clipboard.write";
   write.target = {"clipboard", "default"};
   write.deadline_unix_ms = deadline_ms();
   write.payload = "{\"text\":\"rime-clipboard-executor\"}";
@@ -73,6 +78,8 @@ int main() {
   assert(read_back.empty());
 
   // Contract violations reject with InvalidContract.
+  // TODO(test): avoid executing the same bad Action twice; store the Result
+  // once and reuse it for both assertions (see process_tests fix).
   rime::action::Action missing = write;
   missing.id = 3;
   missing.payload = "{}";
@@ -94,6 +101,7 @@ int main() {
   assert(refused.error.code == rime::core::Error::Code::CapabilityDenied);
 
   // Restore the original clipboard text last.
+  // TODO(clipboard-test): see RAII save/restore note at the top of main().
   assert(service.write_text(original).ok());
   return 0;
 }

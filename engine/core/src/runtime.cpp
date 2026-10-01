@@ -3,6 +3,32 @@
 #include <utility>
 
 namespace rime::core {
+namespace {
+
+// RAII guard ensuring pump_depth_ is decremented and waiters are notified
+// even if dispatch or tracing throws.
+template <typename F>
+class ScopeGuard final {
+ public:
+  explicit ScopeGuard(F&& on_exit) : on_exit_(std::move(on_exit)), active_(true) {}
+  ScopeGuard(const ScopeGuard&) = delete;
+  ScopeGuard& operator=(const ScopeGuard&) = delete;
+  void dismiss() noexcept { active_ = false; }
+  ~ScopeGuard() noexcept {
+    if (active_) {
+      try {
+        on_exit_();
+      } catch (...) {
+      }
+    }
+  }
+
+ private:
+  F on_exit_;
+  bool active_;
+};
+
+}  // namespace
 
 Runtime::Runtime(const std::size_t queue_capacity, std::shared_ptr<TraceSink> trace)
     : Runtime(SchedulerPolicy::bounded(queue_capacity), std::move(trace)) {}
@@ -35,6 +61,9 @@ Error Runtime::post(Event event) {
   const std::string subject = event.name;
   const std::string key = event.key;
   const QueueStatus status = queue_.push(std::move(event));
+  // Contract: deduplication is success. Deduped/Coalesced outcomes collapse
+  // to Error::none() so callers must not retry; the trace detail ("deduped
+  // key=..."/"coalesced key=...") distinguishes them from Accepted.
   switch (status) {
     case QueueStatus::Accepted:
       trace(TraceKind::EventAccepted, subject, "accepted");
@@ -69,35 +98,63 @@ std::size_t Runtime::pump(const std::size_t budget) {
     handler = handler_;
   }
 
+  // Guarantees --pump_depth_ + notify runs even if try_pop/trace/handler
+  // throws. The guard's cleanup locks internally, so no mutex is held here.
+  ScopeGuard depth_guard([this, nested] {
+    bool notify = false;
+    {
+      std::lock_guard lock(mutex_);
+      --pump_depth_;
+      if (pump_depth_ == 0) pump_thread_ = {};
+      notify = !nested;
+    }
+    if (notify) condition_.notify_all();
+  });
+
   std::size_t handled = 0;
   while (handled < budget) {
     {
       std::lock_guard lock(mutex_);
       if (state_ != RuntimeState::Running) break;
     }
-    auto event = queue_.try_pop();
+    std::optional<Event> event;
+    try {
+      event = queue_.try_pop();
+    } catch (...) {
+      break;
+    }
     if (!event) break;
-    trace(TraceKind::ActionStarted, event->name, "dispatch");
+    try {
+      trace(TraceKind::ActionStarted, event->name, "dispatch");
+    } catch (...) {
+      // Tracing must never break dispatch; detail loss is acceptable.
+    }
     try {
       handler(*event, shutdown_.token());
-      trace(TraceKind::ActionFinished, event->name, "dispatch");
+      try {
+        trace(TraceKind::ActionFinished, event->name, "dispatch");
+      } catch (...) {
+      }
     } catch (const std::exception& exception) {
-      trace(TraceKind::ActionFinished, event->name, exception.what());
+      try {
+        trace(TraceKind::ActionFinished, event->name, exception.what());
+      } catch (...) {
+      }
     } catch (...) {
-      trace(TraceKind::ActionFinished, event->name, "handler threw an unknown exception");
+      try {
+        trace(TraceKind::ActionFinished, event->name, "handler threw an unknown exception");
+      } catch (...) {
+      }
     }
     ++handled;
   }
-  {
-    std::lock_guard lock(mutex_);
-    --pump_depth_;
-    if (pump_depth_ == 0) pump_thread_ = {};
-  }
-  if (!nested) condition_.notify_all();
   return handled;
 }
 
 Error Runtime::stop() {
+  // Handlers must cooperatively check CancellationToken; otherwise the
+  // condition_.wait below blocks until they return. Never destroy the
+  // Runtime (or call stop()) from inside a handler on the pump thread.
   {
     std::unique_lock lock(mutex_);
     if (state_ == RuntimeState::Stopped) return Error::none();
@@ -133,9 +190,14 @@ RuntimeState Runtime::state() const {
 }
 
 void Runtime::trace(const TraceKind kind, std::string subject, std::string detail) {
-  if (trace_) {
-    trace_->record({next_trace_sequence_.fetch_add(1, std::memory_order_relaxed), kind,
-                    std::move(subject), std::move(detail)});
+  // TraceSink::record may throw (user-provided sink); tracing must never
+  // propagate into dispatch/shutdown paths, so failures are swallowed.
+  try {
+    if (trace_) {
+      trace_->record({next_trace_sequence_.fetch_add(1, std::memory_order_relaxed), kind,
+                      std::move(subject), std::move(detail)});
+    }
+  } catch (...) {
   }
 }
 

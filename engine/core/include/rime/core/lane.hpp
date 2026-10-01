@@ -21,7 +21,7 @@ class LaneRegistry final {
 
   // Claims a lane for the calling thread. Re-claiming from the same thread
   // is idempotent; claiming from another thread fails.
-  Error claim(Lane lane);
+  [[nodiscard]] Error claim(Lane lane);
   void release(Lane lane);
   [[nodiscard]] bool is_current(Lane lane) const;
   // Test support: drops every claim.
@@ -35,6 +35,6 @@ class LaneRegistry final {
 
 // Returns InvalidState with a diagnostic when the calling thread does not
 // own the lane.
-Error require_lane(Lane lane);
+[[nodiscard]] Error require_lane(Lane lane);
 
 }  // namespace rime::core

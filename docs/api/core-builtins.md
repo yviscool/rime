@@ -1,6 +1,6 @@
 # 核心内建函数来源
 
-`functions.h` 的 253 项是通过 `md_func*` 元数据声明的库函数集合，但 `script.cpp` 还维护独立的 `g_BIF`/`BIF1` 核心内建函数表。对 `script.cpp` 当前源码提取到 41 个核心函数：
+`functions.h` 的 253 项是通过 `md_func*` 元数据声明的库函数集合，但 `script.cpp` 还维护独立的 `g_BIF`/`BIF1` 核心内建函数表。对 `script.cpp` 当前源码提取到 41 个核心函数，现已在 `core-builtins.json` 的 `entries` 中逐项登记（含参数、来源、lane、能力与测试状态）：
 
 `Abs`、`ATan`、`ATan2`、`Chr`、`Click`、`ComObjActive`、`ComObjConnect`、`ComObjFlags`、`ComObjGet`、`ComObjQuery`、`ComObjType`、`ComObjValue`、`Cos`、`DefineProp`、`Exp`、`FileOpen`、`Format`、`FormatTime`、`HasBase`、`HasProp`、`InStr`、`IsObject`、`Mod`、`NumGet`、`NumPut`、`ObjBindMethod`、`Ord`、`Props`、`Random`、`Round`、`Sin`、`Sort`、`StrCompare`、`StrLen`、`StrPtr`、`SubStr`、`Tan`、`Throw`、`Type`、`VarSetStrCapacity`、`VerCompare`。
 

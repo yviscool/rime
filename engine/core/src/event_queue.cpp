@@ -59,6 +59,9 @@ QueueStatus EventQueue::push(Event event) {
   }
 
   if (policy_.dedupe_window_ms > 0 && has_key) {
+    // Housekeeping bound for the dedupe map; see
+    // SchedulerPolicy::dedupe_window_ms. Expired entries are swept before
+    // inserting so the map stays bounded without changing drop/merge rules.
     if (last_accepted_ms_.size() > 1024) {
       for (auto iterator = last_accepted_ms_.begin(); iterator != last_accepted_ms_.end();) {
         if (now - iterator->second >= policy_.dedupe_window_ms) {

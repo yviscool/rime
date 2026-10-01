@@ -17,7 +17,7 @@ site/       generated documentation/playground surface
 
 The dependency direction is `contracts -> engine -> hosts -> apps`; `sdk` and `tools` may consume contracts, while engine code must not depend on applications. `engine/win32` and `engine/win32/js` carry the Win32 services (`window`, `input`, `process`, `clipboard`) and their `rime:*` native modules; `engine/js` owns the QuickJS host, module loader and ABI.
 
-The root `package.json`, `bunfig.toml`, `tsconfig.json`, `rime.config.ts` and `rime.json` are the workspace/toolchain boundary. Native compilation remains CMake-owned inside `engine/` and each host; Bun orchestrates checks, packaging and developer commands.
+The root `package.json`, `bunfig.toml`, `tsconfig.json` and `rime.config.ts` (single TS-first source of truth; legacy `rime.json` removed) are the workspace/toolchain boundary. Native compilation remains CMake-owned inside `engine/` and each host; Bun orchestrates checks, packaging and developer commands.
 
 QuickJS-ng is pinned to `v0.17.0` (`6d46d07d04041b40f4f49eaa7fdebe44c314c699`) and is enabled with the `quickjs` CMake preset. The default `dev` preset keeps network-fetched engine dependencies disabled so core validation remains offline and repeatable.
 

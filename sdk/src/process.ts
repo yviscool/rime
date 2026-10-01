@@ -1,3 +1,5 @@
+import { runAction, type ActionOptions, type NativeActionOptions } from "./action";
+
 export interface ProcessInfo {
   pid: number;
   parentPid: number;
@@ -7,18 +9,26 @@ export interface ProcessInfo {
   exePath: string;
 }
 
-export interface LaunchOptions {
+/** Wire shape: launch fields plus the shared action options. */
+export interface LaunchOptions extends NativeActionOptions {
   command: string;
   args?: string;
   workingDir?: string;
 }
 
+/** SDK shape: launch fields plus AbortSignal-style options. */
+export type ProcessLaunchRequest = ActionOptions & {
+  command: string;
+  args?: string;
+  workingDir?: string;
+};
+
 /** Bridge of the `rime:process` module. Launch and terminate are Actions. */
 export interface ProcessBridge {
-  list(): Promise<ProcessInfo[]>;
-  info(pid: number): Promise<ProcessInfo>;
+  list(options?: NativeActionOptions): Promise<ProcessInfo[]>;
+  info(pid: number, options?: NativeActionOptions): Promise<ProcessInfo>;
   launch(options: LaunchOptions): Promise<{ pid: number }>;
-  terminate(pid: number): Promise<{ pid: number }>;
+  terminate(pid: number, options?: NativeActionOptions): Promise<{ pid: number }>;
 }
 
 async function processBridge(): Promise<ProcessBridge> {
@@ -28,18 +38,27 @@ async function processBridge(): Promise<ProcessBridge> {
 
 export const Process = {
   /** Snapshot of the running processes. */
-  list(): Promise<ProcessInfo[]> {
-    return processBridge().then((process) => process.list());
+  list(options?: ActionOptions): Promise<ProcessInfo[]> {
+    return runAction(options, (native) =>
+      processBridge().then((process) => process.list(native)),
+    );
   },
-  info(pid: number): Promise<ProcessInfo> {
-    return processBridge().then((process) => process.info(pid));
+  info(pid: number, options?: ActionOptions): Promise<ProcessInfo> {
+    return runAction(options, (native) =>
+      processBridge().then((process) => process.info(pid, native)),
+    );
   },
   /** Starts a process through the `process.launch` action pipeline. */
-  launch(options: LaunchOptions): Promise<{ pid: number }> {
-    return processBridge().then((process) => process.launch(options));
+  launch(request: ProcessLaunchRequest): Promise<{ pid: number }> {
+    const { signal: _signal, ...fields } = request;
+    return runAction(request, (native) =>
+      processBridge().then((process) => process.launch({ ...fields, ...native })),
+    );
   },
   /** Terminates through the `process.terminate` action pipeline. */
-  terminate(pid: number): Promise<{ pid: number }> {
-    return processBridge().then((process) => process.terminate(pid));
+  terminate(pid: number, options?: ActionOptions): Promise<{ pid: number }> {
+    return runAction(options, (native) =>
+      processBridge().then((process) => process.terminate(pid, native)),
+    );
   },
 };

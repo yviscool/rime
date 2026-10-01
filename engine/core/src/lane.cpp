@@ -54,6 +54,8 @@ bool LaneRegistry::is_current(const Lane lane) const {
 }
 
 void LaneRegistry::reset() {
+  // NOTE: test-only helper that drops every lane claim. Not for production
+  // use; name is kept unchanged so existing tests keep compiling.
   std::lock_guard lock(mutex_);
   claimed_.fill(false);
   owners_.fill({});

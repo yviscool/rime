@@ -475,6 +475,13 @@ bool Host::is_cancelled(const std::uint64_t id) {
   return found != cancellations_.end() && found->second.token().cancelled();
 }
 
+rime::core::CancellationToken Host::cancellation_token(const std::uint64_t id) {
+  std::lock_guard lock(cancellation_mutex_);
+  const auto found = cancellations_.find(id);
+  if (found == cancellations_.end()) return {};
+  return found->second.token();
+}
+
 bool Host::release_cancellation(const std::uint64_t id) {
   std::lock_guard lock(cancellation_mutex_);
   return cancellations_.erase(id) > 0;

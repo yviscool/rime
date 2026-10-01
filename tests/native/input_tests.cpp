@@ -23,7 +23,10 @@ void send_vk(const WORD virtual_key) {
   inputs[1].type = INPUT_KEYBOARD;
   inputs[1].ki.wVk = virtual_key;
   inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-  assert(SendInput(2, inputs, sizeof(INPUT)) == 2);
+  // NOTE: hoisted out of assert() so the SendInput side effect still runs
+  // under NDEBUG where assert() is compiled out.
+  const UINT sent = SendInput(2, inputs, sizeof(INPUT));
+  assert(sent == 2);
 }
 
 void send_mouse_to(const int x, const int y) {
@@ -35,7 +38,10 @@ void send_mouse_to(const int x, const int y) {
   input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
   input.mi.dx = static_cast<LONG>(x * 65535 / (width - 1));
   input.mi.dy = static_cast<LONG>(y * 65535 / (height - 1));
-  assert(SendInput(1, &input, sizeof(INPUT)) == 1);
+  // NOTE: hoisted out of assert() so the SendInput side effect still runs
+  // under NDEBUG where assert() is compiled out.
+  const UINT sent = SendInput(1, &input, sizeof(INPUT));
+  assert(sent == 1);
 }
 
 template <typename Predicate>
@@ -98,7 +104,10 @@ int main() {
 
   // A synthetic absolute move arrives with the exact coordinates.
   POINT original{};
-  assert(GetCursorPos(&original) != FALSE);
+  // NOTE: hoisted out of assert(): GetCursorPos has a side effect (writes
+  // `original`) that must run even when NDEBUG compiles assert() out.
+  const BOOL got_pos = GetCursorPos(&original);
+  if (got_pos == FALSE) return 1;
   send_mouse_to(321, 123);
   assert(wait_for([&] {
     std::lock_guard lock(mutex);
@@ -110,7 +119,10 @@ int main() {
     }
     return false;
   }));
-  assert(SetCursorPos(original.x, original.y) != FALSE);
+  // NOTE: hoisted out of assert(): SetCursorPos has a side effect (moves the
+  // cursor) that must run even when NDEBUG compiles assert() out.
+  const BOOL restored = SetCursorPos(original.x, original.y);
+  if (restored == FALSE) return 1;
 
   // Unsubscribe closes the subscription; later events are not recorded.
   assert(service.unsubscribe(subscription));

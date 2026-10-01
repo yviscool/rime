@@ -44,37 +44,62 @@ bool optional_string(JSContext* context, JSValueConst object, const char* name, 
   return true;
 }
 
-JSValue process_list(JSContext* context, JSValueConst, int, JSValueConst*, int, void*) {
+constexpr const char* kProcessInspectCapability = "process.inspect";
+
+JSValue process_list(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void*) {
   ProcessModuleBinding* binding = binding_of(context);
-  if (!binding || !binding->service) {
+  if (!binding || !binding->service || !binding->kernel) {
     return JS_ThrowInternalError(context, "rime:process is not wired");
   }
+  if (argc > 1) return JS_ThrowTypeError(context, "list(options?)");
+  ActionOptions options;
+  if (argc == 1 && !parse_action_options(context, argv[0], options)) return JS_EXCEPTION;
+  rime::action::Kernel* kernel = binding->kernel;
   ProcessService* service = binding->service;
-  return start_async(context, [service]() -> std::pair<bool, std::string> {
-    std::vector<ProcessInfo> processes;
-    if (const auto error = service->list(processes); !error.ok()) return {false, error.message};
-    json::Value array = json::Value::array();
-    for (const auto& process : processes) array.push(process_info_json(process));
-    return {true, json::stringify(array)};
-  });
+  return start_async(
+      context,
+      [kernel, service]() -> std::pair<bool, std::string> {
+        if (!kernel->allows(kProcessInspectCapability)) {
+          return {false, std::string("required capability was not granted: ") +
+                             kProcessInspectCapability};
+        }
+        std::vector<ProcessInfo> processes;
+        if (const auto error = service->list(processes); !error.ok()) return {false, error.message};
+        json::Value array = json::Value::array();
+        for (const auto& process : processes) array.push(process_info_json(process));
+        return {true, json::stringify(array)};
+      },
+      options.cancellation_id);
 }
 
-JSValue process_info(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int, void*) {
+JSValue process_info(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void*) {
   ProcessModuleBinding* binding = binding_of(context);
-  if (!binding || !binding->service) {
+  if (!binding || !binding->service || !binding->kernel) {
     return JS_ThrowInternalError(context, "rime:process is not wired");
   }
-  if (argc < 1) return JS_ThrowTypeError(context, "info(pid)");
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "info(pid, options?)");
   int64_t raw_pid = 0;
   if (JS_ToInt64(context, &raw_pid, argv[0])) return JS_EXCEPTION;
   if (raw_pid <= 0) return JS_ThrowTypeError(context, "info(pid): pid must be positive");
   const std::uint32_t pid = static_cast<std::uint32_t>(raw_pid);
+  ActionOptions options;
+  if (argc == 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
+  rime::action::Kernel* kernel = binding->kernel;
   ProcessService* service = binding->service;
-  return start_async(context, [service, pid]() -> std::pair<bool, std::string> {
-    ProcessInfo info;
-    if (const auto error = service->info(pid, info); !error.ok()) return {false, error.message};
-    return {true, json::stringify(process_info_json(info))};
-  });
+  return start_async(
+      context,
+      [kernel, service, pid]() -> std::pair<bool, std::string> {
+        if (!kernel->allows(kProcessInspectCapability)) {
+          return {false, std::string("required capability was not granted: ") +
+                             kProcessInspectCapability};
+        }
+        ProcessInfo info;
+        if (const auto error = service->info(pid, info); !error.ok()) return {false, error.message};
+        return {true, json::stringify(process_info_json(info))};
+      },
+      options.cancellation_id);
 }
 
 JSValue process_launch(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
@@ -83,7 +108,7 @@ JSValue process_launch(JSContext* context, JSValueConst, int argc, JSValueConst*
   if (!binding || !binding->service || !binding->kernel || !binding->next_action_id) {
     return JS_ThrowInternalError(context, "rime:process is not wired");
   }
-  if (argc < 1) return JS_ThrowTypeError(context, "launch(options)");
+  if (argc != 1) return JS_ThrowTypeError(context, "launch(options)");
   if (!JS_IsObject(argv[0])) {
     return JS_ThrowTypeError(context, "launch(options): options must be an object");
   }
@@ -116,10 +141,16 @@ JSValue process_launch(JSContext* context, JSValueConst, int argc, JSValueConst*
   if (!args.empty()) payload.set("args", json::Value::string(args));
   if (!working_dir.empty()) payload.set("workingDir", json::Value::string(working_dir));
 
+  // ActionOptions (deadlineMs/cancellationId/...) live alongside launch
+  // fields in the same options object.
+  ActionOptions options;
+  if (!parse_action_options(context, argv[0], options)) return JS_EXCEPTION;
+
   rime::action::Kernel* kernel = binding->kernel;
   auto action = make_action(*binding->next_action_id, "rime:process", "process.launch",
-                            "process.launch", {"process", "new"}, json::stringify(payload));
-  return run_action(context, *kernel, std::move(action));
+                            "process.launch", {"process", "new"}, json::stringify(payload),
+                            options);
+  return run_action(context, *kernel, std::move(action), options.cancellation_id);
 }
 
 JSValue process_terminate(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
@@ -128,15 +159,18 @@ JSValue process_terminate(JSContext* context, JSValueConst, int argc, JSValueCon
   if (!binding || !binding->service || !binding->kernel || !binding->next_action_id) {
     return JS_ThrowInternalError(context, "rime:process is not wired");
   }
-  if (argc < 1) return JS_ThrowTypeError(context, "terminate(pid)");
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "terminate(pid, options?)");
   int64_t raw_pid = 0;
   if (JS_ToInt64(context, &raw_pid, argv[0])) return JS_EXCEPTION;
   if (raw_pid <= 0) return JS_ThrowTypeError(context, "terminate(pid): pid must be positive");
+  ActionOptions options;
+  if (argc == 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
 
   rime::action::Kernel* kernel = binding->kernel;
   auto action = make_action(*binding->next_action_id, "rime:process", "process.terminate",
-                            "process.terminate", {"process", std::to_string(raw_pid)}, "{}");
-  return run_action(context, *kernel, std::move(action));
+                            "process.terminate", {"process", std::to_string(raw_pid)}, "{}",
+                            options);
+  return run_action(context, *kernel, std::move(action), options.cancellation_id);
 }
 
 int process_module_init(JSContext* context, JSModuleDef* module) {

@@ -5,9 +5,12 @@
 
 namespace rime::win32 {
 
-// Executes `window.move` actions (capability `window.write`) against a
-// WindowService. Payload contract: {"position": "left|right|top|bottom|full"}.
-// Target contract: {"kind": "window", "id": "<numeric id>" | "active"}.
+// Executes the `window.*` write actions (capability `windows.window.write`)
+// against a WindowService: move/focus/close/hide/show/minimize/maximize/
+// restore. Payload contract: `window.move` requires
+// {"position": "left|right|top|bottom|full"}; the state actions take an empty
+// object. Target contract: {"kind": "window", "id": "<numeric id>" | "active"}.
+// The action deadline bounds every UI round-trip and reports Timeout.
 class WindowExecutor final : public rime::action::Executor {
  public:
   explicit WindowExecutor(WindowService& service) : service_(service) {}

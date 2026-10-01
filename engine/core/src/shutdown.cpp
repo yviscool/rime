@@ -33,21 +33,31 @@ ShutdownSequence::ShutdownSequence(std::shared_ptr<TraceSink> trace)
     : trace_(std::move(trace)) {}
 
 Error ShutdownSequence::advance(const ShutdownPhase next, std::string subject) {
-  std::lock_guard lock(mutex_);
-  if (phase_ == next) return Error::none();
-  if (phase_ == ShutdownPhase::Failed) {
-    return {Error::Code::InvalidState, "shutdown already failed"};
+  ShutdownPhase entered = next;
+  {
+    std::lock_guard lock(mutex_);
+    if (phase_ == next) return Error::none();
+    if (phase_ == ShutdownPhase::Failed) {
+      return {Error::Code::InvalidState, "shutdown already failed"};
+    }
+    if (phase_ == ShutdownPhase::Completed) {
+      return {Error::Code::InvalidState, "shutdown already completed"};
+    }
+    if (static_cast<std::uint8_t>(next) < static_cast<std::uint8_t>(phase_)) {
+      return {Error::Code::InvalidState,
+              std::string("shutdown cannot move backwards from ") + shutdown_phase_name(phase_) +
+                  " to " + shutdown_phase_name(next)};
+    }
+    phase_ = next;
+    entered = phase_;
   }
-  if (phase_ == ShutdownPhase::Completed) {
-    return {Error::Code::InvalidState, "shutdown already completed"};
+  // Trace outside the lock: TraceSink::record is user code and may throw or
+  // re-enter; holding mutex_ across it risks deadlock.
+  // NOTE: prefer fail() over advance(Failed) so the reason is preserved.
+  try {
+    trace(entered, subject, "phase entered");
+  } catch (...) {
   }
-  if (static_cast<std::uint8_t>(next) < static_cast<std::uint8_t>(phase_)) {
-    return {Error::Code::InvalidState,
-            std::string("shutdown cannot move backwards from ") + shutdown_phase_name(phase_) +
-                " to " + shutdown_phase_name(next)};
-  }
-  phase_ = next;
-  trace(phase_, subject, "phase entered");
   return Error::none();
 }
 

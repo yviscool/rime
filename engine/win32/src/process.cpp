@@ -16,9 +16,31 @@ using Error = rime::core::Error;
 using Code = rime::core::Error::Code;
 
 struct HandleGuard {
-  HANDLE handle;
-  ~HandleGuard() {
-    if (handle != INVALID_HANDLE_VALUE && handle != nullptr) CloseHandle(handle);
+  HANDLE handle = nullptr;
+
+  explicit HandleGuard(HANDLE raw) : handle(raw) {}
+
+  HandleGuard(const HandleGuard&) = delete;
+  HandleGuard& operator=(const HandleGuard&) = delete;
+
+  HandleGuard(HandleGuard&& other) noexcept
+      : handle(std::exchange(other.handle, nullptr)) {}
+
+  HandleGuard& operator=(HandleGuard&& other) noexcept {
+    if (this != &other) {
+      reset();
+      handle = std::exchange(other.handle, nullptr);
+    }
+    return *this;
+  }
+
+  ~HandleGuard() { reset(); }
+
+  void reset() {
+    if (handle != INVALID_HANDLE_VALUE && handle != nullptr) {
+      CloseHandle(handle);
+    }
+    handle = nullptr;
   }
 };
 
@@ -93,8 +115,18 @@ Error ProcessService::launch(const LaunchSpec& spec, std::uint32_t& pid) const {
   if (spec.executable.empty()) {
     return {Code::InvalidContract, "launch requires a non-empty command"};
   }
+  // The executable is wrapped in quotes below; an embedded quote would break
+  // out of the quoting and allow argument injection.
+  if (spec.executable.find(L'"') != std::wstring::npos) {
+    return {Code::InvalidContract, "launch executable must not contain a quote"};
+  }
   std::wstring command_line = L"\"" + spec.executable + L"\"";
   if (!spec.arguments.empty()) command_line += L" " + spec.arguments;
+  // CreateProcessW caps the command line at 32767 characters including the
+  // terminating NUL.
+  if (command_line.size() >= 32767) {
+    return {Code::InvalidContract, "launch command line exceeds the Win32 limit"};
+  }
   std::vector<wchar_t> mutable_command(command_line.begin(), command_line.end());
   mutable_command.push_back(L'\0');
 
@@ -110,6 +142,10 @@ Error ProcessService::launch(const LaunchSpec& spec, std::uint32_t& pid) const {
                 std::to_string(failure) + ")"};
   }
   CloseHandle(created.hThread);
+  // The process handle is closed immediately, so the returned pid is only a
+  // snapshot: it can be recycled by the OS once the process exits (TOCTOU).
+  // Callers must re-resolve the pid before acting on it. Pinning the lifetime
+  // with a Job Object is deliberately left out to keep this change small.
   CloseHandle(created.hProcess);
   pid = static_cast<std::uint32_t>(created.dwProcessId);
   return rime::core::Error::none();
@@ -117,6 +153,9 @@ Error ProcessService::launch(const LaunchSpec& spec, std::uint32_t& pid) const {
 
 Error ProcessService::terminate(const std::uint32_t pid, const int exit_code) const {
   if (pid == 0) return {Code::InvalidContract, "pid must be positive"};
+  // TerminateProcess takes an unsigned exit code; reject negatives instead of
+  // silently wrapping them. The signature is left unchanged.
+  if (exit_code < 0) return {Code::InvalidContract, "exit code must be non-negative"};
   const HANDLE process = OpenProcess(PROCESS_TERMINATE, FALSE, static_cast<DWORD>(pid));
   if (!process) {
     const DWORD failure = GetLastError();

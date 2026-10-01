@@ -68,8 +68,16 @@ bool decode_identity(const Value& value, Identity& out, std::string_view what, s
   if (!has_only_keys(value, {"kind", "id"}, what, error)) return false;
   const Value* kind = value.find("kind");
   const Value* id = value.find("id");
-  if (!require_string(kind, false, std::string(what) + ".kind", error)) return false;
-  if (!require_string(id, false, std::string(what) + ".id", error)) return false;
+  std::string kind_what;
+  kind_what.reserve(what.size() + 5);
+  kind_what.append(what);
+  kind_what.append(".kind");
+  if (!require_string(kind, false, kind_what, error)) return false;
+  std::string id_what;
+  id_what.reserve(what.size() + 3);
+  id_what.append(what);
+  id_what.append(".id");
+  if (!require_string(id, false, id_what, error)) return false;
   out = {kind->as_string(), id->as_string()};
   return true;
 }
@@ -83,9 +91,17 @@ bool decode_precondition(const Value& value, Precondition& out, std::string_view
   if (!has_only_keys(value, {"type", "expected"}, what, error)) return false;
   const Value* type = value.find("type");
   const Value* expected = value.find("expected");
-  if (!require_string(type, false, std::string(what) + ".type", error)) return false;
+  std::string type_what;
+  type_what.reserve(what.size() + 5);
+  type_what.append(what);
+  type_what.append(".type");
+  if (!require_string(type, false, type_what, error)) return false;
   if (!expected || !expected->is_string()) {
-    error = std::string(what) + ".expected: required string field is missing";
+    std::string expected_what;
+    expected_what.reserve(what.size() + 9);
+    expected_what.append(what);
+    expected_what.append(".expected");
+    error = expected_what + ": required string field is missing";
     return false;
   }
   out = {type->as_string(), expected->as_string()};
@@ -187,6 +203,10 @@ DecodedAction decode_action(const std::string_view text) {
     action.parent_action_id = static_cast<rime::core::ActionId>(parent->as_number());
   }
   action.payload = rime::core::json::stringify(*payload);
+  // TODO(payload): Action.payload round-trips through stringify() here and
+  // parse() in encode_action(). Storing a structured Value (or keeping the
+  // parsed payload) would avoid the double serialization; not refactored here
+  // to keep the payload-as-string contract stable.
   if (const Value* key = root.find("idempotencyKey"); key) {
     if (!key->is_string() || key->as_string().empty()) {
       return {std::nullopt, invalid("action-v1.idempotencyKey must be a non-empty string")};
@@ -232,7 +252,10 @@ DecodedResult decode_result(const std::string_view text) {
   if (!parse_outcome.ok()) {
     return {std::nullopt, invalid("result-v1: malformed json: " + parse_outcome.error)};
   }
-  const Value& root = *parse_outcome.value;
+  // Mutable root so result.value can be moved (not copied) out of the parsed
+  // object. Safe: root is a local parse outcome; only the "value" member is
+  // moved and it is not read again afterwards.
+  Value& root = *parse_outcome.value;
   std::string error;
   if (!root.is_object()) return {std::nullopt, invalid("result-v1: must be an object")};
   if (!has_only_keys(root, {"schemaVersion", "actionId", "status", "value", "error"},
@@ -264,11 +287,11 @@ DecodedResult decode_result(const std::string_view text) {
   result.id = static_cast<rime::core::ActionId>(action_id->as_number());
   result.succeeded = status_name == "succeeded";
   result.cancelled = status_name == "cancelled";
-  if (const Value* value = root.find("value"); value && !value->is_null()) {
+  if (Value* value = root.find("value"); value && !value->is_null()) {
     if (!value->is_object()) {
       return {std::nullopt, invalid("result-v1.value must be an object")};
     }
-    result.value = *value;
+    result.value = std::move(*value);
   }
   if (error_value->is_object()) {
     if (!has_only_keys(*error_value, {"code", "message", "retryable"}, "result-v1.error", error)) {

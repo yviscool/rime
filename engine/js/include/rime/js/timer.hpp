@@ -22,6 +22,12 @@ class TimerService final {
 
   TimerService(const TimerService&) = delete;
   TimerService& operator=(const TimerService&) = delete;
+  TimerService(TimerService&&) = delete;
+  TimerService& operator=(TimerService&&) = delete;
+
+  // NOTE: the constructor starts the worker with `this` (this-escape).
+  // Construction style is intentionally unchanged: the object is fully formed
+  // before run() can observe it under `mutex_`/`stopping_`.
 
   // Returns a timer id (0 when the service is stopping).
   std::uint64_t schedule(std::chrono::milliseconds delay, Callback callback);

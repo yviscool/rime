@@ -17,6 +17,7 @@ constexpr std::array k_error_code_names{
     ErrorCodeName{Error::Code::QueueClosed, "queue_closed"},
     ErrorCodeName{Error::Code::QueueFull, "queue_full"},
     ErrorCodeName{Error::Code::Cancelled, "cancelled"},
+    ErrorCodeName{Error::Code::Timeout, "timeout"},
     ErrorCodeName{Error::Code::CapabilityDenied, "capability_denied"},
     ErrorCodeName{Error::Code::InvalidContract, "invalid_contract"},
     ErrorCodeName{Error::Code::Unsupported, "unsupported"},

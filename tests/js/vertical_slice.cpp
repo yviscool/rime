@@ -79,12 +79,14 @@ int main() {
   auto trace = std::make_shared<rime::core::InMemoryTrace>();
   rime::action::Kernel kernel(
       std::make_shared<rime::action::StaticCapabilityPolicy>(
-          std::unordered_set<std::string>{"window.write"}),
+          std::unordered_set<std::string>{"windows.window.read", "windows.window.write"}),
       trace);
-  assert(kernel
-             .register_executor("window.move",
-                                std::make_shared<rime::win32::WindowExecutor>(service))
-             .ok());
+  const auto window_executor = std::make_shared<rime::win32::WindowExecutor>(service);
+  for (const char* type : {"window.move", "window.focus", "window.close", "window.hide",
+                           "window.show", "window.minimize", "window.maximize",
+                           "window.restore"}) {
+    assert(kernel.register_executor(type, window_executor).ok());
+  }
 
   std::atomic<std::uint64_t> next_action_id{0};
   rime::win32::WindowModuleBinding binding{&service, &kernel, &next_action_id};
@@ -181,7 +183,77 @@ int main() {
           "slice-active-none-check.mjs");
   }
 
-  // Segment 4: destroying the window turns later moves into rejections.
+  // Segment 4: WinTitle queries and the extended snapshot fields. An exact
+  // title query resolves only our window; a bogus title resolves nothing.
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.queryHits = null;\n"
+        "globalThis.readFailure = null;\n"
+        "windows.list({ title: 'Rime Vertical Slice Window', matchMode: 'exact' })\n"
+        "  .then(w => { globalThis.queryHits = w; },\n"
+        "        e => { globalThis.readFailure = String(e); });",
+        "slice-query.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.readFailure) throw new Error(globalThis.readFailure);\n"
+        "if (!Array.isArray(globalThis.queryHits) || globalThis.queryHits.length !== 1)\n"
+        "  throw new Error('exact query must resolve exactly one window');\n"
+        "const hit = globalThis.queryHits[0];\n"
+        "if (hit.id !== " + id_text + ") throw new Error('query resolved the wrong window');\n"
+        "if (hit.className !== 'Static') throw new Error('snapshot className missing');\n"
+        "if (!hit.processName) throw new Error('snapshot processName missing');\n"
+        "if (hit.state !== 'normal') throw new Error('snapshot state must be normal');",
+        "slice-query-check.mjs");
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.emptyHits = ['unset'];\n"
+        "windows.list({ title: 'No Such Window Anywhere In This Test' })\n"
+        "  .then(w => { globalThis.emptyHits = w; });",
+        "slice-query-empty.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (!Array.isArray(globalThis.emptyHits) || globalThis.emptyHits.length !== 0)\n"
+        "  throw new Error('a bogus title must resolve no windows');",
+        "slice-query-empty-check.mjs");
+
+  // Segment 5: state mutations through the kernel round-trip the snapshot.
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.stateFailure = null;\n"
+        "globalThis.hiddenHandle = null;\n"
+        "windows.hide(" + id_text +
+            ")\n"
+            "  .then(w => { globalThis.hiddenHandle = w; },\n"
+            "        e => { globalThis.stateFailure = String(e); });",
+        "slice-hide.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.stateFailure) throw new Error(globalThis.stateFailure);\n"
+        "if (globalThis.hiddenHandle.state !== 'hidden') throw new Error('hide must report hidden');\n"
+        "if (globalThis.hiddenHandle.visible !== false) throw new Error('hide must clear visible');",
+        "slice-hide-check.mjs");
+  WindowInfo hidden_after_js;
+  assert(service.info(id, hidden_after_js).ok());
+  assert(!hidden_after_js.visible);
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.shownHandle = null;\n"
+        "windows.show(" + id_text +
+            ")\n"
+            "  .then(w => { globalThis.shownHandle = w; },\n"
+            "        e => { globalThis.stateFailure = String(e); });",
+        "slice-show.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.stateFailure) throw new Error(globalThis.stateFailure);\n"
+        "if (globalThis.shownHandle.state !== 'normal') throw new Error('show must report normal');\n"
+        "if (globalThis.shownHandle.visible !== true) throw new Error('show must set visible');",
+        "slice-show-check.mjs");
+  WindowInfo shown_after_js;
+  assert(service.info(id, shown_after_js).ok());
+  assert(shown_after_js.visible);
+
+  // Segment 6: destroying the window turns later moves into rejections.
   assert(service.ui().call([&] { DestroyWindow(created); }).ok());
   check(runtime,
         "import { windows } from 'rime:window';\n"
@@ -209,6 +281,40 @@ int main() {
   assert(finished == 4);
 
   assert(runtime.stop().ok());
+
+  // Capability gate: an empty policy rejects reads and writes with the
+  // capability name. The JS lane is process-wide, so the denial runtime only
+  // starts after the first runtime released it.
+  {
+    rime::action::Kernel denied_kernel(std::make_shared<rime::action::StaticCapabilityPolicy>(
+        std::unordered_set<std::string>{}));
+    rime::win32::WindowModuleBinding denied_binding{&service, &denied_kernel,
+                                                    &next_action_id};
+    rime::js::Runtime denied_runtime;
+    assert(rime::win32::register_window_module(denied_runtime, &denied_binding).ok());
+    assert(denied_runtime.start().ok());
+    check(denied_runtime,
+          "import { windows } from 'rime:window';\n"
+          "globalThis.readDenied = null;\n"
+          "globalThis.writeDenied = null;\n"
+          "windows.list().then(() => {},\n"
+          "                    e => { globalThis.readDenied = String(e); });\n"
+          "windows.move(" + id_text +
+              ", 'left').then(() => {},\n"
+              "               e => { globalThis.writeDenied = String(e); });",
+          "slice-deny.mjs");
+    assert(denied_runtime.settle(5000ms).ok());
+    check(denied_runtime,
+          "if (!globalThis.readDenied ||\n"
+          "    !globalThis.readDenied.includes('windows.window.read'))\n"
+          "  throw new Error('read must name the capability: ' + globalThis.readDenied);\n"
+          "if (!globalThis.writeDenied ||\n"
+          "    !globalThis.writeDenied.includes('windows.window.write'))\n"
+          "  throw new Error('write must name the capability: ' + globalThis.writeDenied);",
+          "slice-deny-check.mjs");
+    assert(denied_runtime.stop().ok());
+  }
+
   assert(service.stop().ok());
   return 0;
 }
