@@ -1,5 +1,6 @@
 import { delimiter } from "node:path";
 import { existsSync, statSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
+import { findVcvars } from "./vcvars";
 
 const preset_argument = process.argv.find((argument) => argument.startsWith("--preset="));
 const preset_index = process.argv.indexOf("--preset");
@@ -23,15 +24,6 @@ const cmake = cmakeCandidates
 if (!cmake) throw new Error("CMake was not found. Set RIME_CMAKE or install CMake 3.24+.");
 const ctest_name = process.platform === "win32" ? "ctest.exe" : "ctest";
 const ctest = `${cmake.substring(0, cmake.lastIndexOf("cmake"))}${ctest_name}`;
-
-const vcvarsCandidates = [
-  process.env.RIME_VCVARS,
-  "C:/tools/vs2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat",
-  "C:/Program Files/Microsoft Visual Studio/2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat",
-  "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Auxiliary/Build/vcvars64.bat",
-  "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Auxiliary/Build/vcvars64.bat",
-  "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat",
-].filter((value): value is string => Boolean(value));
 
 function captureVcvarsEnv(bat: string): Record<string, string> {
   const script_path = `build\\.vcvars-env-${process.pid}.bat`;
@@ -64,10 +56,11 @@ function captureVcvarsEnv(bat: string): Record<string, string> {
 
 let command_env: Record<string, string> | undefined;
 if (preset.startsWith("msvc")) {
-  const bat = vcvarsCandidates.find((value) => existsSync(value));
+  const bat = findVcvars();
   if (!bat) {
     throw new Error(`MSVC preset '${preset}' requires vcvars64.bat; set RIME_VCVARS`);
   }
+  console.log(`MSVC environment: ${bat}`);
   mkdirSync("build", { recursive: true });
   command_env = captureVcvarsEnv(bat);
 }

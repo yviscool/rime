@@ -1,5 +1,6 @@
 import { delimiter } from "node:path";
 import { existsSync, statSync } from "node:fs";
+import { findVcvars } from "./vcvars";
 
 const problems: string[] = [];
 
@@ -14,13 +15,7 @@ function findInPath(name: string): string | undefined {
 
 const cmake = process.env.RIME_CMAKE ?? findInPath("cmake");
 const ninja = findInPath("ninja");
-const vcvars = [
-  process.env.RIME_VCVARS,
-  "C:/tools/vs2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat",
-  "C:/Program Files/Microsoft Visual Studio/2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat",
-  "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Auxiliary/Build/vcvars64.bat",
-  "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Auxiliary/Build/vcvars64.bat",
-].find((value) => value && existsSync(value));
+const vcvars = findVcvars();
 const quickjs_cache = existsSync("build/quickjs/_deps/quickjs_ng-src/quickjs.h");
 const contracts = [
   "contracts/schema/action-v1.schema.json",
