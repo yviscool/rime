@@ -196,6 +196,14 @@ export interface WindowsBridge {
   minimize(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
   maximize(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
   restore(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
+  /**
+   * WinMinimizeAll: minimizes every window on the desktop by posting the
+   * shell tray command; resolves when the command is posted (the shell
+   * applies the change asynchronously - observe it through `info`).
+   */
+  minimizeAll(options?: NativeActionOptions): Promise<void>;
+  /** WinMinimizeAllUndo: posts the shell's undo tray command (fire-and-forget like `minimizeAll`). */
+  minimizeAllUndo(options?: NativeActionOptions): Promise<void>;
 }
 
 /** Bridge of the named-window-group surface (`rime:window`'s `groups` export). */
@@ -408,6 +416,27 @@ export const Window = {
   maximize: mutation((windows) => windows.maximize),
   /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
   restore: mutation((windows) => windows.restore),
+  /**
+   * WinMinimizeAll: minimizes every window on the desktop through the
+   * `window.minimizeall` action pipeline (fire-and-forget shell tray
+   * command; observe the effect through `info`).
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
+  minimizeAll(options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.minimizeAll(native)),
+    );
+  },
+  /**
+   * WinMinimizeAllUndo: undoes `minimizeAll` through the
+   * `window.minimizeall.undo` action pipeline (same fire-and-forget contract).
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
+  minimizeAllUndo(options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.minimizeAllUndo(native)),
+    );
+  },
   /**
    * Lists windows matching the query (window-v1 query; `schemaVersion` stays
    * in the vocabulary and never goes on the wire).

@@ -812,6 +812,37 @@ JSValue windows_restore(JSContext* context, JSValueConst, int argc, JSValueConst
   return run_window_mutation(context, argc, argv, "restore", "window.restore", 1);
 }
 
+// Shared body for the target-less desktop mutations (minimizeAll /
+// minimizeAllUndo): the action target is the fixed {"desktop", "all"} pair,
+// so only the optional ActionOptions argument is parsed here.
+JSValue run_desktop_mutation(JSContext* context, int argc, JSValueConst* argv,
+                             const char* usage, const char* action_type) {
+  WindowModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
+    return JS_ThrowInternalError(context, "rime:window is not wired");
+  }
+  if (argc > 1) return JS_ThrowTypeError(context, "%s", usage);
+  ActionOptions options;
+  if (argc == 1 && !parse_action_options(context, argv[0], options)) return JS_EXCEPTION;
+  json::Value payload = json::Value::object();
+  auto action = make_action(*binding->next_action_id, "rime:window", action_type,
+                            kWindowWriteCapability, {"desktop", "all"},
+                            json::stringify(payload), options);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
+}
+
+JSValue windows_minimize_all(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                             void*) {
+  return run_desktop_mutation(context, argc, argv, "minimizeAll(options?)", "window.minimizeall");
+}
+
+JSValue windows_minimize_all_undo(JSContext* context, JSValueConst, int argc, JSValueConst* argv,
+                                  int, void*) {
+  return run_desktop_mutation(context, argc, argv, "minimizeAllUndo(options?)",
+                              "window.minimizeall.undo");
+}
+
 // ---------------------------------------------------------------------------
 // groups: named window groups (AHK GroupAdd/GroupActivate/GroupDeactivate/
 // GroupClose). Every call dispatches a write action through the kernel like
@@ -1229,7 +1260,9 @@ int window_module_init(JSContext* context, JSModuleDef* module) {
       !add(windows, "hide", windows_hide, 1, 0) || !add(windows, "show", windows_show, 1, 0) ||
       !add(windows, "minimize", windows_minimize, 1, 0) ||
       !add(windows, "maximize", windows_maximize, 1, 0) ||
-      !add(windows, "restore", windows_restore, 1, 0)) {
+      !add(windows, "restore", windows_restore, 1, 0) ||
+      !add(windows, "minimizeAll", windows_minimize_all, 0, 0) ||
+      !add(windows, "minimizeAllUndo", windows_minimize_all_undo, 0, 0)) {
     JS_FreeValue(context, windows);
     return -1;
   }

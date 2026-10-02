@@ -242,6 +242,14 @@ class WindowService final {
   // WM_PAINT lands on the owner's pump, we never force UpdateWindow.
   rime::core::Error redraw(std::uint64_t id,
                            std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Minimize every window on the desktop / undo it (AHK WinMinimizeAll /
+  // WinMinimizeAllUndo): posts WM_COMMAND 419 / 416 to the Shell_TrayWnd
+  // taskbar window. Fire-and-forget - the shell applies the change
+  // asynchronously and callers observe the effect through info(); blocking
+  // on it would deadlock against messages it sends back to this process's
+  // UI thread while windows change state.
+  rime::core::Error minimize_all(bool undo,
+                                 std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // Window state mutations (WinClose/WinHide/WinShow/WinMinimize/WinMaximize/
   // WinRestore equivalents). `close` delivers WM_CLOSE and waits for the
   // target thread to process it within the timeout.

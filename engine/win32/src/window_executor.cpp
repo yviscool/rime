@@ -26,7 +26,8 @@ const std::unordered_set<std::string>& window_action_types() {
       "window.hide",       "window.show",       "window.minimize",
       "window.maximize",   "window.restore",    "window.zorder",
       "window.kill",       "window.redraw",     "window.group.add",
-      "window.group.activate", "window.group.deactivate", "window.group.close"};
+      "window.group.activate", "window.group.deactivate", "window.group.close",
+      "window.minimizeall", "window.minimizeall.undo"};
   return types;
 }
 
@@ -36,6 +37,14 @@ bool is_group_action(const std::string& type) {
   static const std::unordered_set<std::string> types = {
       "window.group.add", "window.group.activate", "window.group.deactivate",
       "window.group.close"};
+  return types.contains(type);
+}
+
+// The desktop subset dispatches against the whole desktop (target kind
+// "desktop", target id "all") instead of a window or group identity.
+bool is_desktop_action(const std::string& type) {
+  static const std::unordered_set<std::string> types = {"window.minimizeall",
+                                                        "window.minimizeall.undo"};
   return types.contains(type);
 }
 
@@ -181,10 +190,17 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
     return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
   }
   const bool group_action = is_group_action(action.type);
+  const bool desktop_action = !group_action && is_desktop_action(action.type);
   if (group_action) {
     if (action.target.kind != "group") {
       return fail(action, Code::InvalidContract,
                   "window group actions require target kind 'group', got: " + action.target.kind);
+    }
+  } else if (desktop_action) {
+    if (action.target.kind != "desktop") {
+      return fail(action, Code::InvalidContract,
+                  "window desktop actions require target kind 'desktop', got: " +
+                      action.target.kind);
     }
   } else if (action.target.kind != "window") {
     return fail(action, Code::InvalidContract,
@@ -205,6 +221,33 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
   if (!payload.ok() || !payload.value->is_object()) {
     return fail(action, Code::InvalidContract,
                 action.type + " payload must be a JSON object");
+  }
+
+  if (desktop_action) {
+    // Desktop actions carry no window identity; the fixed {"desktop", "all"}
+    // target selects the whole desktop and the deadline bounds the queued
+    // UI phase like every other action.
+    if (action.target.id != "all") {
+      return fail(action, Code::InvalidContract, "desktop target id must be 'all'");
+    }
+    if (cancellation.cancelled()) {
+      return cancelled(action, "action was cancelled before execution");
+    }
+    if (!remaining_timeout(action, timeout)) {
+      return fail(action, Code::Timeout, "action deadline exceeded");
+    }
+    const bool undo = action.type == "window.minimizeall.undo";
+    if (const auto op_error = service_.minimize_all(undo, timeout); !op_error.ok()) {
+      return fail(action, op_error.code, op_error.message);
+    }
+    if (cancellation.cancelled()) {
+      return cancelled(action, "action was cancelled after execution");
+    }
+    // Fire-and-forget: the shell applies the change asynchronously, so the
+    // value stays empty and the caller observes the effect through info().
+    rime::core::json::Value value = rime::core::json::Value::object();
+    const std::string detail = undo ? "all windows restored" : "all windows minimized";
+    return {action.id, true, false, detail, {}, std::move(value)};
   }
 
   if (group_action) {

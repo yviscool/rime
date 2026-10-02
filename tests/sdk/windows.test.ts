@@ -214,6 +214,12 @@ mock.module("rime:window", () => ({
       passThrough("maximize", target, options),
     restore: (target: WindowId | "active", options?: NativeActionOptions) =>
       passThrough("restore", target, options),
+    minimizeAll: async (options?: NativeActionOptions) => {
+      calls.push({ method: "minimizeAll", target: 0, options });
+    },
+    minimizeAllUndo: async (options?: NativeActionOptions) => {
+      calls.push({ method: "minimizeAllUndo", target: 0, options });
+    },
   } satisfies WindowsBridge,
   groups: {
     add: async (name: string, query: WindowQueryFields, options?: NativeActionOptions) => {
@@ -282,6 +288,15 @@ test("kill and redraw route through the window bridge", async () => {
   calls.length = 0;
   await Window.active().redraw();
   expect(calls).toEqual([{ method: "redraw", target: "active", options: undefined }]);
+});
+
+test("minimizeAll and minimizeAllUndo route through the window bridge", async () => {
+  calls.length = 0;
+  await Window.minimizeAll();
+  expect(calls).toEqual([{ method: "minimizeAll", target: 0, options: undefined }]);
+  calls.length = 0;
+  await Window.minimizeAllUndo({ deadlineMs: 100 });
+  expect(calls).toEqual([{ method: "minimizeAllUndo", target: 0, options: { deadlineMs: 100 } }]);
 });
 
 test("bridge rejections propagate to the caller", async () => {

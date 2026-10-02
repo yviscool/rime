@@ -772,6 +772,60 @@ int main() {
   // After the thread destroyed its window the id is stale.
   assert(service.kill(hung_match.front().id).code == rime::core::Error::Code::TargetGone);
 
+  // minimize_all (AHK WinMinimizeAll / WinMinimizeAllUndo): posts the shell
+  // tray command; the effect is asynchronous, so both halves poll the
+  // victim. The undo always runs before the assertions so a failure never
+  // leaves the desktop minimized. The victim must be a full overlapped
+  // window: the shell's minimize-all skips borderless windows.
+  HWND minimizeall_victim = nullptr;
+  assert(service.ui()
+             .call([&] {
+               minimizeall_victim = CreateWindowExW(0, L"STATIC", L"Rime MinimizeAll Target",
+                                                    WS_OVERLAPPEDWINDOW | WS_VISIBLE, 40, 260,
+                                                    220, 140, nullptr, nullptr,
+                                                    GetModuleHandleW(nullptr), nullptr);
+               assert(minimizeall_victim != nullptr);
+             })
+             .ok());
+  rime::win32::WindowQuery minimizeall_query;
+  minimizeall_query.title = "Rime MinimizeAll Target";
+  std::vector<WindowInfo> minimizeall_match;
+  assert(service.query(minimizeall_query, minimizeall_match).ok());
+  assert(minimizeall_match.size() == 1);
+  // Let the freshly created window finish its first show before the shell
+  // handles the tray command; a window created microseconds earlier can be
+  // skipped by the desktop minimize pass.
+  std::this_thread::sleep_for(200ms);
+  const auto minimizeall_sent = service.minimize_all(false);
+  bool minimizeall_observed = false;
+  if (minimizeall_sent.ok()) {
+    for (int waited = 0; waited < 300 && !minimizeall_observed; ++waited) {
+      WindowInfo ma_snapshot;
+      if (service.info(minimizeall_match.front().id, ma_snapshot).ok() && ma_snapshot.minimized) {
+        minimizeall_observed = true;
+      } else {
+        std::this_thread::sleep_for(10ms);
+      }
+    }
+  }
+  const auto minimizeall_undo = service.minimize_all(true);
+  bool minimizeall_restored = false;
+  if (minimizeall_undo.ok()) {
+    for (int waited = 0; waited < 300 && !minimizeall_restored; ++waited) {
+      WindowInfo ma_snapshot;
+      if (service.info(minimizeall_match.front().id, ma_snapshot).ok() && !ma_snapshot.minimized) {
+        minimizeall_restored = true;
+      } else {
+        std::this_thread::sleep_for(10ms);
+      }
+    }
+  }
+  assert(minimizeall_sent.ok());
+  assert(minimizeall_observed);
+  assert(minimizeall_undo.ok());
+  assert(minimizeall_restored);
+  assert(service.ui().call([&] { DestroyWindow(minimizeall_victim); }).ok());
+
   // WindowExecutor: a contract-valid window.move reaches the service and
   // records the trace pair.
   auto trace = std::make_shared<rime::core::InMemoryTrace>();
@@ -786,7 +840,8 @@ int main() {
                             "window.kill",       "window.redraw",
                             "window.group.add",
                             "window.group.activate", "window.group.deactivate",
-                            "window.group.close"}) {
+                            "window.group.close", "window.minimizeall",
+                            "window.minimizeall.undo"}) {
     assert(kernel.register_executor(type, window_executor).ok());
   }
 
@@ -899,7 +954,8 @@ int main() {
                                           "window.maximize", "window.restore", "window.zorder",
                                           "window.kill",  "window.redraw",
                                           "window.group.add", "window.group.activate",
-                                          "window.group.deactivate", "window.group.close"};
+                                          "window.group.deactivate", "window.group.close",
+                                          "window.minimizeall", "window.minimizeall.undo"};
   for (const char* type : kDeniedTypes) {
     const auto registered = denied.register_executor(type, window_executor);
     assert(registered.ok());
@@ -1143,6 +1199,79 @@ int main() {
   WindowInfo kill_after;
   assert(service.info(exec_kill_match.front().id, kill_after).code ==
          rime::core::Error::Code::TargetGone);
+
+  // window.minimizeall / window.minimizeall.undo post the shell tray
+  // command through the kernel; the effect is asynchronous, so both halves
+  // poll a dedicated full-overlapped victim (the shell skips borderless
+  // windows, and the main test window is borderless). The undo always runs
+  // before the assertions so a failure never leaves the desktop minimized.
+  HWND ma_victim = nullptr;
+  assert(service.ui()
+             .call([&] {
+               ma_victim = CreateWindowExW(0, L"STATIC", L"Rime Executor MiniAll",
+                                           WS_OVERLAPPEDWINDOW | WS_VISIBLE, 200, 340, 240, 160,
+                                           nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+               assert(ma_victim != nullptr);
+             })
+             .ok());
+  rime::win32::WindowQuery ma_query;
+  ma_query.title = "Rime Executor MiniAll";
+  std::vector<WindowInfo> ma_match;
+  assert(service.query(ma_query, ma_match).ok());
+  assert(ma_match.size() == 1);
+  const std::uint64_t ma_id = ma_match.front().id;
+  // Freshly created windows need a beat before the shell's minimize pass.
+  std::this_thread::sleep_for(200ms);
+  rime::action::Action minimizeall_action = move_action;
+  minimizeall_action.id = 52;
+  minimizeall_action.type = "window.minimizeall";
+  minimizeall_action.target = {"desktop", "all"};
+  minimizeall_action.payload = "{}";
+  const auto minimizeall_result = kernel.execute(minimizeall_action);
+  bool ma_executor_minimized = false;
+  if (minimizeall_result.succeeded) {
+    for (int waited = 0; waited < 300 && !ma_executor_minimized; ++waited) {
+      WindowInfo ma_snapshot;
+      if (service.info(ma_id, ma_snapshot).ok() && ma_snapshot.minimized) {
+        ma_executor_minimized = true;
+      } else {
+        std::this_thread::sleep_for(10ms);
+      }
+    }
+  }
+  minimizeall_action.id = 53;
+  minimizeall_action.type = "window.minimizeall.undo";
+  const auto minimizeall_undo_result = kernel.execute(minimizeall_action);
+  bool ma_executor_restored = false;
+  if (minimizeall_undo_result.succeeded) {
+    for (int waited = 0; waited < 300 && !ma_executor_restored; ++waited) {
+      WindowInfo ma_snapshot;
+      if (service.info(ma_id, ma_snapshot).ok() && !ma_snapshot.minimized) {
+        ma_executor_restored = true;
+      } else {
+        std::this_thread::sleep_for(10ms);
+      }
+    }
+  }
+  assert(minimizeall_result.succeeded);
+  assert(minimizeall_result.value.is_object());
+  assert(minimizeall_result.detail.find("minimized") != std::string::npos);
+  assert(ma_executor_minimized);
+  assert(minimizeall_undo_result.succeeded);
+  assert(minimizeall_undo_result.detail.find("restored") != std::string::npos);
+  assert(ma_executor_restored);
+  // A wrong target kind or id refuses before any Win32 call.
+  minimizeall_action.id = 54;
+  minimizeall_action.type = "window.minimizeall";
+  minimizeall_action.target = {"window", "all"};
+  const auto wrong_kind_result = kernel.execute(minimizeall_action);
+  assert(!wrong_kind_result.succeeded);
+  assert(wrong_kind_result.error.code == rime::core::Error::Code::InvalidContract);
+  minimizeall_action.target = {"desktop", "everything"};
+  const auto wrong_id_result = kernel.execute(minimizeall_action);
+  assert(!wrong_id_result.succeeded);
+  assert(wrong_id_result.error.code == rime::core::Error::Code::InvalidContract);
+  assert(service.ui().call([&] { DestroyWindow(ma_victim); }).ok());
 
   // The executor dispatches window.close: the pre-close snapshot is the
   // result value and the id goes stale immediately after.

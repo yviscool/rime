@@ -140,7 +140,9 @@
         "window.group.add",
         "window.group.activate",
         "window.group.deactivate",
-        "window.group.close"
+        "window.group.close",
+        "window.minimizeall",
+        "window.minimizeall.undo"
       ]
     }
   }

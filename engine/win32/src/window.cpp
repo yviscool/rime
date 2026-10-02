@@ -1609,6 +1609,37 @@ rime::core::Error WindowService::redraw(const std::uint64_t id,
   return result;
 }
 
+rime::core::Error WindowService::minimize_all(const bool undo,
+                                               const std::chrono::milliseconds timeout) {
+  if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  rime::core::Error result = rime::core::Error::none();
+  const auto call_error = impl_->ui.call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        // AHK WinMinimizeAll / WinMinimizeAllUndo: PostMessage the Shell_
+        // TrayWnd taskbar with WM_COMMAND 419 (minimize all) / 416 (undo).
+        const HWND tray = FindWindowW(L"Shell_TrayWnd", nullptr);
+        if (tray == nullptr) {
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "cannot find the taskbar window (Shell_TrayWnd)"};
+          return;
+        }
+        const WPARAM command = undo ? 416u : 419u;
+        if (!PostMessageW(tray, WM_COMMAND, command, 0)) {
+          const DWORD failure = GetLastError();
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "PostMessage(WM_COMMAND) failed (win32 error " +
+                        std::to_string(failure) + ")"};
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
 rime::core::Error WindowService::hide(const std::uint64_t id,
                                       const std::chrono::milliseconds timeout) {
   if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();

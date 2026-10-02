@@ -95,7 +95,8 @@ int main() {
                            "window.show", "window.minimize", "window.maximize",
                            "window.restore", "window.zorder", "window.kill", "window.redraw",
                            "window.group.add", "window.group.activate",
-                           "window.group.deactivate", "window.group.close"}) {
+                           "window.group.deactivate", "window.group.close",
+                           "window.minimizeall", "window.minimizeall.undo"}) {
     assert(kernel.register_executor(type, window_executor).ok());
   }
 
@@ -864,6 +865,72 @@ int main() {
   assert(service.query(kr_leftover_query, kr_leftover).ok());
   assert(kr_leftover.empty());
 
+  // minimizeall posts the shell tray command: a dedicated full-overlapped
+  // victim minimizes, then the undo restores it (the shell skips borderless
+  // windows, and the main slice window is borderless). Both effects are
+  // polled with runtime.delay; the undo runs in a finally so a failure
+  // never leaves the desktop minimized. The settle budget covers both 3s
+  // polling rounds.
+  HWND ma_victim = nullptr;
+  assert(service.ui()
+             .call([&] {
+               ma_victim = CreateWindowExW(0, L"STATIC", L"Rime MASlice Victim",
+                                           WS_OVERLAPPEDWINDOW | WS_VISIBLE, 360, 340, 240, 160,
+                                           nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+               assert(ma_victim != nullptr);
+             })
+             .ok());
+  // Freshly created windows need a beat before the shell's minimize pass.
+  std::this_thread::sleep_for(200ms);
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "import { runtime } from 'rime:runtime';\n"
+        "globalThis.maOut = {};\n"
+        "(async () => {\n"
+        "  const until = async (checkFn, timeoutMs) => {\n"
+        "    const deadline = Date.now() + timeoutMs;\n"
+        "    for (;;) {\n"
+        "      if (await checkFn()) return true;\n"
+        "      if (Date.now() >= deadline) return false;\n"
+        "      await runtime.delay(20, null);\n"
+        "    }\n"
+        "  };\n"
+        "  const [victim] = await windows.list({ title: 'Rime MASlice Victim',\n"
+        "                                        matchMode: 'startswith' });\n"
+        "  if (!victim) throw new Error('minimizeall victim must be listed');\n"
+        "  const before = await windows.info(victim.id);\n"
+        "  let minimized = false;\n"
+        "  let restored = false;\n"
+        "  try {\n"
+        "    await windows.minimizeAll();\n"
+        "    minimized = await until(\n"
+        "      async () => (await windows.info(victim.id)).minimized, 3000);\n"
+        "  } finally {\n"
+        "    await windows.minimizeAllUndo();\n"
+        "    restored = await until(\n"
+        "      async () => !(await windows.info(victim.id)).minimized, 3000);\n"
+        "  }\n"
+        "  return { wasMinimized: before.minimized, minimized, restored };\n"
+        "})().then(v => { globalThis.maOut.value = v; },\n"
+        "         e => { globalThis.maOut.error = String(e); });",
+        "slice-minimizeall.mjs");
+  assert(runtime.settle(15000ms).ok());
+  check(runtime,
+        "if (globalThis.maOut.error) throw new Error(globalThis.maOut.error);\n"
+        "const v = globalThis.maOut.value;\n"
+        "if (!v) throw new Error('minimizeall segment produced no value');\n"
+        "if (v.wasMinimized) throw new Error('minimizeall victim started minimized');\n"
+        "if (!v.minimized) throw new Error('minimizeAll did not minimize the victim');\n"
+        "if (!v.restored) throw new Error('minimizeAllUndo did not restore the victim');",
+        "slice-minimizeall-check.mjs");
+  rime::win32::WindowQuery ma_query;
+  ma_query.title = "Rime MASlice Victim";
+  ma_query.title_match_mode = rime::win32::TitleMatchMode::StartsWith;
+  std::vector<WindowInfo> ma_leftover;
+  assert(service.query(ma_query, ma_leftover).ok());
+  assert(ma_leftover.size() == 1);
+  assert(service.ui().call([&] { DestroyWindow(ma_victim); }).ok());
+
   // Segment 6: close destroys the window through the executor (the result
   // snapshot is taken before WM_CLOSE); later operations on the id reject.
   check(runtime,
@@ -960,6 +1027,8 @@ int main() {
   //   records both);
   // - window.zorder: two pairs (bottom then top) in the zorder segment;
   // - window.kill / window.redraw: one pair each in the kill-redraw segment;
+  // - window.minimizeall / window.minimizeall.undo: one pair each in the
+  //   minimizeall segment (fire-and-forget shell tray post);
   // - window.move: segment 1 (move), segment 2 (bad placement), segment 2b
   //   (exhausted deadline), segment 6 (stale id), plus the optional active
   //   move. The deadline action always records Finished but records Started
@@ -998,6 +1067,9 @@ int main() {
   assert(started_count["window.zorder"] == 2);
   assert(started_count["window.kill"] == 1);
   assert(started_count["window.redraw"] == 1);
+  // minimizeall: minimize then undo, one pair each.
+  assert(started_count["window.minimizeall"] == 1);
+  assert(started_count["window.minimizeall.undo"] == 1);
   // The exhausted deadline left a Finished entry naming the timeout.
   bool saw_deadline_timeout = false;
   for (const auto& entry : trace->snapshot()) {
