@@ -203,12 +203,25 @@ int main(int argc, char** argv) {
         "  throw new Error('terminate must resolve the pid');",
         "breadth-terminate-check.mjs");
 
+  // TerminateProcess is asynchronous: the pid can linger in the process
+  // snapshot briefly after terminate resolves, so probe with a bounded poll
+  // instead of a single shot (same eventual-gone style as the minimizeall
+  // victim loop).
   check(runtime,
         "import { process } from 'rime:process';\n"
+        "import { runtime } from 'rime:runtime';\n"
         "globalThis.goneErr = null;\n"
-        "process.info(globalThis.launched.pid)\n"
-        "  .then(() => { globalThis.goneErr = 'unexpected resolution'; },\n"
-        "        e => { globalThis.goneErr = String(e); });",
+        "const giveUpAt = Date.now() + 2000;\n"
+        "const probe = () => process.info(globalThis.launched.pid)\n"
+        "  .then(() => {\n"
+        "    if (Date.now() >= giveUpAt) {\n"
+        "      globalThis.goneErr = 'unexpected resolution';\n"
+        "      return;\n"
+        "    }\n"
+        "    return runtime.delay(25, null).then(probe);\n"
+        "  }, e => { globalThis.goneErr = String(e); });\n"
+        "globalThis.goneProbe = probe()\n"
+        "  .catch(e => { globalThis.goneErr = String(e); });",
         "breadth-gone.mjs");
   assert(runtime.settle(5000ms).ok());
   check(runtime,
