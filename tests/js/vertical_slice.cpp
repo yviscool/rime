@@ -364,11 +364,16 @@ int main() {
   assert(runtime.settle(5000ms).ok());
   check(runtime,
         "if (globalThis.controlFailure) throw new Error(globalThis.controlFailure);\n"
-        "if (!Array.isArray(globalThis.controlList) || globalThis.controlList.length !== 1)\n"
-        "  throw new Error('expected exactly one control');\n"
-        "const control = globalThis.controlList[0];\n"
-        "if (control.classNN !== 'Edit1' || control.className !== 'Edit')\n"
-        "  throw new Error('ClassNN must number the edit as Edit1');\n"
+        "if (!Array.isArray(globalThis.controlList))\n"
+        "  throw new Error('controls must resolve to an array');\n"
+        // An IME that attaches when the slice edit gains focus adds its own
+        // notification child, so look the edit up instead of counting.
+        "const control = globalThis.controlList.find(c => c.classNN === 'Edit1');\n"
+        "if (!control)\n"
+        "  throw new Error('expected Edit1 among controls: ' +\n"
+        "                  JSON.stringify(globalThis.controlList));\n"
+        "if (control.className !== 'Edit')\n"
+        "  throw new Error('Edit1 must be an Edit');\n"
         "if (typeof control.id !== 'number' || control.id === " + id_text + ")\n"
         "  throw new Error('control id must be a stable, distinct id');\n"
         "if (globalThis.windowText !== 'Rime Slice Control\\r\\n')\n"
