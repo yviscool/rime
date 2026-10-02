@@ -868,6 +868,60 @@ int main() {
   assert(service.set_always_on_top(set_id, -1).ok());
   assert(service.info(set_id, set_snapshot).ok());
   assert(!set_snapshot.always_on_top);
+  // set_style/set_ex_style: '+bit' adds, '-bit' removes, a bare decimal
+  // replaces (a same-value replace is a successful no-op), malformed text
+  // refuses before the window is touched.
+  assert(service.info(set_id, set_snapshot).ok());
+  const auto style_original = set_snapshot.style;
+  const auto exstyle_original = set_snapshot.ex_style;
+  assert(service.set_style(set_id, "+0x02000000").ok());  // WS_CLIPCHILDREN
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.style == (style_original | 0x02000000));
+  assert(service.set_style(set_id, "-0x02000000").ok());
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.style == style_original);
+  assert(service.set_ex_style(set_id, "+0x08000000").ok());  // WS_EX_NOACTIVATE
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.ex_style == (exstyle_original | 0x08000000));
+  assert(service.set_ex_style(set_id, std::to_string(exstyle_original)).ok());
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.ex_style == exstyle_original);
+  assert(service.set_style(set_id, "junk").code == rime::core::Error::Code::InvalidContract);
+  assert(service.set_style(set_id, "+").code == rime::core::Error::Code::InvalidContract);
+  assert(service.set_ex_style(set_id, "0x100000000").code ==
+         rime::core::Error::Code::InvalidContract);
+  // set_transparent: 0x80 layered alpha round-trips, -1 drops the layered
+  // style entirely, out-of-range refuses.
+  assert(service.set_transparent(set_id, 0x80).ok());
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.transparent == 0x80);
+  assert(service.set_transparent(set_id, -1).ok());
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.transparent == -1);
+  assert(service.set_transparent(set_id, 300).code ==
+         rime::core::Error::Code::InvalidContract);
+  // set_trans_color: the hex key round-trips in RGB order (red catches a
+  // byte swap), a space suffix adds alpha, 'off' clears both the key and
+  // the layered style; AHK color names and bad syntax refuse (documented
+  // deviation: Rime accepts hex only).
+  assert(service.set_trans_color(set_id, "0xFF0000").ok());
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.trans_color == "0xFF0000");
+  assert(set_snapshot.transparent == -1);  // no alpha was requested
+  assert(service.set_trans_color(set_id, "0xFF0000 128").ok());
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.trans_color == "0xFF0000");
+  assert(set_snapshot.transparent == 128);
+  assert(service.set_trans_color(set_id, "off").ok());
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.trans_color.empty());
+  assert(set_snapshot.transparent == -1);
+  assert(service.set_trans_color(set_id, "red").code ==
+         rime::core::Error::Code::InvalidContract);
+  assert(service.set_trans_color(set_id, "0x12").code ==
+         rime::core::Error::Code::InvalidContract);
+  assert(service.set_trans_color(set_id, "0xFF0000 999").code ==
+         rime::core::Error::Code::InvalidContract);
   assert(service.ui().call([&] { DestroyWindow(set_victim); }).ok());
 
   // WindowExecutor: a contract-valid window.move reaches the service and
@@ -886,7 +940,9 @@ int main() {
                             "window.group.activate", "window.group.deactivate",
                             "window.group.close", "window.minimizeall",
                             "window.minimizeall.undo", "window.set.title",
-                            "window.set.enabled", "window.set.alwaysontop"}) {
+                            "window.set.enabled", "window.set.alwaysontop",
+                            "window.set.style", "window.set.exstyle",
+                            "window.set.transparent", "window.set.transcolor"}) {
     assert(kernel.register_executor(type, window_executor).ok());
   }
 
@@ -1000,9 +1056,11 @@ int main() {
                                           "window.kill",  "window.redraw",
                                           "window.group.add", "window.group.activate",
                                           "window.group.deactivate", "window.group.close",
-                                          "window.minimizeall", "window.minimizeall.undo",
-                                          "window.set.title", "window.set.enabled",
-                                          "window.set.alwaysontop"};
+                                           "window.minimizeall", "window.minimizeall.undo",
+                                           "window.set.title", "window.set.enabled",
+                                           "window.set.alwaysontop", "window.set.style",
+                                           "window.set.exstyle", "window.set.transparent",
+                                           "window.set.transcolor"};
   for (const char* type : kDeniedTypes) {
     const auto registered = denied.register_executor(type, window_executor);
     assert(registered.ok());
@@ -1382,6 +1440,89 @@ int main() {
   const auto aot_toggle = kernel.execute(set_action);
   assert(aot_toggle.succeeded);
   assert(!aot_toggle.value.find("alwaysOnTop")->as_bool());
+  // set.style through the wire: '+bit' lands on the result snapshot,
+  // malformed text and non-string values refuse before the window is
+  // touched, and the replace form restores the original value.
+  assert(service.info(set_exec_id, set_exec_snapshot).ok());
+  const auto exec_style_original = set_exec_snapshot.style;
+  set_action.id = 60;
+  set_action.type = "window.set.style";
+  set_action.payload = R"({"value":"+0x02000000"})";
+  const auto style_result = kernel.execute(set_action);
+  assert(style_result.succeeded);
+  assert(static_cast<std::int64_t>(style_result.value.find("style")->as_number()) ==
+          (exec_style_original | 0x02000000));
+  set_action.id = 61;
+  set_action.payload = R"({"value":"junk"})";
+  const auto bad_style = kernel.execute(set_action);
+  assert(!bad_style.succeeded);
+  assert(bad_style.error.code == rime::core::Error::Code::InvalidContract);
+  set_action.id = 62;
+  set_action.payload = R"({"value":42})";
+  const auto nonstring_style = kernel.execute(set_action);
+  assert(!nonstring_style.succeeded);
+  assert(nonstring_style.error.code == rime::core::Error::Code::InvalidContract);
+  set_action.id = 63;
+  set_action.payload =
+      std::string(R"({"value":")") + std::to_string(exec_style_original) + R"("})";
+  const auto restore_style = kernel.execute(set_action);
+  assert(restore_style.succeeded);
+  assert(static_cast<std::int64_t>(restore_style.value.find("style")->as_number()) ==
+          exec_style_original);
+  // set.exstyle: add a bit, then clear it again.
+  set_action.id = 64;
+  set_action.type = "window.set.exstyle";
+  set_action.payload = R"({"value":"+0x08000000"})";
+  const auto ex_result = kernel.execute(set_action);
+  assert(ex_result.succeeded);
+  assert((static_cast<std::uint32_t>(ex_result.value.find("exStyle")->as_number()) &
+          0x08000000u) != 0);
+  set_action.id = 65;
+  set_action.payload = R"({"value":"-0x08000000"})";
+  const auto ex_clear = kernel.execute(set_action);
+  assert(ex_clear.succeeded);
+  assert((static_cast<std::uint32_t>(ex_clear.value.find("exStyle")->as_number()) &
+          0x08000000u) == 0);
+  // set.transparent: 64 round-trips, -1 clears, 300 refuses.
+  set_action.id = 66;
+  set_action.type = "window.set.transparent";
+  set_action.payload = R"({"value":64})";
+  const auto alpha_result = kernel.execute(set_action);
+  assert(alpha_result.succeeded);
+  assert(static_cast<int>(alpha_result.value.find("transparent")->as_number()) == 64);
+  set_action.id = 67;
+  set_action.payload = R"({"value":-1})";
+  const auto alpha_off = kernel.execute(set_action);
+  assert(alpha_off.succeeded);
+  assert(static_cast<int>(alpha_off.value.find("transparent")->as_number()) == -1);
+  set_action.id = 68;
+  set_action.payload = R"({"value":300})";
+  const auto bad_alpha = kernel.execute(set_action);
+  assert(!bad_alpha.succeeded);
+  assert(bad_alpha.error.code == rime::core::Error::Code::InvalidContract);
+  // set.transcolor: the key round-trips, 'off' clears, bad syntax and a
+  // missing value refuse.
+  set_action.id = 69;
+  set_action.type = "window.set.transcolor";
+  set_action.payload = R"({"value":"0x00FF00"})";
+  const auto key_result = kernel.execute(set_action);
+  assert(key_result.succeeded);
+  assert(key_result.value.find("transColor")->as_string() == "0x00FF00");
+  set_action.id = 70;
+  set_action.payload = R"({"value":"off"})";
+  const auto key_off = kernel.execute(set_action);
+  assert(key_off.succeeded);
+  assert(key_off.value.find("transColor")->as_string().empty());
+  set_action.id = 71;
+  set_action.payload = R"({"value":"blue"})";
+  const auto bad_key = kernel.execute(set_action);
+  assert(!bad_key.succeeded);
+  assert(bad_key.error.code == rime::core::Error::Code::InvalidContract);
+  set_action.id = 72;
+  set_action.payload = "{}";
+  const auto missing_key = kernel.execute(set_action);
+  assert(!missing_key.succeeded);
+  assert(missing_key.error.code == rime::core::Error::Code::InvalidContract);
   assert(service.ui().call([&] { DestroyWindow(set_exec_victim); }).ok());
 
   // The executor dispatches window.close: the pre-close snapshot is the

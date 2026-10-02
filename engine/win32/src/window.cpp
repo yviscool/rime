@@ -529,6 +529,122 @@ std::string title_match_mode_text(const TitleMatchMode mode) {
   return "2";
 }
 
+namespace {
+// Strict ASCII digit parser: the whole text must be decimal and fit the
+// limit (AHK's istrtoi64 consumes the entire string or fails).
+bool parse_decimal(const std::string_view text, const std::uint32_t limit,
+                   std::uint32_t& out) {
+  if (text.empty() || text.size() > 10) return false;
+  std::uint32_t parsed = 0;
+  for (const char character : text) {
+    if (character < '0' || character > '9') return false;
+    parsed = parsed * 10 + static_cast<std::uint32_t>(character - '0');
+    if (parsed > limit) return false;
+  }
+  out = parsed;
+  return true;
+}
+
+bool equals_ignore_case(const std::string_view text, const std::string_view other) {
+  if (text.size() != other.size()) return false;
+  for (std::size_t index = 0; index < text.size(); ++index) {
+    char left = text[index];
+    char right = other[index];
+    if (left >= 'A' && left <= 'Z') left = static_cast<char>(left - 'A' + 'a');
+    if (right >= 'A' && right <= 'Z') right = static_cast<char>(right - 'A' + 'a');
+    if (left != right) return false;
+  }
+  return true;
+}
+
+int hex_digit(const char character) {
+  if (character >= '0' && character <= '9') return character - '0';
+  if (character >= 'a' && character <= 'f') return character - 'a' + 10;
+  if (character >= 'A' && character <= 'F') return character - 'A' + 10;
+  return -1;
+}
+}  // namespace
+
+bool parse_style_change(std::string_view text, StyleChange& out) {
+  out = StyleChange{};
+  if (text.empty()) return false;
+  switch (text.front()) {
+    case '+':
+      out.op = StyleChangeOp::Add;
+      text.remove_prefix(1);
+      break;
+    case '-':
+      out.op = StyleChangeOp::Remove;
+      text.remove_prefix(1);
+      break;
+    case '^':
+      out.op = StyleChangeOp::Toggle;
+      text.remove_prefix(1);
+      break;
+    default:
+      break;
+  }
+  if (text.empty()) return false;
+  unsigned int base = 10;
+  if (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
+    base = 16;
+    text.remove_prefix(2);
+    if (text.empty()) return false;
+  }
+  std::uint64_t parsed = 0;
+  for (const char character : text) {
+    const int digit = hex_digit(character);
+    if (digit < 0 || static_cast<unsigned int>(digit) >= base) return false;
+    parsed = parsed * base + static_cast<std::uint64_t>(digit);
+    if (parsed > 0xFFFFFFFFull) return false;
+  }
+  out.mask = static_cast<std::uint32_t>(parsed);
+  return true;
+}
+
+bool parse_trans_color_change(const std::string_view text, TransColorChange& out) {
+  out = TransColorChange{};
+  // AHK compares the whole value against "Off" before splitting; '' clears
+  // everything for us too (WinSetTrans with no flags drops WS_EX_LAYERED).
+  if (text.empty() || equals_ignore_case(text, "off")) {
+    out.off = true;
+    return true;
+  }
+  std::string_view color_part = text;
+  std::string_view alpha_part;
+  if (const std::size_t split = text.find_first_of(" \t"); split != std::string_view::npos) {
+    color_part = text.substr(0, split);
+    const std::string_view tail = text.substr(split + 1);
+    if (const std::size_t start = tail.find_first_not_of(" \t"); start != std::string_view::npos) {
+      alpha_part = tail.substr(start);
+    }
+  }
+  std::uint32_t alpha = 0;
+  if (!alpha_part.empty() && !parse_decimal(alpha_part, 255, alpha)) return false;
+  out.with_alpha = !alpha_part.empty();
+  out.alpha = static_cast<int>(alpha);
+  if (color_part.empty()) {
+    // A leading space omits the color key (AHK); with no alpha left this is
+    // a pure clear, otherwise layered alpha only.
+    if (!out.with_alpha) out.off = true;
+    return true;
+  }
+  std::string_view digits = color_part;
+  if (digits.size() > 2 && digits[0] == '0' && (digits[1] == 'x' || digits[1] == 'X')) {
+    digits.remove_prefix(2);
+  }
+  if (digits.size() != 6) return false;
+  std::uint32_t rgb = 0;
+  for (const char character : digits) {
+    const int digit = hex_digit(character);
+    if (digit < 0) return false;
+    rgb = (rgb << 4) | static_cast<std::uint32_t>(digit);
+  }
+  out.color_key = true;
+  out.rgb = rgb;
+  return true;
+}
+
 WindowSettings WindowService::settings() const {
   WindowSettings current;
   current.title_match_mode = impl_->title_match_mode.load(std::memory_order_relaxed);
@@ -1758,6 +1874,175 @@ rime::core::Error WindowService::set_always_on_top(const std::uint64_t id, const
         if (!took) {
           result = {rime::core::Error::Code::ExecutionFailed,
                     "topmost state did not take (SetForegroundWindow permission denied)"};
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::set_style_bits(const std::uint64_t id,
+                                                const std::string_view value, const int index,
+                                                const std::chrono::milliseconds timeout) {
+  StyleChange change;
+  if (!parse_style_change(value, change)) {
+    return {rime::core::Error::Code::InvalidContract,
+            "style value must be '+N', '-N', '^N' or a plain decimal/0x-hex number"};
+  }
+  if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  rime::core::Error result = rime::core::Error::none();
+  const auto call_error = impl_->ui.call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND window = impl_->registry.hwnd_for(id);
+        if (!window) {
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
+          return;
+        }
+        // AHK WinSetStyle: work in unsigned 32-bit (sign-extension of
+        // WS_POPUP-style bits would make same-value comparisons lie), treat
+        // "no change needed" as success, then SetWindowLong with the MSDN
+        // precise error check plus a read-back (AHK: even a partial change
+        // counts as a success).
+        const auto original = static_cast<std::uint32_t>(GetWindowLongPtrW(window, index));
+        std::uint32_t updated = original;
+        switch (change.op) {
+          case StyleChangeOp::Add:
+            updated = original | change.mask;
+            break;
+          case StyleChangeOp::Remove:
+            updated = original & ~change.mask;
+            break;
+          case StyleChangeOp::Toggle:
+            updated = original ^ change.mask;
+            break;
+          case StyleChangeOp::Replace:
+            updated = change.mask;
+            break;
+        }
+        if (updated == original) return;
+        SetLastError(ERROR_SUCCESS);
+        SetWindowLongPtrW(window, index, static_cast<LONG_PTR>(updated));
+        if (GetLastError() != ERROR_SUCCESS ||
+            static_cast<std::uint32_t>(GetWindowLongPtrW(window, index)) == original) {
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "SetWindowLong did not take effect"};
+          return;
+        }
+        // AHK pairs the style change with a frame refresh; without
+        // SWP_FRAMECHANGED only parts of the border repaint.
+        SetWindowPos(window, nullptr, 0, 0, 0, 0,
+                     SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        InvalidateRect(window, nullptr, TRUE);
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::set_style(const std::uint64_t id, const std::string_view value,
+                                            const std::chrono::milliseconds timeout) {
+  return set_style_bits(id, value, GWL_STYLE, timeout);
+}
+
+rime::core::Error WindowService::set_ex_style(const std::uint64_t id,
+                                              const std::string_view value,
+                                              const std::chrono::milliseconds timeout) {
+  return set_style_bits(id, value, GWL_EXSTYLE, timeout);
+}
+
+rime::core::Error WindowService::set_transparent(const std::uint64_t id, const int value,
+                                                  const std::chrono::milliseconds timeout) {
+  if (value < -1 || value > 255) {
+    return {rime::core::Error::Code::InvalidContract, "transparent value must be -1 or 0..255"};
+  }
+  if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  rime::core::Error result = rime::core::Error::none();
+  const auto call_error = impl_->ui.call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND window = impl_->registry.hwnd_for(id);
+        if (!window) {
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
+          return;
+        }
+        const LONG_PTR ex_style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+        if (value == -1) {
+          // AHK WinSetTrans with no flags: drop WS_EX_LAYERED; the OS
+          // forgets the alpha and the color key along with it.
+          SetLastError(ERROR_SUCCESS);
+          SetWindowLongPtrW(window, GWL_EXSTYLE, ex_style & ~WS_EX_LAYERED);
+          if (GetLastError() != ERROR_SUCCESS) {
+            result = {rime::core::Error::Code::ExecutionFailed,
+                      "SetWindowLong failed to clear WS_EX_LAYERED"};
+          }
+          return;
+        }
+        SetWindowLongPtrW(window, GWL_EXSTYLE, ex_style | WS_EX_LAYERED);
+        if (!SetLayeredWindowAttributes(window, 0, static_cast<BYTE>(value), LWA_ALPHA)) {
+          const DWORD failure = GetLastError();
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "SetLayeredWindowAttributes failed (win32 error " +
+                        std::to_string(failure) + ")"};
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::set_trans_color(const std::uint64_t id,
+                                                  const std::string_view value,
+                                                  const std::chrono::milliseconds timeout) {
+  TransColorChange change;
+  if (!parse_trans_color_change(value, change)) {
+    return {rime::core::Error::Code::InvalidContract,
+            "trans-color value must be 'off', '', 'RRGGBB'/'0xRRGGBB' "
+            "and an optional 0..255 alpha suffix"};
+  }
+  if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  rime::core::Error result = rime::core::Error::none();
+  const auto call_error = impl_->ui.call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND window = impl_->registry.hwnd_for(id);
+        if (!window) {
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
+          return;
+        }
+        const LONG_PTR ex_style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+        if (change.off) {
+          // Same clear path as WinSetTransparent("Off"): no flags left, so
+          // AHK drops WS_EX_LAYERED instead of leaving it set with no key.
+          SetLastError(ERROR_SUCCESS);
+          SetWindowLongPtrW(window, GWL_EXSTYLE, ex_style & ~WS_EX_LAYERED);
+          if (GetLastError() != ERROR_SUCCESS) {
+            result = {rime::core::Error::Code::ExecutionFailed,
+                      "SetWindowLong failed to clear WS_EX_LAYERED"};
+          }
+          return;
+        }
+        SetWindowLongPtrW(window, GWL_EXSTYLE, ex_style | WS_EX_LAYERED);
+        // 0xRRGGBB (our wire order) to Win32's 0x00BBGGRR color key.
+        const COLORREF color =
+            static_cast<COLORREF>(((change.rgb >> 16) & 0xFF) | (change.rgb & 0xFF00) |
+                                  ((change.rgb & 0xFF) << 16));
+        const DWORD flags =
+            (change.color_key ? LWA_COLORKEY : 0) | (change.with_alpha ? LWA_ALPHA : 0);
+        if (!SetLayeredWindowAttributes(window, color, static_cast<BYTE>(change.alpha), flags)) {
+          const DWORD failure = GetLastError();
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "SetLayeredWindowAttributes failed (win32 error " +
+                        std::to_string(failure) + ")"};
         }
       },
       timeout);

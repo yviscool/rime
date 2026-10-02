@@ -98,7 +98,9 @@ int main() {
                            "window.group.deactivate", "window.group.close",
                            "window.minimizeall", "window.minimizeall.undo",
                            "window.set.title", "window.set.enabled",
-                           "window.set.alwaysontop"}) {
+                           "window.set.alwaysontop", "window.set.style",
+                           "window.set.exstyle", "window.set.transparent",
+                           "window.set.transcolor"}) {
     assert(kernel.register_executor(type, window_executor).ok());
   }
 
@@ -934,10 +936,11 @@ int main() {
   assert(service.ui().call([&] { DestroyWindow(ma_victim); }).ok());
 
   // window.set.* writes on a dedicated victim: topmost toggles, enabled
-  // disables then toggles back, and the title round-trips. The finally
-  // block restores the title and clears topmost before the query check,
-  // and the synchronous argument TypeErrors dispatch nothing (so the
-  // trace asserts below stay at two actions per type).
+  // disables then toggles back, the title round-trips, style/exstyle bits
+  // add and clear, layered alpha and the color key set and clear. The
+  // finally block restores every value before the query check, and the
+  // synchronous argument TypeErrors dispatch nothing (so the trace asserts
+  // below stay at two actions per type).
   HWND set_victim = nullptr;
   assert(service.ui()
              .call([&] {
@@ -951,6 +954,13 @@ int main() {
   // Freshly created windows need a beat: SetWindowPos topmost does not
   // stick on a window that has not finished its initial show.
   std::this_thread::sleep_for(200ms);
+  rime::win32::WindowQuery set_pre_query;
+  set_pre_query.title = "Rime SetSlice Victim";
+  set_pre_query.title_match_mode = rime::win32::TitleMatchMode::StartsWith;
+  std::vector<WindowInfo> set_pre_match;
+  assert(service.query(set_pre_query, set_pre_match).ok());
+  assert(set_pre_match.size() == 1);
+  const WindowInfo set_pre = set_pre_match.front();
   check(runtime,
         "import { windows } from 'rime:window';\n"
         "globalThis.setOut = {};\n"
@@ -964,6 +974,10 @@ int main() {
         "  catch (e) { if (e instanceof TypeError) typeErrors++; }\n"
         "  try { windows.setEnabled(victim.id, 7); }\n"
         "  catch (e) { if (e instanceof TypeError) typeErrors++; }\n"
+        "  try { windows.setStyle(victim.id, 123); }\n"
+        "  catch (e) { if (e instanceof TypeError) typeErrors++; }\n"
+        "  try { windows.setTransparent(victim.id, 300); }\n"
+        "  catch (e) { if (e instanceof TypeError) typeErrors++; }\n"
         "  const out = {};\n"
         "  try {\n"
         "    await windows.setTitle(victim.id, 'Rime SetSlice Renamed');\n"
@@ -974,9 +988,22 @@ int main() {
         "    out.reenabled = (await windows.info(victim.id)).enabled;\n"
         "    await windows.setAlwaysOnTop(victim.id);\n"
         "    out.topmost = (await windows.info(victim.id)).alwaysOnTop;\n"
+        "    await windows.setStyle(victim.id, '+0x02000000');\n"
+        "    out.styleSet = ((await windows.info(victim.id)).style & 0x02000000) !== 0;\n"
+        "    await windows.setExStyle(victim.id, '+0x08000000');\n"
+        "    out.exSet = ((await windows.info(victim.id)).exStyle & 0x08000000) !== 0;\n"
+        "    await windows.setTransparent(victim.id, 0x80);\n"
+        "    out.alpha = (await windows.info(victim.id)).transparent;\n"
+        "    await windows.setTransColor(victim.id, '0xFF0000 100');\n"
+        "    out.tcol = (await windows.info(victim.id)).transColor;\n"
+        "    out.tcolAlpha = (await windows.info(victim.id)).transparent;\n"
         "  } finally {\n"
         "    await windows.setTitle(victim.id, 'Rime SetSlice Victim');\n"
         "    await windows.setAlwaysOnTop(victim.id, 0);\n"
+        "    await windows.setStyle(victim.id, '0x' + before.style.toString(16));\n"
+        "    await windows.setExStyle(victim.id, '0x' + before.exStyle.toString(16));\n"
+        "    await windows.setTransparent(victim.id, before.transparent);\n"
+        "    await windows.setTransColor(victim.id, before.transColor || 'off');\n"
         "  }\n"
         "  return { beforeTopmost: before.alwaysOnTop, typeErrors, ...out };\n"
         "})().then(v => { globalThis.setOut.value = v; },\n"
@@ -988,8 +1015,9 @@ int main() {
         "const v = globalThis.setOut.value;\n"
         "if (!v) throw new Error('set segment produced no value');\n"
         "if (v.beforeTopmost) throw new Error('set victim started topmost');\n"
-        "if (v.typeErrors !== 2 || !v.topmost || !v.disabled || !v.reenabled ||\n"
-        "    v.title !== 'Rime SetSlice Renamed')\n"
+        "if (v.typeErrors !== 4 || !v.topmost || !v.disabled || !v.reenabled ||\n"
+        "    v.title !== 'Rime SetSlice Renamed' || !v.styleSet || !v.exSet ||\n"
+        "    v.alpha !== 128 || v.tcol !== '0xFF0000' || v.tcolAlpha !== 100)\n"
         "  throw new Error('set segment failed: ' + JSON.stringify(v));",
         "slice-set-check.mjs");
   rime::win32::WindowQuery set_query;
@@ -1000,6 +1028,12 @@ int main() {
   assert(set_leftover.size() == 1);
   assert(set_leftover.front().title == "Rime SetSlice Victim");
   assert(!set_leftover.front().always_on_top);
+  // The finally block restored every set-stage write: style, exstyle,
+  // layered alpha and the color key all match the pre-script snapshot.
+  assert(set_leftover.front().style == set_pre.style);
+  assert(set_leftover.front().ex_style == set_pre.ex_style);
+  assert(set_leftover.front().transparent == set_pre.transparent);
+  assert(set_leftover.front().trans_color == set_pre.trans_color);
   assert(service.ui().call([&] { DestroyWindow(set_victim); }).ok());
 
   // Segment 6: close destroys the window through the executor (the result
@@ -1100,9 +1134,11 @@ int main() {
   // - window.kill / window.redraw: one pair each in the kill-redraw segment;
   // - window.minimizeall / window.minimizeall.undo: one pair each in the
   //   minimizeall segment (fire-and-forget shell tray post);
-  // - window.set.title / window.set.enabled / window.set.alwaysontop: two
-  //   pairs each in the set segment (write plus finally-restored write);
-  //   the synchronous argument TypeErrors dispatch nothing;
+  // - window.set.title / window.set.enabled / window.set.alwaysontop /
+  //   window.set.style / window.set.exstyle / window.set.transparent /
+  //   window.set.transcolor: two pairs each in the set segment (write plus
+  //   finally-restored write); the synchronous argument TypeErrors dispatch
+  //   nothing;
   // - window.move: segment 1 (move), segment 2 (bad placement), segment 2b
   //   (exhausted deadline), segment 6 (stale id), plus the optional active
   //   move. The deadline action always records Finished but records Started
@@ -1149,6 +1185,10 @@ int main() {
   assert(started_count["window.set.title"] == 2);
   assert(started_count["window.set.enabled"] == 2);
   assert(started_count["window.set.alwaysontop"] == 2);
+  assert(started_count["window.set.style"] == 2);
+  assert(started_count["window.set.exstyle"] == 2);
+  assert(started_count["window.set.transparent"] == 2);
+  assert(started_count["window.set.transcolor"] == 2);
   // The exhausted deadline left a Finished entry naming the timeout.
   bool saw_deadline_timeout = false;
   for (const auto& entry : trace->snapshot()) {

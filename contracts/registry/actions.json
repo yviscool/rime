@@ -198,7 +198,7 @@
       "capability": "windows.window.write",
       "target": { "kind": "window" },
       "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/setTitlePayload",
-      "executor": "engine/win32/src/window_executor.cpp:443",
+      "executor": "engine/win32/src/window_executor.cpp:484",
       "module": "engine/win32/js/src/window_module.cpp:829",
       "sdk": "sdk/src/window.ts:451",
       "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
@@ -209,7 +209,7 @@
       "capability": "windows.window.write",
       "target": { "kind": "window" },
       "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/setEnabledPayload",
-      "executor": "engine/win32/src/window_executor.cpp:445",
+      "executor": "engine/win32/src/window_executor.cpp:486",
       "module": "engine/win32/js/src/window_module.cpp:834",
       "sdk": "sdk/src/window.ts:461",
       "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
@@ -220,9 +220,53 @@
       "capability": "windows.window.write",
       "target": { "kind": "window" },
       "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/setAlwaysOnTopPayload",
-      "executor": "engine/win32/src/window_executor.cpp:447",
+      "executor": "engine/win32/src/window_executor.cpp:488",
       "module": "engine/win32/js/src/window_module.cpp:839",
       "sdk": "sdk/src/window.ts:475",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.set.style",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/setStylePayload",
+      "executor": "engine/win32/src/window_executor.cpp:490",
+      "module": "engine/win32/js/src/window_module.cpp:918",
+      "sdk": "sdk/src/window.ts:522",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.set.exstyle",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/setStylePayload",
+      "executor": "engine/win32/src/window_executor.cpp:492",
+      "module": "engine/win32/js/src/window_module.cpp:923",
+      "sdk": "sdk/src/window.ts:532",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.set.transparent",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/setTransparentPayload",
+      "executor": "engine/win32/src/window_executor.cpp:494",
+      "module": "engine/win32/js/src/window_module.cpp:929",
+      "sdk": "sdk/src/window.ts:542",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.set.transcolor",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/setTransColorPayload",
+      "executor": "engine/win32/src/window_executor.cpp:496",
+      "module": "engine/win32/js/src/window_module.cpp:935",
+      "sdk": "sdk/src/window.ts:552",
       "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
       "status": "implemented"
     },
@@ -324,7 +368,7 @@
       "status": "implemented",
       "declared": "engine/win32/js/src/window_module.cpp:23",
       "checked": ["engine/action/src/kernel.cpp:97"],
-      "actions": ["window.move", "window.focus", "window.close", "window.hide", "window.show", "window.minimize", "window.maximize", "window.restore", "window.zorder", "window.kill", "window.redraw", "window.group.add", "window.group.activate", "window.group.deactivate", "window.group.close", "window.minimizeall", "window.minimizeall.undo", "window.set.title", "window.set.enabled", "window.set.alwaysontop"]
+      "actions": ["window.move", "window.focus", "window.close", "window.hide", "window.show", "window.minimize", "window.maximize", "window.restore", "window.zorder", "window.kill", "window.redraw", "window.group.add", "window.group.activate", "window.group.deactivate", "window.group.close", "window.minimizeall", "window.minimizeall.undo", "window.set.title", "window.set.enabled", "window.set.alwaysontop", "window.set.style", "window.set.exstyle", "window.set.transparent", "window.set.transcolor"]
     },
     {
       "name": "windows.clipboard.read",

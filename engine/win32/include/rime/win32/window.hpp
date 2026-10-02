@@ -71,6 +71,33 @@ enum class TitleMatchMode { StartsWith = 1, Contains = 2, Exact = 3, Regex = 4 }
 [[nodiscard]] std::optional<TitleMatchMode> parse_title_match_mode(std::string_view text);
 [[nodiscard]] std::string title_match_mode_text(TitleMatchMode mode);
 
+// AHK WinSetStyle/WinSetExStyle change string: an optional '+', '-' or '^'
+// prefix adds / removes / toggles the mask, a bare number replaces the
+// whole style; the number is decimal or 0x-hex and fits 32 bits. An empty
+// or malformed string fails (AHK treats an explicit blank as an argument
+// error too). Shared by the module (sync TypeError), the executor and the
+// service (InvalidContract) so every layer accepts exactly one grammar.
+enum class StyleChangeOp { Add, Remove, Toggle, Replace };
+struct StyleChange {
+  StyleChangeOp op{StyleChangeOp::Replace};
+  std::uint32_t mask{0};
+};
+[[nodiscard]] bool parse_style_change(std::string_view text, StyleChange& out);
+
+// AHK WinSetTransColor value: '' or 'off' (case-insensitive) clears the
+// color key, 'RRGGBB' / '0xRRGGBB' sets it in RGB order (hex only - HTML
+// color names are a documented non-goal for now), and an optional
+// ' <0-255>' tail adds LWA_ALPHA alongside the key, mirroring AHK's
+// space-separated alpha suffix.
+struct TransColorChange {
+  bool off{false};       // clear WS_EX_LAYERED entirely
+  bool color_key{false}; // LWA_COLORKEY requested
+  std::uint32_t rgb{0};  // 0xRRGGBB when color_key
+  bool with_alpha{false};
+  int alpha{0};
+};
+[[nodiscard]] bool parse_trans_color_change(std::string_view text, TransColorChange& out);
+
 // Global window options (SetTitleMatchMode/DetectHiddenWindows/
 // DetectHiddenText). Stored as atomics on the service so JS reads/writes stay
 // synchronous: a setter on the JS thread is ordered before any later query
@@ -262,6 +289,21 @@ class WindowService final {
   // does not take on some windows).
   rime::core::Error set_always_on_top(std::uint64_t id, int value,
                                       std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // WinSetStyle / WinSetExStyle: AHK's '+N'/'-N'/'^N'/bare-number change
+  // string against GWL_STYLE or GWL_EXSTYLE, then the frame refresh AHK
+  // pairs with it (SWP_FRAMECHANGED + InvalidateRect).
+  rime::core::Error set_style(std::uint64_t id, std::string_view value,
+                              std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error set_ex_style(std::uint64_t id, std::string_view value,
+                                 std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // WinSetTransparent: -1 drops WS_EX_LAYERED (the OS forgets the alpha
+  // with it), 0..255 sets WS_EX_LAYERED plus LWA_ALPHA.
+  rime::core::Error set_transparent(std::uint64_t id, int value,
+                                    std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // WinSetTransColor: color key (optional alpha) or ''/'off' to clear;
+  // clears WS_EX_LAYERED exactly like AHK's WinSetTrans with no flags.
+  rime::core::Error set_trans_color(std::uint64_t id, std::string_view value,
+                                    std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // Window state mutations (WinClose/WinHide/WinShow/WinMinimize/WinMaximize/
   // WinRestore equivalents). `close` delivers WM_CLOSE and waits for the
   // target thread to process it within the timeout.
@@ -295,6 +337,9 @@ class WindowService final {
  private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
+  // Shared body of set_style / set_ex_style (identical but for the index).
+  rime::core::Error set_style_bits(std::uint64_t id, std::string_view value, int index,
+                                   std::chrono::milliseconds timeout);
 };
 
 }  // namespace rime::win32

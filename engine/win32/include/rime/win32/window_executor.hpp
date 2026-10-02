@@ -10,13 +10,18 @@ namespace rime::win32 {
 // maximize/restore/zorder plus the window-group family group.add/
 // group.activate/group.deactivate/group.close, the desktop pair
 // minimizeall/minimizeall.undo, and the window set family set.title/
-// set.enabled/set.alwaysontop. Payload contract:
+// set.enabled/set.alwaysontop/set.style/set.exstyle/set.transparent/
+// set.transcolor. Payload contract:
 // `window.move` requires
 // {"position": "left|right|top|bottom|full"}; `window.zorder` requires
 // {"placement": "top|bottom"}; `window.set.title` requires {"title":
 // string}; `window.set.enabled` requires {"value": -1|0|1};
 // `window.set.alwaysontop` takes an optional {"value": -1|0|1} (absent
-// means topmost); the state actions take an empty
+// means topmost); `window.set.style` and `window.set.exstyle` require
+// {"value": "+N|-N|^N|<decimal>"}; `window.set.transparent` requires
+// {"value": -1|0..255}; `window.set.transcolor` requires {"value":
+// ""|"off"|"RRGGBB"|"0xRRGGBB"[+" <0-255>"]}; the state actions take an
+// empty
 // empty object. Target contract: {"kind": "window", "id": "<numeric id>" |
 // "active"} for the window actions, {"kind": "group", "id": "<group
 // name>"} for the group actions (payload: a query object for group.add,

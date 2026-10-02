@@ -9,6 +9,7 @@
 
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -754,12 +755,16 @@ JSValue run_window_mutation(JSContext* context, int argc, JSValueConst* argv,
 }
 
 // Shared body for the window.set.* family (WinSetTitle / WinSetEnabled /
-// WinSetAlwaysOnTop): target, then the per-type value (boolean or -1/0/1
-// number where AHK takes an integer), then optional ActionOptions. The
-// payload shape mirrors the window-v1 schema; the executor re-validates.
+// WinSetAlwaysOnTop / WinSetStyle / WinSetExStyle / WinSetTransparent /
+// WinSetTransColor): target, then the per-type value, then optional
+// ActionOptions. The payload shape mirrors the window-v1 schema; every
+// value is fully validated here so a contract mistake throws a synchronous
+// TypeError before anything is enqueued (the executor re-validates).
+enum class SetKind { Number, Title, Style, Alpha, TransColor };
+
 JSValue run_window_set(JSContext* context, int argc, JSValueConst* argv,
-                       const char* function_name, const char* action_type,
-                       bool value_required) {
+                       const char* function_name, const char* action_type, const SetKind kind,
+                       const bool value_required) {
   WindowModuleBinding* binding = binding_of(context);
   if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
       !binding->next_action_id) {
@@ -772,38 +777,99 @@ JSValue run_window_set(JSContext* context, int argc, JSValueConst* argv,
   int cursor = 1;
   bool has_value = false;
   int number_value = 0;
-  std::string title_value;
-  const bool wants_number = std::string_view(action_type) != "window.set.title";
-  if (value_required || (argc > 1 && (JS_IsBool(argv[1]) || JS_IsNumber(argv[1])))) {
+  std::string text_value;
+  const bool optional_number =
+      !value_required && kind == SetKind::Number;
+  if (!optional_number ||
+      (argc > 1 && (JS_IsBool(argv[1]) || JS_IsNumber(argv[1])))) {
     if (argc < 2) {
       return JS_ThrowTypeError(context, "%s(target, value[, options?])", function_name);
     }
-    if (wants_number) {
-      double raw = 0.0;
-      if (!JS_IsNumber(argv[1]) && !JS_IsBool(argv[1])) {
-        return JS_ThrowTypeError(context,
-                                 "%s(target, value[, options?]): value must be a boolean "
-                                 "or -1, 0 or 1",
-                                 function_name);
-      }
-      if (JS_ToFloat64(context, &raw, argv[1])) return JS_EXCEPTION;
-      if (!(raw == -1.0 || raw == 0.0 || raw == 1.0)) {
-        return JS_ThrowTypeError(context,
-                                 "%s(target, value[, options?]): value must be -1, 0 or 1",
-                                 function_name);
-      }
-      number_value = static_cast<int>(raw);
-      has_value = true;
-    } else {
+    const auto take_text = [&](const char* must_be) -> std::optional<std::string> {
       if (!JS_IsString(argv[1])) {
-        return JS_ThrowTypeError(context, "%s(target, title[, options?]): title must be a string",
-                                 function_name);
+        JS_ThrowTypeError(context, "%s(target, value[, options?]): value must be %s",
+                          function_name, must_be);
+        return std::nullopt;
       }
-      const char* title_text = JS_ToCString(context, argv[1]);
-      if (!title_text) return JS_EXCEPTION;
-      title_value = title_text;
-      JS_FreeCString(context, title_text);
-      has_value = true;
+      const char* text = JS_ToCString(context, argv[1]);
+      if (!text) return std::nullopt;  // exception already thrown
+      std::string value(text);
+      JS_FreeCString(context, text);
+      return value;
+    };
+    switch (kind) {
+      case SetKind::Number: {
+        if (!JS_IsNumber(argv[1]) && !JS_IsBool(argv[1])) {
+          return JS_ThrowTypeError(context,
+                                   "%s(target, value[, options?]): value must be a boolean "
+                                   "or -1, 0 or 1",
+                                   function_name);
+        }
+        double raw = 0.0;
+        if (JS_ToFloat64(context, &raw, argv[1])) return JS_EXCEPTION;
+        if (!(raw == -1.0 || raw == 0.0 || raw == 1.0)) {
+          return JS_ThrowTypeError(context,
+                                   "%s(target, value[, options?]): value must be -1, 0 or 1",
+                                   function_name);
+        }
+        number_value = static_cast<int>(raw);
+        has_value = true;
+        break;
+      }
+      case SetKind::Title: {
+        const auto value = take_text("a string");
+        if (!value) return JS_EXCEPTION;
+        text_value = *value;
+        has_value = true;
+        break;
+      }
+      case SetKind::Style: {
+        const auto value = take_text("a style change string");
+        if (!value) return JS_EXCEPTION;
+        text_value = *value;
+        StyleChange parsed;
+        if (!parse_style_change(text_value, parsed)) {
+          return JS_ThrowTypeError(
+              context,
+              "%s(target, value[, options?]): value must be '+N', '-N', '^N' or a plain "
+              "decimal/0x-hex number",
+              function_name);
+        }
+        has_value = true;
+        break;
+      }
+      case SetKind::Alpha: {
+        if (!JS_IsNumber(argv[1])) {
+          return JS_ThrowTypeError(context,
+                                   "%s(target, value[, options?]): value must be -1 or 0..255",
+                                   function_name);
+        }
+        double raw = 0.0;
+        if (JS_ToFloat64(context, &raw, argv[1])) return JS_EXCEPTION;
+        if (raw != std::floor(raw) || raw < -1.0 || raw > 255.0) {
+          return JS_ThrowTypeError(context,
+                                   "%s(target, value[, options?]): value must be -1 or 0..255",
+                                   function_name);
+        }
+        number_value = static_cast<int>(raw);
+        has_value = true;
+        break;
+      }
+      case SetKind::TransColor: {
+        const auto value = take_text("a trans-color string");
+        if (!value) return JS_EXCEPTION;
+        text_value = *value;
+        TransColorChange parsed;
+        if (!parse_trans_color_change(text_value, parsed)) {
+          return JS_ThrowTypeError(
+              context,
+              "%s(target, value[, options?]): value must be 'off', '', 'RRGGBB'/'0xRRGGBB' "
+              "and an optional 0..255 alpha suffix",
+              function_name);
+        }
+        has_value = true;
+        break;
+      }
     }
     cursor = 2;
   }
@@ -815,10 +881,14 @@ JSValue run_window_set(JSContext* context, int argc, JSValueConst* argv,
   if (argc > cursor && !parse_action_options(context, argv[cursor], options)) return JS_EXCEPTION;
 
   json::Value payload = json::Value::object();
-  if (has_value && wants_number) {
-    payload.set("value", json::Value::number(static_cast<double>(number_value)));
-  } else if (has_value) {
-    payload.set("title", json::Value::string(title_value));
+  if (has_value) {
+    if (kind == SetKind::Title) {
+      payload.set("title", json::Value::string(text_value));
+    } else if (kind == SetKind::Number || kind == SetKind::Alpha) {
+      payload.set("value", json::Value::number(static_cast<double>(number_value)));
+    } else {
+      payload.set("value", json::Value::string(text_value));
+    }
   }
   auto action = make_action(*binding->next_action_id, "rime:window", action_type,
                             kWindowWriteCapability, {"window", std::move(target_text)},
@@ -828,17 +898,42 @@ JSValue run_window_set(JSContext* context, int argc, JSValueConst* argv,
 
 JSValue windows_set_title(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                           void*) {
-  return run_window_set(context, argc, argv, "setTitle", "window.set.title", true);
+  return run_window_set(context, argc, argv, "setTitle", "window.set.title", SetKind::Title, true);
 }
 
 JSValue windows_set_enabled(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                             void*) {
-  return run_window_set(context, argc, argv, "setEnabled", "window.set.enabled", true);
+  return run_window_set(context, argc, argv, "setEnabled", "window.set.enabled", SetKind::Number,
+                        true);
 }
 
 JSValue windows_set_always_on_top(JSContext* context, JSValueConst, int argc, JSValueConst* argv,
                                   int, void*) {
-  return run_window_set(context, argc, argv, "setAlwaysOnTop", "window.set.alwaysontop", false);
+  return run_window_set(context, argc, argv, "setAlwaysOnTop", "window.set.alwaysontop",
+                        SetKind::Number, false);
+}
+
+JSValue windows_set_style(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                          void*) {
+  return run_window_set(context, argc, argv, "setStyle", "window.set.style", SetKind::Style, true);
+}
+
+JSValue windows_set_ex_style(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                             void*) {
+  return run_window_set(context, argc, argv, "setExStyle", "window.set.exstyle", SetKind::Style,
+                        true);
+}
+
+JSValue windows_set_transparent(JSContext* context, JSValueConst, int argc, JSValueConst* argv,
+                                int, void*) {
+  return run_window_set(context, argc, argv, "setTransparent", "window.set.transparent",
+                        SetKind::Alpha, true);
+}
+
+JSValue windows_set_trans_color(JSContext* context, JSValueConst, int argc, JSValueConst* argv,
+                                int, void*) {
+  return run_window_set(context, argc, argv, "setTransColor", "window.set.transcolor",
+                        SetKind::TransColor, true);
 }
 
 JSValue windows_move(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
@@ -1353,7 +1448,11 @@ int window_module_init(JSContext* context, JSModuleDef* module) {
       !add(windows, "minimizeAllUndo", windows_minimize_all_undo, 0, 0) ||
       !add(windows, "setTitle", windows_set_title, 2, 0) ||
       !add(windows, "setEnabled", windows_set_enabled, 2, 0) ||
-      !add(windows, "setAlwaysOnTop", windows_set_always_on_top, 1, 0)) {
+      !add(windows, "setAlwaysOnTop", windows_set_always_on_top, 1, 0) ||
+      !add(windows, "setStyle", windows_set_style, 2, 0) ||
+      !add(windows, "setExStyle", windows_set_ex_style, 2, 0) ||
+      !add(windows, "setTransparent", windows_set_transparent, 2, 0) ||
+      !add(windows, "setTransColor", windows_set_trans_color, 2, 0)) {
     JS_FreeValue(context, windows);
     return -1;
   }

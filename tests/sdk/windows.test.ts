@@ -81,7 +81,7 @@ const calls: Array<{
   position?: string;
   placement?: string;
   title?: string;
-  value?: boolean | -1 | 0 | 1;
+  value?: boolean | number | string;
   // WindowsWaitOptions is a superset of WindowsListOptions (until is
   // optional); group calls add their own fields (reverse/mode) on top.
   options?: WindowsWaitOptions & { reverse?: boolean; mode?: string };
@@ -242,6 +242,26 @@ mock.module("rime:window", () => ({
       calls.push({ method: "setAlwaysOnTop", target, value, options });
       return Promise.resolve(movedHandle);
     },
+    setStyle: (target: WindowId | "active", value: string, options?: NativeActionOptions) => {
+      calls.push({ method: "setStyle", target, value, options });
+      return Promise.resolve(movedHandle);
+    },
+    setExStyle: (target: WindowId | "active", value: string, options?: NativeActionOptions) => {
+      calls.push({ method: "setExStyle", target, value, options });
+      return Promise.resolve(movedHandle);
+    },
+    setTransparent: (
+      target: WindowId | "active",
+      value: number,
+      options?: NativeActionOptions,
+    ) => {
+      calls.push({ method: "setTransparent", target, value, options });
+      return Promise.resolve(movedHandle);
+    },
+    setTransColor: (target: WindowId | "active", value: string, options?: NativeActionOptions) => {
+      calls.push({ method: "setTransColor", target, value, options });
+      return Promise.resolve(movedHandle);
+    },
   } satisfies WindowsBridge,
   groups: {
     add: async (name: string, query: WindowQueryFields, options?: NativeActionOptions) => {
@@ -334,6 +354,29 @@ test("setTitle, setEnabled and setAlwaysOnTop route through the window bridge", 
   await Window.setAlwaysOnTop(7 as WindowId);
   expect(calls).toEqual([
     { method: "setAlwaysOnTop", target: 7, value: undefined, options: undefined },
+  ]);
+});
+
+test("setStyle, setExStyle, setTransparent and setTransColor route through the window bridge", async () => {
+  calls.length = 0;
+  await Window.setStyle(7 as WindowId, "+0x02000000");
+  expect(calls).toEqual([
+    { method: "setStyle", target: 7, value: "+0x02000000", options: undefined },
+  ]);
+  calls.length = 0;
+  await Window.setExStyle(7 as WindowId, "-0x08000000", { deadlineMs: 100 });
+  expect(calls).toEqual([
+    { method: "setExStyle", target: 7, value: "-0x08000000", options: { deadlineMs: 100 } },
+  ]);
+  calls.length = 0;
+  await Window.setTransparent(7 as WindowId, 0x80);
+  expect(calls).toEqual([
+    { method: "setTransparent", target: 7, value: 128, options: undefined },
+  ]);
+  calls.length = 0;
+  await Window.setTransColor(7 as WindowId, "0xFF0000 128");
+  expect(calls).toEqual([
+    { method: "setTransColor", target: 7, value: "0xFF0000 128", options: undefined },
   ]);
 });
 

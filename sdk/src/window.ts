@@ -231,6 +231,39 @@ export interface WindowsBridge {
     value?: boolean | -1 | 0 | 1,
     options?: NativeActionOptions,
   ): Promise<WindowHandle>;
+  /**
+   * WinSetStyle: applies the AHK change string ('+N' adds, '-N' removes,
+   * '^N' toggles, a bare N replaces); resolves with the new snapshot.
+   */
+  setStyle(
+    target: WindowId | "active",
+    value: string,
+    options?: NativeActionOptions,
+  ): Promise<WindowHandle>;
+  /** WinSetExStyle: same change-string grammar against the extended style. */
+  setExStyle(
+    target: WindowId | "active",
+    value: string,
+    options?: NativeActionOptions,
+  ): Promise<WindowHandle>;
+  /**
+   * WinSetTransparent: 0..255 sets the layered alpha, -1 turns transparency
+   * off (drops WS_EX_LAYERED); resolves with the new snapshot.
+   */
+  setTransparent(
+    target: WindowId | "active",
+    value: number,
+    options?: NativeActionOptions,
+  ): Promise<WindowHandle>;
+  /**
+   * WinSetTransColor: ''/'off' clears the color key, 'RRGGBB'/'0xRRGGBB'
+   * sets it (hex only), an optional ' <0-255>' suffix adds alpha alongside.
+   */
+  setTransColor(
+    target: WindowId | "active",
+    value: string,
+    options?: NativeActionOptions,
+  ): Promise<WindowHandle>;
 }
 
 /** Bridge of the named-window-group surface (`rime:window`'s `groups` export). */
@@ -479,6 +512,46 @@ export const Window = {
   ): Promise<WindowHandle> {
     return runAction(options, (native) =>
       windowBridge().then((windows) => windows.setAlwaysOnTop(windowId, value, native)),
+    );
+  },
+  /**
+   * WinSetStyle: '+N' adds, '-N' removes, '^N' toggles, a bare number
+   * replaces the whole style; a malformed string throws before enqueue.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  setStyle(windowId: WindowId, value: string, options?: ActionOptions): Promise<WindowHandle> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.setStyle(windowId, value, native)),
+    );
+  },
+  /**
+   * WinSetExStyle: the WinSetStyle change-string grammar against the
+   * extended style.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  setExStyle(windowId: WindowId, value: string, options?: ActionOptions): Promise<WindowHandle> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.setExStyle(windowId, value, native)),
+    );
+  },
+  /**
+   * WinSetTransparent: 0..255 sets the layered alpha, -1 turns transparency
+   * off (the OS forgets the alpha and color key with WS_EX_LAYERED).
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  setTransparent(windowId: WindowId, value: number, options?: ActionOptions): Promise<WindowHandle> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.setTransparent(windowId, value, native)),
+    );
+  },
+  /**
+   * WinSetTransColor: ''/'off' clears the color key, 'RRGGBB'/'0xRRGGBB'
+   * sets it (hex only), an optional ' <0-255>' suffix sets alpha alongside.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  setTransColor(windowId: WindowId, value: string, options?: ActionOptions): Promise<WindowHandle> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.setTransColor(windowId, value, native)),
     );
   },
   /**

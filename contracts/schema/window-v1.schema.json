@@ -147,6 +147,30 @@
         "value": { "enum": [-1, 0, 1], "default": 1, "description": "WinSetAlwaysOnTop: 1 makes topmost, 0 clears topmost, -1 toggles; absent means 1 (AHK's default)." }
       }
     },
+    "setStylePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": { "type": "string", "minLength": 1, "description": "WinSetStyle/WinSetExStyle change string: '+N' adds, '-N' removes, '^N' toggles, a bare N replaces the whole style; N is decimal or 0x-hex and fits 32 bits." }
+      }
+    },
+    "setTransparentPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": { "type": "integer", "minimum": -1, "maximum": 255, "description": "WinSetTransparent: 0..255 sets the layered alpha, -1 turns transparency off (drops WS_EX_LAYERED)." }
+      }
+    },
+    "setTransColorPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": { "type": "string", "description": "WinSetTransColor: '' or 'off' clears the color key, 'RRGGBB'/'0xRRGGBB' sets it (hex only), a ' <0-255>' suffix adds the alpha alongside." }
+      }
+    },
     "actionType": {
       "enum": [
         "window.move",
@@ -168,7 +192,11 @@
         "window.minimizeall.undo",
         "window.set.title",
         "window.set.enabled",
-        "window.set.alwaysontop"
+        "window.set.alwaysontop",
+        "window.set.style",
+        "window.set.exstyle",
+        "window.set.transparent",
+        "window.set.transcolor"
       ]
     }
   }
