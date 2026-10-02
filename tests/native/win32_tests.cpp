@@ -130,10 +130,18 @@ int main() {
   // WinGetText ("\r\n" after each non-empty control text).
   std::vector<rime::win32::ControlInfo> controls;
   assert(service.controls(id, controls).ok());
-  assert(controls.size() == 1);
-  assert(controls[0].class_name == "Edit");
-  assert(controls[0].class_nn == "Edit1");
-  assert(controls[0].id != id);  // a control id is not its parent's id
+  // An IME that attaches when the edit receives focus may add its own
+  // notification child (e.g. OimeTsfNotifyWindow), so look our control up
+  // by ClassNN instead of asserting an exact set - the same rule as the
+  // hidden-children check below.
+  assert(controls.size() >= 1);
+  const rime::win32::ControlInfo* edit_control = nullptr;
+  for (const auto& control : controls) {
+    if (control.class_nn == "Edit1") edit_control = &control;
+  }
+  assert(edit_control != nullptr);
+  assert(edit_control->class_name == "Edit");
+  assert(edit_control->id != id);  // a control id is not its parent's id
   std::string window_text_value;
   assert(service.text(id, window_text_value).ok());
   assert(window_text_value == "Rime Control Text\r\n");
