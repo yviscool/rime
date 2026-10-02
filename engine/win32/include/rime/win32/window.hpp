@@ -123,6 +123,21 @@ struct ControlInfo {
   std::string class_nn;    // UTF-8, e.g. "Edit1"
 };
 
+// WinWait family conditions (AHK WinWait/WinWaitActive/WinWaitClose/
+// WinWaitNotActive): wait until a matching window exists / becomes the
+// foreground / no matching window remains / the match stops being foreground.
+// notActive is the logical negation of Active, so a query that matches
+// nothing is "not active" immediately (no window to be active).
+enum class WaitCondition { Exists, Active, Closed, NotActive };
+
+// Result of one wait evaluation: `met` reports whether `until` is satisfied;
+// `target` carries the snapshot the wait resolves with for Exists/Active
+// (nullopt for Closed/NotActive, and for Active while no snapshot was built).
+struct WaitEvaluation {
+  bool met{false};
+  std::optional<WindowInfo> target;
+};
+
 // Top-level window operations. Every call is routed to the UI thread; raw
 // HWND values never leave the UI lane. Window ids are stable per service
 // and fail with InvalidState once the underlying window is gone. `timeout`
@@ -154,6 +169,12 @@ class WindowService final {
   // the foreground window).
   rime::core::Error matches_active(const WindowQuery& query, bool& out,
                                    std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // One WinWait-family evaluation (exists/active/closed/notActive) with the
+  // snapshot the wait resolves with. The JS wait loop polls this from the
+  // worker lane; `timeout` bounds each UI round-trip, not the whole wait.
+  rime::core::Error evaluate_wait(const WindowQuery& query, WaitCondition until,
+                                  WaitEvaluation& out,
+                                  std::chrono::milliseconds timeout = std::chrono::seconds(5));
   rime::core::Error info(std::uint64_t id, WindowInfo& out,
                          std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // WinGetControls/WinGetControlsHwnd: child controls in EnumChildWindows

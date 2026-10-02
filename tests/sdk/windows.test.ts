@@ -7,6 +7,7 @@ import type {
   WindowId,
   WindowsBridge,
   WindowsListOptions,
+  WindowsWaitOptions,
 } from "../../sdk/src/window";
 import type { ProcessId } from "../../sdk/src/process";
 import { settings, Window } from "../../sdk/src/window";
@@ -74,7 +75,9 @@ const calls: Array<{
   method: string;
   target: WindowId | "active" | number;
   position?: string;
-  options?: WindowsListOptions;
+  // WindowsWaitOptions is a superset of WindowsListOptions (until is
+  // optional), so every existing push type-checks against it.
+  options?: WindowsWaitOptions;
 }> = [];
 let rejectNext = false;
 
@@ -159,6 +162,10 @@ mock.module("rime:window", () => ({
     isActive: async (options?: WindowsListOptions) => {
       calls.push({ method: "isActive", target: 0, options });
       return false;
+    },
+    wait: async (options?: WindowsWaitOptions) => {
+      calls.push({ method: "wait", target: 0, options });
+      return options?.until === "closed" || options?.until === "notActive" ? null : movedHandle;
     },
     info: async (windowId: WindowId, options?: NativeActionOptions) => {
       calls.push({ method: "info", target: windowId, options });
@@ -287,6 +294,20 @@ test("Window.exists and Window.isActive forward probes with the signal stripped"
     target: 0,
     options: { title: "Notepad" },
   });
+});
+
+test("Window.wait forwards the until condition with the signal stripped", async () => {
+  calls.length = 0;
+  const signal = new FakeSignal();
+  expect(
+    await Window.wait({ title: "Slice Window", until: "exists", signal, deadlineMs: 25 }),
+  ).toEqual(movedHandle);
+  expect(await Window.wait({ title: "Slice Window", until: "closed" })).toBeNull();
+  expect(calls[0]?.method).toBe("wait");
+  expect(calls[0]?.options?.until).toBe("exists");
+  expect("signal" in (calls[0]?.options ?? {})).toBe(false);
+  expect(calls[0]?.options?.deadlineMs).toBe(25);
+  expect(calls[1]?.options?.until).toBe("closed");
 });
 
 test("signal binds a cancellation id on the wire and releases it", async () => {

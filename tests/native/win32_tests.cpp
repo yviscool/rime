@@ -176,6 +176,46 @@ int main() {
   bool foreground_probe = false;
   assert(service.matches_active(probe, foreground_probe).ok());  // value is CI-dependent
 
+  // WinWait family condition evaluation: one deterministic step per
+  // condition. Exists/Active carry the target snapshot, Closed/NotActive
+  // resolve without one, and a non-positive UI budget fails with Timeout
+  // (the error code the wait loop maps to its timeout rejection).
+  rime::win32::WaitEvaluation wait_eval;
+  assert(service.evaluate_wait(probe, rime::win32::WaitCondition::Exists, wait_eval).ok());
+  assert(wait_eval.met && wait_eval.target.has_value());
+  assert(wait_eval.target->id == id);
+  assert(service.evaluate_wait(probe, rime::win32::WaitCondition::Closed, wait_eval).ok());
+  assert(!wait_eval.met && !wait_eval.target.has_value());
+  assert(service.evaluate_wait(missing, rime::win32::WaitCondition::Exists, wait_eval).ok());
+  assert(!wait_eval.met && !wait_eval.target.has_value());
+  assert(service.evaluate_wait(missing, rime::win32::WaitCondition::Closed, wait_eval).ok());
+  assert(wait_eval.met && !wait_eval.target.has_value());
+  // NotActive is the negation of Active: a query nothing matches is
+  // satisfied immediately (there is no window to be active).
+  assert(service.evaluate_wait(missing, rime::win32::WaitCondition::NotActive, wait_eval).ok());
+  assert(wait_eval.met && !wait_eval.target.has_value());
+  assert(service.evaluate_wait(missing, rime::win32::WaitCondition::Active, wait_eval).ok());
+  assert(!wait_eval.met && !wait_eval.target.has_value());
+  // active:true selects the foreground window itself, so Active is met
+  // exactly when a visible foreground window exists (foreground ownership is
+  // CI-dependent; only the empty-foreground direction is asserted).
+  rime::win32::WindowQuery foreground_query;
+  foreground_query.active = true;
+  std::optional<WindowInfo> foreground;
+  assert(service.active(foreground).ok());
+  assert(service.evaluate_wait(foreground_query, rime::win32::WaitCondition::Active, wait_eval)
+             .ok());
+  if (foreground.has_value() && foreground->visible) {
+    assert(wait_eval.met);
+  }
+  if (!foreground.has_value()) {
+    assert(!wait_eval.met);
+  }
+  assert(service
+             .evaluate_wait(probe, rime::win32::WaitCondition::Exists, wait_eval,
+                            std::chrono::milliseconds(0))
+             .code == rime::core::Error::Code::Timeout);
+
   // WinTitle-style queries resolve on the UI lane: contains vs exact title,
   // class and executable filters, and the hidden window rule.
   rime::win32::WindowQuery by_title;

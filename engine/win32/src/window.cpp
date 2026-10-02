@@ -760,6 +760,45 @@ rime::core::Error WindowService::matches_active(const WindowQuery& query, bool& 
   return rime::core::Error::none();
 }
 
+rime::core::Error WindowService::evaluate_wait(const WindowQuery& query, WaitCondition until,
+                                                WaitEvaluation& out,
+                                                const std::chrono::milliseconds timeout) {
+  out = WaitEvaluation{};
+  switch (until) {
+    case WaitCondition::Exists: {
+      std::vector<WindowInfo> windows;
+      if (const auto error = this->query(query, windows, timeout); !error.ok()) return error;
+      if (windows.empty()) return rime::core::Error::none();
+      out.met = true;
+      out.target = std::move(windows.front());
+      return rime::core::Error::none();
+    }
+    case WaitCondition::Active: {
+      bool matches = false;
+      if (const auto error = matches_active(query, matches, timeout); !error.ok()) return error;
+      if (!matches) return rime::core::Error::none();
+      out.met = true;
+      std::optional<WindowInfo> foreground;
+      if (const auto error = active(foreground, timeout); !error.ok()) return error;
+      out.target = std::move(foreground);
+      return rime::core::Error::none();
+    }
+    case WaitCondition::Closed: {
+      std::vector<WindowInfo> windows;
+      if (const auto error = this->query(query, windows, timeout); !error.ok()) return error;
+      out.met = windows.empty();
+      return rime::core::Error::none();
+    }
+    case WaitCondition::NotActive: {
+      bool matches = false;
+      if (const auto error = matches_active(query, matches, timeout); !error.ok()) return error;
+      out.met = !matches;
+      return rime::core::Error::none();
+    }
+  }
+  return rime::core::Error::none();
+}
+
 rime::core::Error WindowService::info(const std::uint64_t id, WindowInfo& out,
                                       const std::chrono::milliseconds timeout) {
   if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();

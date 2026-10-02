@@ -13,7 +13,8 @@
     "ahkExe": { "type": "string", "minLength": 1, "description": "Case-insensitive filter on the process image basename only; directory parts are ignored." },
     "ahkId": { "type": ["string", "integer"], "minLength": 1 },
     "includeHidden": { "type": "boolean", "description": "When true, hidden windows are included; when absent the global detectHiddenWindows setting (default false) decides; title-less windows are always filtered out." },
-    "active": { "type": "boolean" }
+    "active": { "type": "boolean" },
+    "until": { "enum": ["exists", "active", "closed", "notActive"], "default": "exists", "description": "WinWait family condition (windows.wait): a matching window appears / becomes foreground / no longer exists / stops being foreground." }
   },
   "$defs": {
     "rect": {

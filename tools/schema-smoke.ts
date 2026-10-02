@@ -141,6 +141,9 @@ assert.deepEqual(resultProblems, [], `result example violates schema:\n${resultP
 
 const queryProblems = validate(windowSchema, windowQuery as JsonValue, windowSchema);
 assert.deepEqual(queryProblems, [], `window query example violates schema:\n${queryProblems.join("\n")}`);
+const waitQuery = { ...windowQuery, until: "closed" } as Record<string, JsonValue>;
+const waitProblems = validate(windowSchema, waitQuery as JsonValue, windowSchema);
+assert.deepEqual(waitProblems, [], `window wait query violates schema:\n${waitProblems.join("\n")}`);
 const snapshotProblems = validate(windowSchema.$defs?.["snapshot"] as Schema, windowSnapshot, windowSchema);
 assert.deepEqual(snapshotProblems, [], `window snapshot example violates schema:\n${snapshotProblems.join("\n")}`);
 const movePayloadProblems = validate(windowSchema.$defs?.["movePayload"] as Schema, windowMovePayload, windowSchema);
@@ -176,6 +179,7 @@ const violations: Array<[JsonValue, Schema, Schema?]> = [
   [{ ...windowQuery, unexpected: true }, windowSchema],
   [{ ...windowQuery, matchMode: "fuzzy" }, windowSchema],
   [{ ...windowQuery, ahkId: "" }, windowSchema],
+  [{ ...waitQuery, until: "whenever" }, windowSchema],
   [{ ...(windowSnapshot as Record<string, JsonValue>), state: "weird" }, windowSchema.$defs?.["snapshot"] as Schema, windowSchema],
   [{ ...(windowSnapshot as Record<string, JsonValue>), hwnd: 42 }, windowSchema.$defs?.["snapshot"] as Schema, windowSchema],
   [{ ...(windowMovePayload as Record<string, JsonValue>), position: "diagonal" }, windowSchema.$defs?.["movePayload"] as Schema, windowSchema],

@@ -590,6 +590,61 @@ int main() {
         "  throw new Error('detectHiddenText restore failed');",
         "slice-text-settings-check.mjs");
 
+  // WinWait family (WinWait/WinWaitActive/WinWaitClose/WinWaitNotActive via
+  // `until`): the loop polls on the scheduler and never blocks a thread; an
+  // already-satisfied condition settles on the first check (snapshot for
+  // exists, null for closed/notActive — notActive is satisfied by a query
+  // nothing matches). deadlineMs is the whole wait budget: the 150ms wait
+  // rejects with code timeout only after the deadline, and a cancellation
+  // bound to the loop rejects with code cancelled (CancelById races the
+  // first poll; both paths report the same code). wait is a read: it adds
+  // no Action Trace (trace groups below).
+  check(runtime,
+        "import { runtime } from 'rime:runtime';\n"
+        "import { windows } from 'rime:window';\n"
+        "globalThis.waitOut = {};\n"
+        "globalThis.waitDeadlineStart = Date.now();\n"
+        "const title = 'Rime Vertical Slice Window';\n"
+        "const never = 'No Such Window Anywhere In This Test';\n"
+        "windows.wait({ title, until: 'exists' })\n"
+        "  .then(w => { globalThis.waitOut.exists = w; },\n"
+        "        e => { globalThis.waitOut.existsErr = e.code; });\n"
+        "windows.wait({ title: never, until: 'closed' })\n"
+        "  .then(w => { globalThis.waitOut.closed = w; },\n"
+        "        e => { globalThis.waitOut.closedErr = e.code; });\n"
+        "windows.wait({ title: never, until: 'notActive' })\n"
+        "  .then(w => { globalThis.waitOut.notActive = w; },\n"
+        "        e => { globalThis.waitOut.notActiveErr = e.code; });\n"
+        "windows.wait({ title: never, until: 'exists', deadlineMs: 150 })\n"
+        "  .then(() => { globalThis.waitOut.timeout = 'resolved'; },\n"
+        "        e => { globalThis.waitOut.timeout = e.code; });\n"
+        "const cid = runtime.cancellation();\n"
+        "windows.wait({ title: never, until: 'exists', cancellationId: cid, deadlineMs: 30000 })\n"
+        "  .then(() => { globalThis.waitOut.cancel = 'resolved'; },\n"
+        "        e => { globalThis.waitOut.cancel = e.code; });\n"
+        "runtime.cancel(cid);",
+        "slice-wait.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "const out = globalThis.waitOut;\n"
+        "if (out.existsErr || !out.exists)\n"
+        "  throw new Error('wait exists rejected: ' + out.existsErr);\n"
+        "if (out.exists.id !== " + id_text + ")\n"
+        "  throw new Error('wait exists resolved the wrong window');\n"
+        "if (out.closedErr || out.closed !== null)\n"
+        "  throw new Error('wait closed must resolve null, got: ' +\n"
+        "                  (out.closedErr || JSON.stringify(out.closed)));\n"
+        "if (out.notActiveErr || out.notActive !== null)\n"
+        "  throw new Error('wait notActive must resolve null, got: ' +\n"
+        "                  (out.notActiveErr || JSON.stringify(out.notActive)));\n"
+        "if (out.timeout !== 'timeout')\n"
+        "  throw new Error('wait deadline must reject with timeout, got: ' + out.timeout);\n"
+        "if (Date.now() - globalThis.waitDeadlineStart < 140)\n"
+        "  throw new Error('wait timeout returned before its deadline');\n"
+        "if (out.cancel !== 'cancelled')\n"
+        "  throw new Error('wait cancel must reject with cancelled, got: ' + out.cancel);",
+        "slice-wait-check.mjs");
+
   // Segment 6: close destroys the window through the executor (the result
   // snapshot is taken before WM_CLOSE); later operations on the id reject.
   check(runtime,

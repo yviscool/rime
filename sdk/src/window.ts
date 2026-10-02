@@ -119,6 +119,18 @@ export interface WindowSettingsBridge extends WindowSettings {
 /** Options accepted by `windows.list` on the wire. */
 export type WindowsListOptions = WindowQueryFields & NativeActionOptions;
 
+/**
+ * WinWait family condition (`windows.wait` / AHK WinWait, WinWaitActive,
+ * WinWaitClose, WinWaitNotActive): a matching window appears, becomes the
+ * foreground, no longer exists, or stops being foreground. `notActive` is
+ * the logical negation of `active`, so a query that matches nothing is
+ * satisfied immediately.
+ */
+export type WindowWaitUntil = "exists" | "active" | "closed" | "notActive";
+
+/** Wire options for `windows.wait`: one query plus the `until` condition. */
+export type WindowsWaitOptions = WindowsListOptions & { until?: WindowWaitUntil };
+
 /** Bridge of the `rime:window` module. Every mutation is an Action. */
 export interface WindowsBridge {
   list(options?: WindowsListOptions): Promise<WindowHandle[]>;
@@ -128,6 +140,12 @@ export interface WindowsBridge {
   exists(options?: WindowsListOptions): Promise<boolean>;
   /** WinActive: true when the foreground window matches the query. */
   isActive(options?: WindowsListOptions): Promise<boolean>;
+  /**
+   * WinWait family: resolves when `until` (default "exists") is satisfied —
+   * the target snapshot for exists/active, null for closed/notActive.
+   * Rejects with `timeout` once deadlineMs (default 5000) elapses.
+   */
+  wait(options?: WindowsWaitOptions): Promise<WindowHandle | null>;
   info(windowId: WindowId, options?: NativeActionOptions): Promise<WindowHandle>;
   /** WinGetControls/WinGetControlsHwnd: child controls in z-order (hidden included). */
   controls(windowId: WindowId, options?: NativeActionOptions): Promise<WindowControl[]>;
@@ -302,6 +320,20 @@ export const Window = {
     const { signal: _signal, ...fields } = query ?? {};
     return runAction(query, (native) =>
       windowBridge().then((windows) => windows.isActive({ ...fields, ...native })),
+    );
+  },
+  /**
+   * WinWait/WinWaitActive/WinWaitClose/WinWaitNotActive: polls until `until`
+   * is satisfied without blocking a thread. Resolves with the target
+   * snapshot (exists/active) or null (closed/notActive).
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
+  wait(
+    query?: WindowQueryFields & { until?: WindowWaitUntil } & ActionOptions,
+  ): Promise<WindowHandle | null> {
+    const { signal: _signal, ...fields } = query ?? {};
+    return runAction(query, (native) =>
+      windowBridge().then((windows) => windows.wait({ ...fields, ...native })),
     );
   },
 };

@@ -8,7 +8,10 @@
 #include "quickjs.h"
 
 #include <charconv>
+#include <chrono>
 #include <cstdint>
+#include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -363,6 +366,164 @@ JSValue windows_active(JSContext* context, JSValueConst, int argc, JSValueConst*
         return async_success(json::stringify(window_info_json(*active)));
       },
       options.cancellation_id);
+}
+
+// Parses the WinWait-family `until` field (default "exists"). An unknown
+// condition is a synchronous TypeError, so a bad wait never starts a loop.
+bool parse_wait_until(JSContext* context, JSValueConst object, WaitCondition& out) {
+  JSValue value = JS_GetPropertyStr(context, object, "until");
+  if (JS_IsException(value)) return false;
+  if (JS_IsUndefined(value) || JS_IsNull(value)) {
+    JS_FreeValue(context, value);
+    return true;
+  }
+  if (!JS_IsString(value)) {
+    JS_FreeValue(context, value);
+    JS_ThrowTypeError(context, "options.until must be a string");
+    return false;
+  }
+  const char* text = JS_ToCString(context, value);
+  JS_FreeValue(context, value);
+  if (!text) return false;
+  const std::string_view condition(text);
+  if (condition == "exists") {
+    out = WaitCondition::Exists;
+  } else if (condition == "active") {
+    out = WaitCondition::Active;
+  } else if (condition == "closed") {
+    out = WaitCondition::Closed;
+  } else if (condition == "notActive") {
+    out = WaitCondition::NotActive;
+  } else {
+    JS_FreeCString(context, text);
+    JS_ThrowTypeError(context, "options.until must be one of exists, active, closed, notActive");
+    return false;
+  }
+  JS_FreeCString(context, text);
+  return true;
+}
+
+// Poll cadence and per-poll UI budget for the wait loop: the loop sleeps on
+// the scheduler between evaluations (never blocking a thread) and re-checks
+// the condition; deadline/cancellation are evaluated after every poll.
+constexpr std::chrono::milliseconds kWaitPollInterval{25};
+constexpr std::chrono::milliseconds kWaitPollBudget{1000};
+
+// One WinWait-family wait loop. Ownership: held by shared_ptr through the
+// worker/timer closures; the Host outlives every armed task (its destructor
+// stops the timer service and joins the worker first). Exactly one terminal
+// path runs — resolve, reject, or the host's CancelById — and each erases
+// this token's pending/timer bookkeeping, so unload cannot wedge on it.
+struct WaitLoop {
+  rime::js::Host* host;
+  WindowService* service;
+  rime::action::Kernel* kernel;
+  WindowQuery query;
+  WaitCondition until{WaitCondition::Exists};
+  std::uint64_t token{0};
+  std::uint64_t cancellation_id{0};
+  std::int64_t deadline_unix_ms{0};  // absolute system ms since epoch
+  std::uint64_t budget_ms{0};        // the requested deadlineMs (error text)
+};
+
+// One wait step: settles the promise or re-arms the poll. Runs on the worker
+// lane; the capability read-policy matches the other window reads (this path
+// is exempt from Action dispatch, so there is no Action Trace).
+void wait_step(std::shared_ptr<WaitLoop> loop) {
+  rime::js::Host* host = loop->host;
+  const std::uint64_t token = loop->token;
+  std::optional<AsyncOutcome> outcome;
+  try {
+    if (!loop->kernel->allows(kWindowReadCapability)) {
+      outcome = async_failure("capability_denied",
+                              std::string("required capability was not granted: ") +
+                                  kWindowReadCapability);
+    } else if (loop->cancellation_id != 0 && host->is_cancelled(loop->cancellation_id)) {
+      outcome = async_failure("cancelled", "wait cancelled");
+    } else {
+      WaitEvaluation evaluation;
+      if (const auto error = loop->service->evaluate_wait(loop->query, loop->until, evaluation,
+                                                          kWaitPollBudget);
+          !error.ok()) {
+        outcome = async_failure(error);
+      } else if (evaluation.met) {
+        outcome =
+            async_success(evaluation.target ? json::stringify(window_info_json(*evaluation.target))
+                                            : std::string("null"));
+      } else {
+        const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+        if (now_ms >= loop->deadline_unix_ms) {
+          outcome = async_failure(
+              "timeout", "wait timed out after " + std::to_string(loop->budget_ms) + "ms");
+        }
+      }
+    }
+  } catch (const std::exception& exception) {
+    outcome = async_failure("execution_failed", exception.what());
+  } catch (...) {
+    outcome = async_failure("execution_failed", "native wait step failed");
+  }
+  if (outcome.has_value()) {
+    if (outcome->ok) {
+      host->complete_async(token, true, std::move(outcome->payload));
+    } else {
+      host->complete_async(token, false, outcome->code + ":" + outcome->payload);
+    }
+    return;
+  }
+  // Not met yet: sleep on the scheduler, then poll again on the worker.
+  // A cancellation landing between checks resolves the promise through the
+  // host's CancelById; the next step observes is_cancelled and drains the
+  // timer bookkeeping through complete_async (dropped, but erasing the token).
+  host->schedule_task(token, kWaitPollInterval, [loop] {
+    loop->host->schedule_worker(loop->token, [loop] { wait_step(loop); });
+  });
+}
+
+// windows.wait(options?): the WinWait family (WinWait/WinWaitActive/
+// WinWaitClose/WinWaitNotActive via `until`). Resolves with the target
+// snapshot (exists/active) or null (closed/notActive); rejects with
+// `timeout` once deadlineMs elapses (default 5000, same as every entry) or
+// with `cancelled` when the bound cancellation id fires.
+JSValue windows_wait(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void*) {
+  if (argc > 1) return JS_ThrowTypeError(context, "wait(options?)");
+  WindowQuery query;
+  ActionOptions options;
+  WaitCondition until = WaitCondition::Exists;
+  if (argc == 1) {
+    if (!parse_window_query(context, argv[0], query) ||
+        !parse_wait_until(context, argv[0], until) ||
+        !parse_action_options(context, argv[0], options)) {
+      return JS_EXCEPTION;
+    }
+  }
+  WindowModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:window is not wired");
+  }
+  auto* host = static_cast<rime::js::Host*>(JS_GetContextOpaque(context));
+  if (!host) return JS_ThrowInternalError(context, "runtime host is gone");
+  JSValue promise = JS_UNDEFINED;
+  std::uint64_t token = 0;
+  if (const auto error = host->begin_async(context, promise, token, options.cancellation_id);
+      !error.ok()) {
+    return JS_ThrowInternalError(context, "%s", error.message.c_str());
+  }
+  // deadline_ms is bounded by js_int64_strict (2^53), so now + budget stays
+  // far inside int64 milliseconds since the epoch.
+  const auto deadline_unix_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count() +
+      static_cast<std::int64_t>(options.deadline_ms);
+  auto loop = std::make_shared<WaitLoop>(WaitLoop{
+      host, binding->service, binding->kernel, std::move(query), until, token,
+      options.cancellation_id, deadline_unix_ms, options.deadline_ms});
+  host->schedule_worker(token, [loop = std::move(loop)] { wait_step(loop); });
+  return promise;
 }
 
 JSValue windows_info(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
@@ -834,6 +995,7 @@ int window_module_init(JSContext* context, JSModuleDef* module) {
       !add(windows, "active", windows_active, 0, 0) ||
       !add(windows, "exists", windows_exists, 1, 0) ||
       !add(windows, "isActive", windows_is_active, 1, 0) ||
+      !add(windows, "wait", windows_wait, 1, 0) ||
       !add(windows, "info", windows_info, 1, 0) ||
       !add(windows, "controls", windows_controls, 1, 0) ||
       !add(windows, "text", windows_text, 1, 0) || !add(windows, "move", windows_move, 2, 0) ||

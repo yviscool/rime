@@ -136,7 +136,7 @@ export const hooks: { keyboard(cb: (e: KeyboardEvent)=>void, o?: HookOptions): S
 现有 `WindowService` 已验证 UI-thread registry、UTF-8 快照、`active/list/info/move/focus`，以及 WinTitle 查询（`title`/`matchMode`/`ahkClass`/`ahkExe`/`ahkId`/`includeHidden`/`active`）和状态操作（`close/hide/show/minimize/maximize/restore`）。`rime:window` 提供对应 Promise binding：读路径校验 `windows.window.read`，写路径经 Action Kernel 校验 `windows.window.write` 并写入 Trace；读写接受 `deadlineMs`/`cancellationId`（SDK 侧 `AbortSignal` 自动绑定并释放 cancellation id），deadline 过期与 UI 排队超时返回 `timeout`。`window-v1` contract 见 `contracts/schema/window-v1.schema.json`。剩余步骤：
 
 1. 将 `WindowInfo` 映射为 `WindowSnapshot`，把 `uint64 id` 编码为 branded `WindowId`。
-2. 补齐 WinWait*/WinSet*/zOrder/redraw/region 等窗口扩展项与等待订阅的关闭排空。
+2. 补齐 WinSet*/zOrder/redraw/region 等窗口扩展项与等待订阅的关闭排空（WinWait* 已由 `windows.wait` 承载）。
 3. 再扩展 Control/UIA、输入和进程模块；不把 AHK 全局状态复制到 Runtime。
 
 ## 12. 对齐审计（2026-10-01）
@@ -168,7 +168,7 @@ export const hooks: { keyboard(cb: (e: KeyboardEvent)=>void, o?: HookOptions): S
 
 | AHK 功能域 | functions.h 代表函数 | 文档状态 | Runtime 状态 |
 |---|---|---|---|
-| 窗口查询/操作 | WinActivate、WinClose、WinGet*、WinMove、WinSet*、WinWait*（约 44） | 已定义目标接口及 WinTitle 映射；`zOrder/redraw/region` 仍是扩展项 | `list`（含 WinTitle 查询）/`active/info/move/focus/close/hide/show/minimize/maximize/restore` 已实现；`WinWait*`、`WinSet*` 扩展未实现 |
+| 窗口查询/操作 | WinActivate、WinClose、WinGet*、WinMove、WinSet*、WinWait*（约 44） | 已定义目标接口及 WinTitle 映射；`zOrder/redraw/region` 仍是扩展项 | `list`（含 WinTitle 查询）/`active/info/move/focus/close/hide/show/minimize/maximize/restore`/`exists/isActive/wait`（WinWait 家族经 `until`）已实现；`WinSet*` 扩展未实现 |
 | 控件/UIA | Control* 全集、Edit*、ListViewGetContent、StatusBar*、Gui*（约 48） | 仅定义通用 `controls` 抽象，未逐函数列签名/返回值/失败语义 | 未实现 UIA/Win32 fallback |
 | 键鼠/热键/Hook | MouseClick*、Send*、Hotkey、Hotstring、KeyWait、Install*Hook、BlockInput、GetKey*、Set*KeyState | 定义基础 `keyboard`/`mouse`/`hooks`；AHK 解析细节尚未形成语法规范 | 仅低级输入事件订阅；注入和热键未实现 |
 | 剪贴板/消息 | ClipWait、OnClipboardChange、SendMessage、OnMessage | 仅概念提及 | `clipboard.read/write` binding 已实现（`windows.clipboard.read/write` capability）；`ClipWait`/`OnClipboardChange`/`OnMessage` 未实现 |

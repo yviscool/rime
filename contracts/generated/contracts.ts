@@ -92,4 +92,5 @@ export interface WindowV1 {
   ahkId?: string | number;
   includeHidden?: boolean;
   active?: boolean;
+  until?: "exists" | "active" | "closed" | "notActive";
 }
