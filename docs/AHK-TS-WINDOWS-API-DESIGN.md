@@ -86,6 +86,11 @@ export const windows: {
 export interface WindowRef { readonly id: WindowId; snapshot(o?: ActionOptions): Promise<WindowSnapshot>; }
 ```
 
+**状态注（2026-10-02）**：本节签名是设计基线；其中 `find`、`on`、`WindowRef`、
+`WindowQuery` 的 `text`/`RegExp`/`excludeTitle`/`excludeText`/`lastMatch` 与 `process`/
+`className` 命名属**设计领先项**（未实现或命名不同，见 §12）——当前实现的 `title` 正则
+走 AHK 字符串正则语义（`matchMode: "regex"`），进程/类字段名为 `ahkExe`/`ahkClass`。
+
 AHK 的 `WinTitle` 参数统一转换成 `WindowQuery`；`"A"` 映射 `windows.active()`，`ahk_id` 映射 `WindowId`，`ahk_exe` 映射 `process`。`WinMove` 经 `windows.move` 承载：命名 placement（工作区对半，Rime 扩展）或 `{x?, y?, w?, h?}` 坐标 rect（AHK 的 X/Y/Width/Height，**省略字段保持当前值**的空参数规则）。`WinGetPos/ClientPos/List/Count/PID/ProcessName/ProcessPath/Class/Style/ExStyle/Text/Title/MinMax/Enabled/AlwaysOnTop/Transparent/TransColor` 均是 `snapshot` 或 `list` 的字段/派生方法。`WinActivateBottom` 经 `list`（保持 z 序）+ `focus` 最后一个匹配组合承载，`WinMoveTop/WinMoveBottom` 经 `windows.zorder(target, "top"|"bottom")` 承载，`WinKill/WinRedraw` 经 `windows.kill`/`windows.redraw` 承载，`WinMinimizeAll/WinMinimizeAllUndo` 经 `windows.minimizeAll()`/`windows.minimizeAllUndo()` 承载，`WinSetTitle/WinSetEnabled/WinSetAlwaysOnTop` 经 `windows.setTitle`/`windows.setEnabled`/`windows.setAlwaysOnTop` 承载，`WinSetStyle/WinSetExStyle/WinSetTransparent/WinSetTransColor` 经 `windows.setStyle`/`windows.setExStyle`/`windows.setTransparent`/`windows.setTransColor` 承载，`WinSetRegion` 经 `windows.setRegion` 承载（附带 `region` 快照读回字段——AHK 无对应读取器）。
 
 实现：UI lane 调用 `EnumWindows`、`GetForegroundWindow`、`GetWindowTextW`、`GetWindowRect`、`GetClientRect`、`GetWindowThreadProcessId`、`IsWindowVisible/IsIconic/IsZoomed/IsWindowEnabled`、`SetWindowPos`、`ShowWindow`、`SetForegroundWindow`、`SetWindowLongPtr`、`SetLayeredWindowAttributes`。稳定 ID 由 UI lane registry 产生且不复用；窗口销毁后所有操作返回 `InvalidState`。激活沿用 AHK 的 restore → `SetForegroundWindow` → 必要时 `AttachThreadInput`/Alt-up 的策略，但必须在 Trace 记录每个尝试。
@@ -217,12 +222,17 @@ contract-only / unsupported-by-policy`。窗口、控件、输入、进程、剪
   `ActionOptions`（`deadlineMs`/`cancellationId`/`signal`/`parentActionId`/`idempotencyKey`）、
   AbortSignal 取消（结构型 `CancellationSignal`，真实 `AbortSignal` 结构兼容）与错误模型
   （§1/§2 已改为 throw，不再使用 `Result<T>`）。
-- **命名待统一**：设计稿 `WindowSnapshot`/`WindowQuery` ↔ 实现 `WindowHandle`/
-  `WindowQueryFields`；改名必须同步 TS 声明、Native binding 与 contract fixtures。
+- **命名已统一（2026-10-02 改名）**：实现已采用设计稿名称 `WindowSnapshot`/`WindowQuery`
+  （TS 与原生 `rime::win32::WindowQuery` 一致），旧名 `WindowHandle`/`WindowQueryFields`
+  已从 SDK 与测试中移除；改名同步了 TS 声明与测试，contract fixtures 不受影响（schema
+  本就叫 `snapshot`）。
 - **仍属设计领先、未实现**：`WindowRef` 对象句柄（实现直接接收 `WindowId`）、`windows.find`/
   `windows.on` 事件订阅、查询字段 `excludeTitle`/`excludeText`/`lastMatch`/`text`、`title`
   的 RegExp 对象形式（实现只收字符串，正则按 AHK 字符串正则语义走 `matchMode: "regex"`）、
-  `process`/`className` 命名（实现用 AHK 原生 `ahkExe`/`ahkClass`）。
+  `process`/`className` 命名（实现用 AHK 原生 `ahkExe`/`ahkClass`）、§4 控件定位/交互层
+  （`controls.find/getText/click/focus/send`、`ControlRef`/`ControlQuery`——当前
+  `controls()` 只承载 WinGetControls/WinGetControlsHwnd 读族）与 `ControlSnapshot.id`
+  形态（设计 `string` ↔ 实现复用 `WindowId` brand）。
 - **仍为已知偏差**：`sdk/src/input.ts` 的事件订阅返回裸 number 并使用同步回调，尚未提供
   Subscription 对象。
 
