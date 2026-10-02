@@ -826,6 +826,50 @@ int main() {
   assert(minimizeall_restored);
   assert(service.ui().call([&] { DestroyWindow(minimizeall_victim); }).ok());
 
+  // WinSetTitle / WinSetEnabled / WinSetAlwaysOnTop: direct service calls
+  // on a dedicated victim. Every attribute is restored before the window
+  // is destroyed so later tests see an untouched desktop.
+  HWND set_victim = nullptr;
+  assert(service.ui()
+             .call([&] {
+                 set_victim = CreateWindowExW(0, L"STATIC", L"Rime SetTarget",
+                                              WS_OVERLAPPED | WS_VISIBLE, 40, 300, 240, 140,
+                                              nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+               assert(set_victim != nullptr);
+             })
+             .ok());
+  rime::win32::WindowQuery set_query;
+  set_query.title = "Rime SetTarget";
+  std::vector<WindowInfo> set_match;
+  assert(service.query(set_query, set_match).ok());
+  assert(set_match.size() == 1);
+  const std::uint64_t set_id = set_match.front().id;
+  WindowInfo set_snapshot;
+  // set_title round-trips through the snapshot, including the clear.
+  assert(service.set_title(set_id, "Rime SetRenamed").ok());
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.title == "Rime SetRenamed");
+  assert(service.set_title(set_id, "Rime SetTarget").ok());
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.title == "Rime SetTarget");
+  // set_enabled: 0 disables, -1 toggles back to enabled, and an out-of-
+  // range value is refused without touching the window.
+  assert(service.set_enabled(set_id, 0).ok());
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(!set_snapshot.enabled);
+  assert(service.set_enabled(set_id, -1).ok());
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.enabled);
+  assert(service.set_enabled(set_id, 2).code == rime::core::Error::Code::InvalidContract);
+  // set_always_on_top: 1 makes topmost, -1 toggles it back off.
+  assert(service.set_always_on_top(set_id, 1).ok());
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.always_on_top);
+  assert(service.set_always_on_top(set_id, -1).ok());
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(!set_snapshot.always_on_top);
+  assert(service.ui().call([&] { DestroyWindow(set_victim); }).ok());
+
   // WindowExecutor: a contract-valid window.move reaches the service and
   // records the trace pair.
   auto trace = std::make_shared<rime::core::InMemoryTrace>();
@@ -841,7 +885,8 @@ int main() {
                             "window.group.add",
                             "window.group.activate", "window.group.deactivate",
                             "window.group.close", "window.minimizeall",
-                            "window.minimizeall.undo"}) {
+                            "window.minimizeall.undo", "window.set.title",
+                            "window.set.enabled", "window.set.alwaysontop"}) {
     assert(kernel.register_executor(type, window_executor).ok());
   }
 
@@ -955,7 +1000,9 @@ int main() {
                                           "window.kill",  "window.redraw",
                                           "window.group.add", "window.group.activate",
                                           "window.group.deactivate", "window.group.close",
-                                          "window.minimizeall", "window.minimizeall.undo"};
+                                          "window.minimizeall", "window.minimizeall.undo",
+                                          "window.set.title", "window.set.enabled",
+                                          "window.set.alwaysontop"};
   for (const char* type : kDeniedTypes) {
     const auto registered = denied.register_executor(type, window_executor);
     assert(registered.ok());
@@ -1272,6 +1319,70 @@ int main() {
   assert(!wrong_id_result.succeeded);
   assert(wrong_id_result.error.code == rime::core::Error::Code::InvalidContract);
   assert(service.ui().call([&] { DestroyWindow(ma_victim); }).ok());
+
+  // window.set.* through the kernel: value-bearing writes round-trip into
+  // the post-snapshot, absent alwaysontop value defaults to topmost, and
+  // contract violations are refused before the UI lane.
+  HWND set_exec_victim = nullptr;
+  assert(service.ui()
+             .call([&] {
+               set_exec_victim =
+                   CreateWindowExW(0, L"STATIC", L"Rime Executor SetTarget",
+                                   WS_OVERLAPPED | WS_VISIBLE, 260, 300, 240, 140, nullptr,
+                                   nullptr, GetModuleHandleW(nullptr), nullptr);
+               assert(set_exec_victim != nullptr);
+             })
+             .ok());
+  rime::win32::WindowQuery set_exec_query;
+  set_exec_query.title = "Rime Executor SetTarget";
+  std::vector<WindowInfo> set_exec_match;
+  assert(service.query(set_exec_query, set_exec_match).ok());
+  assert(set_exec_match.size() == 1);
+  const std::uint64_t set_exec_id = set_exec_match.front().id;
+  rime::action::Action set_action = move_action;
+  set_action.target = {"window", std::to_string(set_exec_id)};
+  set_action.id = 55;
+  set_action.type = "window.set.title";
+  set_action.payload = R"({"title":"Rime SetByKernel"})";
+  const auto set_title_result = kernel.execute(set_action);
+  assert(set_title_result.succeeded);
+  assert(set_title_result.value.find("title")->as_string() == "Rime SetByKernel");
+  WindowInfo set_exec_snapshot;
+  assert(service.info(set_exec_id, set_exec_snapshot).ok());
+  assert(set_exec_snapshot.title == "Rime SetByKernel");
+  // A missing title is a contract violation, not a silent clear: the
+  // executor refuses it before any UI round-trip.
+  set_action.id = 56;
+  set_action.payload = "{}";
+  const auto missing_title = kernel.execute(set_action);
+  assert(!missing_title.succeeded);
+  assert(missing_title.error.code == rime::core::Error::Code::InvalidContract);
+  // set.enabled: out-of-range value refused; boolean-equivalent 0/1 work
+  // through the wire as integers.
+  set_action.id = 57;
+  set_action.type = "window.set.enabled";
+  set_action.payload = R"({"value":7})";
+  const auto bad_enabled = kernel.execute(set_action);
+  assert(!bad_enabled.succeeded);
+  assert(bad_enabled.error.code == rime::core::Error::Code::InvalidContract);
+  set_action.payload = R"({"value":1})";
+  const auto enabled_result = kernel.execute(set_action);
+  assert(enabled_result.succeeded);
+  assert(enabled_result.value.find("enabled")->as_bool());
+  // set.alwaysontop with an absent value defaults to topmost (AHK omits ->
+  // 1); -1 toggles it back off.
+  set_action.id = 58;
+  set_action.type = "window.set.alwaysontop";
+  set_action.payload = "{}";
+  const auto aot_default = kernel.execute(set_action);
+  assert(aot_default.succeeded);
+  assert(aot_default.value.find("alwaysOnTop")->as_bool());
+  set_action.id = 59;
+  set_action.payload = R"({"value":-1})";
+  const auto aot_toggle = kernel.execute(set_action);
+  assert(aot_toggle.succeeded);
+  assert(!aot_toggle.value.find("alwaysOnTop")->as_bool());
+  assert(service.ui().call([&] { DestroyWindow(set_exec_victim); }).ok());
 
   // The executor dispatches window.close: the pre-close snapshot is the
   // result value and the id goes stale immediately after.

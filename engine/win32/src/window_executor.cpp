@@ -22,12 +22,13 @@ using Code = rime::core::Error::Code;
 // `windows.window.write` (the kernel checks it before dispatch).
 const std::unordered_set<std::string>& window_action_types() {
   static const std::unordered_set<std::string> types = {
-      "window.move",       "window.focus",      "window.close",
-      "window.hide",       "window.show",       "window.minimize",
-      "window.maximize",   "window.restore",    "window.zorder",
+      "window.move",       "window.focus",  "window.close",
+      "window.hide",       "window.show",   "window.minimize",
+      "window.maximize",   "window.restore", "window.zorder",
       "window.kill",       "window.redraw",     "window.group.add",
       "window.group.activate", "window.group.deactivate", "window.group.close",
-      "window.minimizeall", "window.minimizeall.undo"};
+      "window.minimizeall", "window.minimizeall.undo",
+      "window.set.title", "window.set.enabled", "window.set.alwaysontop"};
   return types;
 }
 
@@ -345,6 +346,49 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
     }
   }
 
+  // window.set.* payloads: the value is validated here so a contract error
+  // is refused before any window is resolved or touched.
+  std::string set_title_value;
+  int set_number_value = 0;
+  const auto parse_set_number = [&](const rime::core::json::Value* field,
+                                    const char* type_name) -> rime::core::Error {
+    if (!field || !field->is_number()) {
+      return {Code::InvalidContract,
+              std::string(type_name) + " payload requires a numeric value"};
+    }
+    const double raw = field->as_number();
+    if (raw != std::floor(raw) || raw < -1.0 || raw > 1.0) {
+      return {Code::InvalidContract,
+              std::string(type_name) + " payload value must be -1, 0 or 1"};
+    }
+    set_number_value = static_cast<int>(raw);
+    return rime::core::Error::none();
+  };
+  if (action.type == "window.set.title") {
+    const rime::core::json::Value* title = payload.value->find("title");
+    if (!title || !title->is_string()) {
+      return fail(action, Code::InvalidContract,
+                  "window.set.title payload requires a string title");
+    }
+    set_title_value = title->as_string();
+  } else if (action.type == "window.set.enabled") {
+    if (const auto error = parse_set_number(payload.value->find("value"), "window.set.enabled");
+        !error.ok()) {
+      return fail(action, error.code, error.message);
+    }
+  } else if (action.type == "window.set.alwaysontop") {
+    // Absent value means topmost (AHK's default when the parameter is
+    // omitted); present values must be -1/0/1 like WinSetAlwaysOnTop.
+    const rime::core::json::Value* field = payload.value->find("value");
+    if (field) {
+      if (const auto error = parse_set_number(field, "window.set.alwaysontop"); !error.ok()) {
+        return fail(action, error.code, error.message);
+      }
+    } else {
+      set_number_value = 1;
+    }
+  }
+
   std::uint64_t window_id = 0;
   rime::core::Error target_error = rime::core::Error::none();
   if (!remaining_timeout(action, timeout)) {
@@ -396,6 +440,12 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
     op_error = service_.maximize(window_id, timeout);
   } else if (action.type == "window.restore") {
     op_error = service_.restore(window_id, timeout);
+  } else if (action.type == "window.set.title") {
+    op_error = service_.set_title(window_id, set_title_value, timeout);
+  } else if (action.type == "window.set.enabled") {
+    op_error = service_.set_enabled(window_id, set_number_value, timeout);
+  } else if (action.type == "window.set.alwaysontop") {
+    op_error = service_.set_always_on_top(window_id, set_number_value, timeout);
   } else {
     return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
   }

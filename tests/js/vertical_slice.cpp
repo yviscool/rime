@@ -96,7 +96,9 @@ int main() {
                            "window.restore", "window.zorder", "window.kill", "window.redraw",
                            "window.group.add", "window.group.activate",
                            "window.group.deactivate", "window.group.close",
-                           "window.minimizeall", "window.minimizeall.undo"}) {
+                           "window.minimizeall", "window.minimizeall.undo",
+                           "window.set.title", "window.set.enabled",
+                           "window.set.alwaysontop"}) {
     assert(kernel.register_executor(type, window_executor).ok());
   }
 
@@ -931,6 +933,75 @@ int main() {
   assert(ma_leftover.size() == 1);
   assert(service.ui().call([&] { DestroyWindow(ma_victim); }).ok());
 
+  // window.set.* writes on a dedicated victim: topmost toggles, enabled
+  // disables then toggles back, and the title round-trips. The finally
+  // block restores the title and clears topmost before the query check,
+  // and the synchronous argument TypeErrors dispatch nothing (so the
+  // trace asserts below stay at two actions per type).
+  HWND set_victim = nullptr;
+  assert(service.ui()
+             .call([&] {
+               set_victim =
+                   CreateWindowExW(0, L"STATIC", L"Rime SetSlice Victim",
+                                   WS_OVERLAPPEDWINDOW | WS_VISIBLE, 440, 340, 240, 160,
+                                   nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+               assert(set_victim != nullptr);
+             })
+             .ok());
+  // Freshly created windows need a beat: SetWindowPos topmost does not
+  // stick on a window that has not finished its initial show.
+  std::this_thread::sleep_for(200ms);
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.setOut = {};\n"
+        "(async () => {\n"
+        "  const [victim] = await windows.list({ title: 'Rime SetSlice Victim',\n"
+        "                                        matchMode: 'startswith' });\n"
+        "  if (!victim) throw new Error('set victim must be listed');\n"
+        "  const before = await windows.info(victim.id);\n"
+        "  let typeErrors = 0;\n"
+        "  try { windows.setTitle(victim.id, 42); }\n"
+        "  catch (e) { if (e instanceof TypeError) typeErrors++; }\n"
+        "  try { windows.setEnabled(victim.id, 7); }\n"
+        "  catch (e) { if (e instanceof TypeError) typeErrors++; }\n"
+        "  const out = {};\n"
+        "  try {\n"
+        "    await windows.setTitle(victim.id, 'Rime SetSlice Renamed');\n"
+        "    out.title = (await windows.info(victim.id)).title;\n"
+        "    await windows.setEnabled(victim.id, false);\n"
+        "    out.disabled = !(await windows.info(victim.id)).enabled;\n"
+        "    await windows.setEnabled(victim.id, -1);\n"
+        "    out.reenabled = (await windows.info(victim.id)).enabled;\n"
+        "    await windows.setAlwaysOnTop(victim.id);\n"
+        "    out.topmost = (await windows.info(victim.id)).alwaysOnTop;\n"
+        "  } finally {\n"
+        "    await windows.setTitle(victim.id, 'Rime SetSlice Victim');\n"
+        "    await windows.setAlwaysOnTop(victim.id, 0);\n"
+        "  }\n"
+        "  return { beforeTopmost: before.alwaysOnTop, typeErrors, ...out };\n"
+        "})().then(v => { globalThis.setOut.value = v; },\n"
+        "         e => { globalThis.setOut.error = String(e); });",
+        "slice-set.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.setOut.error) throw new Error(globalThis.setOut.error);\n"
+        "const v = globalThis.setOut.value;\n"
+        "if (!v) throw new Error('set segment produced no value');\n"
+        "if (v.beforeTopmost) throw new Error('set victim started topmost');\n"
+        "if (v.typeErrors !== 2 || !v.topmost || !v.disabled || !v.reenabled ||\n"
+        "    v.title !== 'Rime SetSlice Renamed')\n"
+        "  throw new Error('set segment failed: ' + JSON.stringify(v));",
+        "slice-set-check.mjs");
+  rime::win32::WindowQuery set_query;
+  set_query.title = "Rime SetSlice Victim";
+  set_query.title_match_mode = rime::win32::TitleMatchMode::StartsWith;
+  std::vector<WindowInfo> set_leftover;
+  assert(service.query(set_query, set_leftover).ok());
+  assert(set_leftover.size() == 1);
+  assert(set_leftover.front().title == "Rime SetSlice Victim");
+  assert(!set_leftover.front().always_on_top);
+  assert(service.ui().call([&] { DestroyWindow(set_victim); }).ok());
+
   // Segment 6: close destroys the window through the executor (the result
   // snapshot is taken before WM_CLOSE); later operations on the id reject.
   check(runtime,
@@ -1029,6 +1100,9 @@ int main() {
   // - window.kill / window.redraw: one pair each in the kill-redraw segment;
   // - window.minimizeall / window.minimizeall.undo: one pair each in the
   //   minimizeall segment (fire-and-forget shell tray post);
+  // - window.set.title / window.set.enabled / window.set.alwaysontop: two
+  //   pairs each in the set segment (write plus finally-restored write);
+  //   the synchronous argument TypeErrors dispatch nothing;
   // - window.move: segment 1 (move), segment 2 (bad placement), segment 2b
   //   (exhausted deadline), segment 6 (stale id), plus the optional active
   //   move. The deadline action always records Finished but records Started
@@ -1070,6 +1144,11 @@ int main() {
   // minimizeall: minimize then undo, one pair each.
   assert(started_count["window.minimizeall"] == 1);
   assert(started_count["window.minimizeall.undo"] == 1);
+  // set segment: one write plus one finally-restored write per type; the
+  // sync argument TypeErrors never reach the dispatcher.
+  assert(started_count["window.set.title"] == 2);
+  assert(started_count["window.set.enabled"] == 2);
+  assert(started_count["window.set.alwaysontop"] == 2);
   // The exhausted deadline left a Finished entry naming the timeout.
   bool saw_deadline_timeout = false;
   for (const auto& entry : trace->snapshot()) {

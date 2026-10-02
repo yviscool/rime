@@ -250,6 +250,18 @@ class WindowService final {
   // UI thread while windows change state.
   rime::core::Error minimize_all(bool undo,
                                  std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // WinSetTitle: SetWindowTextW; the empty string clears the title.
+  rime::core::Error set_title(std::uint64_t id, const std::string& title,
+                              std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // WinSetEnabled: 1 enables, 0 disables, -1 toggles; verifies the flag
+  // actually changed (EnableWindow's return value is not reliable).
+  rime::core::Error set_enabled(std::uint64_t id, int value,
+                                std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // WinSetAlwaysOnTop: 1 topmost, 0 notopmost, -1 toggles the current
+  // WS_EX_TOPMOST state; SetWindowPos with SWP_NOACTIVATE (SetWindowLong
+  // does not take on some windows).
+  rime::core::Error set_always_on_top(std::uint64_t id, int value,
+                                      std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // Window state mutations (WinClose/WinHide/WinShow/WinMinimize/WinMaximize/
   // WinRestore equivalents). `close` delivers WM_CLOSE and waits for the
   // target thread to process it within the timeout.

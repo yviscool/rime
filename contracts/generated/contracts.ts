@@ -103,7 +103,19 @@ export interface WindowV1GroupClosePayload {
   mode?: "" | "reverse" | "all";
 }
 
-export type WindowV1ActionType = "window.move" | "window.focus" | "window.close" | "window.hide" | "window.show" | "window.minimize" | "window.maximize" | "window.restore" | "window.zorder" | "window.kill" | "window.redraw" | "window.group.add" | "window.group.activate" | "window.group.deactivate" | "window.group.close" | "window.minimizeall" | "window.minimizeall.undo";
+export interface WindowV1SetTitlePayload {
+  title: string;
+}
+
+export interface WindowV1SetEnabledPayload {
+  value: -1 | 0 | 1;
+}
+
+export interface WindowV1SetAlwaysOnTopPayload {
+  value?: -1 | 0 | 1;
+}
+
+export type WindowV1ActionType = "window.move" | "window.focus" | "window.close" | "window.hide" | "window.show" | "window.minimize" | "window.maximize" | "window.restore" | "window.zorder" | "window.kill" | "window.redraw" | "window.group.add" | "window.group.activate" | "window.group.deactivate" | "window.group.close" | "window.minimizeall" | "window.minimizeall.undo" | "window.set.title" | "window.set.enabled" | "window.set.alwaysontop";
 
 export interface WindowV1 {
   schemaVersion: 1;

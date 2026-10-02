@@ -1640,6 +1640,131 @@ rime::core::Error WindowService::minimize_all(const bool undo,
   return result;
 }
 
+rime::core::Error WindowService::set_title(const std::uint64_t id, const std::string& title,
+                                           const std::chrono::milliseconds timeout) {
+  if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  rime::core::Error result = rime::core::Error::none();
+  const auto call_error = impl_->ui.call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND window = impl_->registry.hwnd_for(id);
+        if (!window) {
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
+          return;
+        }
+        // WinSetTitle: SetWindowText fails for windows that refuse the
+        // change; that is a hard error, matching AHK's FR_E_WIN32.
+        if (!SetWindowTextW(window, from_utf8(title).c_str())) {
+          const DWORD failure = GetLastError();
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "SetWindowText failed (win32 error " + std::to_string(failure) + ")"};
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::set_enabled(const std::uint64_t id, const int value,
+                                             const std::chrono::milliseconds timeout) {
+  if (value < -1 || value > 1) {
+    return {rime::core::Error::Code::InvalidContract, "enabled value must be -1, 0 or 1"};
+  }
+  if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  rime::core::Error result = rime::core::Error::none();
+  const auto call_error = impl_->ui.call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND window = impl_->registry.hwnd_for(id);
+        if (!window) {
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
+          return;
+        }
+        // WinSetEnabled: -1 toggles the current state; EnableWindow's
+        // return value is unreliable, so verify through IsWindowEnabled.
+        const BOOL want = value == -1 ? (IsWindowEnabled(window) ? 0 : 1) : value;
+        EnableWindow(window, want);
+        if ((IsWindowEnabled(window) ? 1 : 0) != (want ? 1 : 0)) {
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "EnableWindow did not take effect"};
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::set_always_on_top(const std::uint64_t id, const int value,
+                                                   const std::chrono::milliseconds timeout) {
+  if (value < -1 || value > 1) {
+    return {rime::core::Error::Code::InvalidContract, "always-on-top value must be -1, 0 or 1"};
+  }
+  if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  rime::core::Error result = rime::core::Error::none();
+  const auto call_error = impl_->ui.call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND window = impl_->registry.hwnd_for(id);
+        if (!window) {
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
+          return;
+        }
+        // WinSetAlwaysOnTop: SetWindowPos with the topmost handle; -1
+        // resolves against the current WS_EX_TOPMOST bit (SetWindowLong
+        // does not take on some windows, so the z-order call is required).
+        // Windows silently ignores the z-order change unless the calling
+        // process holds SetForegroundWindow permission (MSDN SetWindowPos),
+        // so the result is read back and, when it did not take, the
+        // foreground is acquired (bare Alt tap first, like AHK's
+        // WinActivate) and restored before one final attempt.
+        const bool topmost =
+            value == -1 ? (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) == 0
+                        : value != 0;
+        const auto apply = [&]() {
+          if (!SetWindowPos(window, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)) {
+            return false;
+          }
+          return ((GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0) ==
+                 topmost;
+        };
+        bool took = apply();
+        if (!took) {
+          const HWND previous_foreground = GetForegroundWindow();
+          if (!SetForegroundWindow(window)) {
+            INPUT tap[2] = {};
+            tap[0].type = INPUT_KEYBOARD;
+            tap[0].ki.wVk = VK_MENU;
+            tap[1].type = INPUT_KEYBOARD;
+            tap[1].ki.wVk = VK_MENU;
+            tap[1].ki.dwFlags = KEYEVENTF_KEYUP;
+            SendInput(2, tap, sizeof(INPUT));
+            SetForegroundWindow(window);
+          }
+          took = apply();
+          if (previous_foreground && previous_foreground != window) {
+            SetForegroundWindow(previous_foreground);
+          }
+        }
+        if (!took) {
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "topmost state did not take (SetForegroundWindow permission denied)"};
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
 rime::core::Error WindowService::hide(const std::uint64_t id,
                                       const std::chrono::milliseconds timeout) {
   if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();

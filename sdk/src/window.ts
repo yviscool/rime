@@ -204,6 +204,33 @@ export interface WindowsBridge {
   minimizeAll(options?: NativeActionOptions): Promise<void>;
   /** WinMinimizeAllUndo: posts the shell's undo tray command (fire-and-forget like `minimizeAll`). */
   minimizeAllUndo(options?: NativeActionOptions): Promise<void>;
+  /**
+   * WinSetTitle: sets the window title (the empty string clears it);
+   * resolves with the new snapshot.
+   */
+  setTitle(
+    target: WindowId | "active",
+    title: string,
+    options?: NativeActionOptions,
+  ): Promise<WindowHandle>;
+  /**
+   * WinSetEnabled: 1 enables, 0 disables, -1 toggles the current state;
+   * resolves with the new snapshot.
+   */
+  setEnabled(
+    target: WindowId | "active",
+    value: boolean | -1 | 0 | 1,
+    options?: NativeActionOptions,
+  ): Promise<WindowHandle>;
+  /**
+   * WinSetAlwaysOnTop: 1 topmost, 0 clears topmost, -1 toggles; an absent
+   * value means topmost (AHK's default). Resolves with the new snapshot.
+   */
+  setAlwaysOnTop(
+    target: WindowId | "active",
+    value?: boolean | -1 | 0 | 1,
+    options?: NativeActionOptions,
+  ): Promise<WindowHandle>;
 }
 
 /** Bridge of the named-window-group surface (`rime:window`'s `groups` export). */
@@ -416,6 +443,44 @@ export const Window = {
   maximize: mutation((windows) => windows.maximize),
   /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
   restore: mutation((windows) => windows.restore),
+  /**
+   * WinSetTitle: sets the window title (the empty string clears it)
+   * through the `window.set.title` action pipeline.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  setTitle(windowId: WindowId, title: string, options?: ActionOptions): Promise<WindowHandle> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.setTitle(windowId, title, native)),
+    );
+  },
+  /**
+   * WinSetEnabled: 1 enables, 0 disables, -1 toggles through the
+   * `window.set.enabled` action pipeline.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  setEnabled(
+    windowId: WindowId,
+    value: boolean | -1 | 0 | 1,
+    options?: ActionOptions,
+  ): Promise<WindowHandle> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.setEnabled(windowId, value, native)),
+    );
+  },
+  /**
+   * WinSetAlwaysOnTop: sets the topmost state through the
+   * `window.set.alwaysontop` action pipeline; absent value means topmost.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  setAlwaysOnTop(
+    windowId: WindowId,
+    value?: boolean | -1 | 0 | 1,
+    options?: ActionOptions,
+  ): Promise<WindowHandle> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.setAlwaysOnTop(windowId, value, native)),
+    );
+  },
   /**
    * WinMinimizeAll: minimizes every window on the desktop through the
    * `window.minimizeall` action pipeline (fire-and-forget shell tray

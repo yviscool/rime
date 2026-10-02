@@ -8,11 +8,15 @@ namespace rime::win32 {
 // Executes the `window.*` write actions (capability `windows.window.write`)
 // against a WindowService: move/focus/close/kill/redraw/hide/show/minimize/
 // maximize/restore/zorder plus the window-group family group.add/
-// group.activate/group.deactivate/group.close and the desktop pair
-// minimizeall/minimizeall.undo. Payload contract:
+// group.activate/group.deactivate/group.close, the desktop pair
+// minimizeall/minimizeall.undo, and the window set family set.title/
+// set.enabled/set.alwaysontop. Payload contract:
 // `window.move` requires
 // {"position": "left|right|top|bottom|full"}; `window.zorder` requires
-// {"placement": "top|bottom"}; the state actions take an empty
+// {"placement": "top|bottom"}; `window.set.title` requires {"title":
+// string}; `window.set.enabled` requires {"value": -1|0|1};
+// `window.set.alwaysontop` takes an optional {"value": -1|0|1} (absent
+// means topmost); the state actions take an empty
 // empty object. Target contract: {"kind": "window", "id": "<numeric id>" |
 // "active"} for the window actions, {"kind": "group", "id": "<group
 // name>"} for the group actions (payload: a query object for group.add,

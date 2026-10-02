@@ -194,6 +194,39 @@
       "status": "implemented"
     },
     {
+      "type": "window.set.title",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/setTitlePayload",
+      "executor": "engine/win32/src/window_executor.cpp:443",
+      "module": "engine/win32/js/src/window_module.cpp:829",
+      "sdk": "sdk/src/window.ts:451",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.set.enabled",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/setEnabledPayload",
+      "executor": "engine/win32/src/window_executor.cpp:445",
+      "module": "engine/win32/js/src/window_module.cpp:834",
+      "sdk": "sdk/src/window.ts:461",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.set.alwaysontop",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/setAlwaysOnTopPayload",
+      "executor": "engine/win32/src/window_executor.cpp:447",
+      "module": "engine/win32/js/src/window_module.cpp:839",
+      "sdk": "sdk/src/window.ts:475",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
       "type": "input.send",
       "capability": "windows.input.inject",
       "target": { "kind": "input", "example": "keyboard" },
@@ -291,7 +324,7 @@
       "status": "implemented",
       "declared": "engine/win32/js/src/window_module.cpp:23",
       "checked": ["engine/action/src/kernel.cpp:97"],
-      "actions": ["window.move", "window.focus", "window.close", "window.hide", "window.show", "window.minimize", "window.maximize", "window.restore", "window.zorder", "window.kill", "window.redraw", "window.group.add", "window.group.activate", "window.group.deactivate", "window.group.close", "window.minimizeall", "window.minimizeall.undo"]
+      "actions": ["window.move", "window.focus", "window.close", "window.hide", "window.show", "window.minimize", "window.maximize", "window.restore", "window.zorder", "window.kill", "window.redraw", "window.group.add", "window.group.activate", "window.group.deactivate", "window.group.close", "window.minimizeall", "window.minimizeall.undo", "window.set.title", "window.set.enabled", "window.set.alwaysontop"]
     },
     {
       "name": "windows.clipboard.read",

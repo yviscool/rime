@@ -80,6 +80,8 @@ const calls: Array<{
   target: WindowId | "active" | number | string;
   position?: string;
   placement?: string;
+  title?: string;
+  value?: boolean | -1 | 0 | 1;
   // WindowsWaitOptions is a superset of WindowsListOptions (until is
   // optional); group calls add their own fields (reverse/mode) on top.
   options?: WindowsWaitOptions & { reverse?: boolean; mode?: string };
@@ -220,6 +222,26 @@ mock.module("rime:window", () => ({
     minimizeAllUndo: async (options?: NativeActionOptions) => {
       calls.push({ method: "minimizeAllUndo", target: 0, options });
     },
+    setTitle: (target: WindowId | "active", title: string, options?: NativeActionOptions) => {
+      calls.push({ method: "setTitle", target, title, options });
+      return Promise.resolve(movedHandle);
+    },
+    setEnabled: (
+      target: WindowId | "active",
+      value: boolean | -1 | 0 | 1,
+      options?: NativeActionOptions,
+    ) => {
+      calls.push({ method: "setEnabled", target, value, options });
+      return Promise.resolve(movedHandle);
+    },
+    setAlwaysOnTop: (
+      target: WindowId | "active",
+      value?: boolean | -1 | 0 | 1,
+      options?: NativeActionOptions,
+    ) => {
+      calls.push({ method: "setAlwaysOnTop", target, value, options });
+      return Promise.resolve(movedHandle);
+    },
   } satisfies WindowsBridge,
   groups: {
     add: async (name: string, query: WindowQueryFields, options?: NativeActionOptions) => {
@@ -297,6 +319,22 @@ test("minimizeAll and minimizeAllUndo route through the window bridge", async ()
   calls.length = 0;
   await Window.minimizeAllUndo({ deadlineMs: 100 });
   expect(calls).toEqual([{ method: "minimizeAllUndo", target: 0, options: { deadlineMs: 100 } }]);
+});
+
+test("setTitle, setEnabled and setAlwaysOnTop route through the window bridge", async () => {
+  calls.length = 0;
+  await Window.setTitle(7 as WindowId, "Renamed");
+  expect(calls).toEqual([{ method: "setTitle", target: 7, title: "Renamed", options: undefined }]);
+  calls.length = 0;
+  await Window.setEnabled(7 as WindowId, -1, { deadlineMs: 100 });
+  expect(calls).toEqual([
+    { method: "setEnabled", target: 7, value: -1, options: { deadlineMs: 100 } },
+  ]);
+  calls.length = 0;
+  await Window.setAlwaysOnTop(7 as WindowId);
+  expect(calls).toEqual([
+    { method: "setAlwaysOnTop", target: 7, value: undefined, options: undefined },
+  ]);
 });
 
 test("bridge rejections propagate to the caller", async () => {

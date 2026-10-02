@@ -124,6 +124,29 @@
         "mode": { "enum": ["", "reverse", "all"], "default": "", "description": "'' closes the foreground member then activates the next; 'reverse' walks from the most recent member; 'all' closes every member and activates nothing." }
       }
     },
+    "setTitlePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title"],
+      "properties": {
+        "title": { "type": "string", "description": "New window title (WinSetTitle); the empty string clears the title." }
+      }
+    },
+    "setEnabledPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": { "enum": [-1, 0, 1], "description": "WinSetEnabled: 1 enables, 0 disables, -1 toggles the current state." }
+      }
+    },
+    "setAlwaysOnTopPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "value": { "enum": [-1, 0, 1], "default": 1, "description": "WinSetAlwaysOnTop: 1 makes topmost, 0 clears topmost, -1 toggles; absent means 1 (AHK's default)." }
+      }
+    },
     "actionType": {
       "enum": [
         "window.move",
@@ -142,7 +165,10 @@
         "window.group.deactivate",
         "window.group.close",
         "window.minimizeall",
-        "window.minimizeall.undo"
+        "window.minimizeall.undo",
+        "window.set.title",
+        "window.set.enabled",
+        "window.set.alwaysontop"
       ]
     }
   }

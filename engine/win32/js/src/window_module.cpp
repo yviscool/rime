@@ -753,6 +753,94 @@ JSValue run_window_mutation(JSContext* context, int argc, JSValueConst* argv,
   return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
 }
 
+// Shared body for the window.set.* family (WinSetTitle / WinSetEnabled /
+// WinSetAlwaysOnTop): target, then the per-type value (boolean or -1/0/1
+// number where AHK takes an integer), then optional ActionOptions. The
+// payload shape mirrors the window-v1 schema; the executor re-validates.
+JSValue run_window_set(JSContext* context, int argc, JSValueConst* argv,
+                       const char* function_name, const char* action_type,
+                       bool value_required) {
+  WindowModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
+    return JS_ThrowInternalError(context, "rime:window is not wired");
+  }
+  if (argc < 1) return JS_ThrowTypeError(context, "%s(target[, value][, options?])", function_name);
+  std::string target_text;
+  if (!parse_window_target(context, argv[0], target_text)) return JS_EXCEPTION;
+
+  int cursor = 1;
+  bool has_value = false;
+  int number_value = 0;
+  std::string title_value;
+  const bool wants_number = std::string_view(action_type) != "window.set.title";
+  if (value_required || (argc > 1 && (JS_IsBool(argv[1]) || JS_IsNumber(argv[1])))) {
+    if (argc < 2) {
+      return JS_ThrowTypeError(context, "%s(target, value[, options?])", function_name);
+    }
+    if (wants_number) {
+      double raw = 0.0;
+      if (!JS_IsNumber(argv[1]) && !JS_IsBool(argv[1])) {
+        return JS_ThrowTypeError(context,
+                                 "%s(target, value[, options?]): value must be a boolean "
+                                 "or -1, 0 or 1",
+                                 function_name);
+      }
+      if (JS_ToFloat64(context, &raw, argv[1])) return JS_EXCEPTION;
+      if (!(raw == -1.0 || raw == 0.0 || raw == 1.0)) {
+        return JS_ThrowTypeError(context,
+                                 "%s(target, value[, options?]): value must be -1, 0 or 1",
+                                 function_name);
+      }
+      number_value = static_cast<int>(raw);
+      has_value = true;
+    } else {
+      if (!JS_IsString(argv[1])) {
+        return JS_ThrowTypeError(context, "%s(target, title[, options?]): title must be a string",
+                                 function_name);
+      }
+      const char* title_text = JS_ToCString(context, argv[1]);
+      if (!title_text) return JS_EXCEPTION;
+      title_value = title_text;
+      JS_FreeCString(context, title_text);
+      has_value = true;
+    }
+    cursor = 2;
+  }
+
+  if (argc > cursor + 1) {
+    return JS_ThrowTypeError(context, "%s(target[, value][, options?])", function_name);
+  }
+  ActionOptions options;
+  if (argc > cursor && !parse_action_options(context, argv[cursor], options)) return JS_EXCEPTION;
+
+  json::Value payload = json::Value::object();
+  if (has_value && wants_number) {
+    payload.set("value", json::Value::number(static_cast<double>(number_value)));
+  } else if (has_value) {
+    payload.set("title", json::Value::string(title_value));
+  }
+  auto action = make_action(*binding->next_action_id, "rime:window", action_type,
+                            kWindowWriteCapability, {"window", std::move(target_text)},
+                            json::stringify(payload), options);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
+}
+
+JSValue windows_set_title(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                          void*) {
+  return run_window_set(context, argc, argv, "setTitle", "window.set.title", true);
+}
+
+JSValue windows_set_enabled(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                            void*) {
+  return run_window_set(context, argc, argv, "setEnabled", "window.set.enabled", true);
+}
+
+JSValue windows_set_always_on_top(JSContext* context, JSValueConst, int argc, JSValueConst* argv,
+                                  int, void*) {
+  return run_window_set(context, argc, argv, "setAlwaysOnTop", "window.set.alwaysontop", false);
+}
+
 JSValue windows_move(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                      void*) {
   // NOTE: required_args stays 1 here; the (target, position) arity for move is
@@ -1262,7 +1350,10 @@ int window_module_init(JSContext* context, JSModuleDef* module) {
       !add(windows, "maximize", windows_maximize, 1, 0) ||
       !add(windows, "restore", windows_restore, 1, 0) ||
       !add(windows, "minimizeAll", windows_minimize_all, 0, 0) ||
-      !add(windows, "minimizeAllUndo", windows_minimize_all_undo, 0, 0)) {
+      !add(windows, "minimizeAllUndo", windows_minimize_all_undo, 0, 0) ||
+      !add(windows, "setTitle", windows_set_title, 2, 0) ||
+      !add(windows, "setEnabled", windows_set_enabled, 2, 0) ||
+      !add(windows, "setAlwaysOnTop", windows_set_always_on_top, 1, 0)) {
     JS_FreeValue(context, windows);
     return -1;
   }
