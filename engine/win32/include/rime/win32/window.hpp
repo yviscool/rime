@@ -228,9 +228,19 @@ class WindowService final {
   rime::core::Error focus(std::uint64_t id,
                           std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // z-order changes (AHK WinMoveTop/WinMoveBottom): SetWindowPos with
-  // SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE onto HWND_TOP/HWND_BOTTOM - no
+  // SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE onto HWND_TOP/HWND_BOTTOM; no
   // move, no resize, no activation. `bottom` picks HWND_BOTTOM.
   rime::core::Error zorder(std::uint64_t id, bool bottom,
+                           std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Force close (AHK WinKill / Util_WinKill): WM_CLOSE via
+  // SendMessageTimeout (capped at 500ms inside the action deadline); if the
+  // target is hung or refused, fall back to TerminateProcess. Refuses to
+  // terminate the runtime's own process.
+  rime::core::Error kill(std::uint64_t id,
+                         std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Invalidate the window (AHK WinRedraw): InvalidateRect(NULL, TRUE) only -
+  // WM_PAINT lands on the owner's pump, we never force UpdateWindow.
+  rime::core::Error redraw(std::uint64_t id,
                            std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // Window state mutations (WinClose/WinHide/WinShow/WinMinimize/WinMaximize/
   // WinRestore equivalents). `close` delivers WM_CLOSE and waits for the

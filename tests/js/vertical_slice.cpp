@@ -93,9 +93,9 @@ int main() {
   const auto window_executor = std::make_shared<rime::win32::WindowExecutor>(service);
   for (const char* type : {"window.move", "window.focus", "window.close", "window.hide",
                            "window.show", "window.minimize", "window.maximize",
-                           "window.restore", "window.zorder", "window.group.add",
-                           "window.group.activate", "window.group.deactivate",
-                           "window.group.close"}) {
+                           "window.restore", "window.zorder", "window.kill", "window.redraw",
+                           "window.group.add", "window.group.activate",
+                           "window.group.deactivate", "window.group.close"}) {
     assert(kernel.register_executor(type, window_executor).ok());
   }
 
@@ -817,6 +817,53 @@ int main() {
     assert(service.close(leftover.id).ok());
   }
 
+  // redraw round-trips the unchanged snapshot; kill force-closes through
+  // the executor (same-process WM_CLOSE path) and the id goes stale.
+  HWND kr_victim = nullptr;
+  assert(service.ui()
+             .call([&] {
+               kr_victim = CreateWindowExW(0, L"STATIC", L"Rime KR Slice",
+                                           WS_OVERLAPPED | WS_VISIBLE, 80, 300, 200, 140,
+                                           nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+               assert(kr_victim != nullptr);
+             })
+             .ok());
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.krOut = {};\n"
+        "(async () => {\n"
+        "  const spec = { title: 'Rime KR Slice', matchMode: 'startswith' };\n"
+        "  const [w] = await windows.list(spec);\n"
+        "  if (!w) throw new Error('kill/redraw victim must be listed');\n"
+        "  const redrawSnap = await windows.redraw(w.id);\n"
+        "  if (redrawSnap.id !== w.id || !redrawSnap.visible)\n"
+        "    throw new Error('redraw must resolve the unchanged snapshot');\n"
+        "  const killSnap = await windows.kill(w.id);\n"
+        "  if (killSnap.id !== w.id)\n"
+        "    throw new Error('kill must resolve the pre-close snapshot');\n"
+        "  try {\n"
+        "    await windows.info(w.id);\n"
+        "    throw new Error('info on the killed id must reject');\n"
+        "  } catch (e) {\n"
+        "    if (!String(e).includes('window no longer exists')) throw e;\n"
+        "  }\n"
+        "  return { killed: w.id };\n"
+        "})().then(v => { globalThis.krOut.value = v; },\n"
+        "         e => { globalThis.krOut.error = String(e); });",
+        "slice-kill-redraw.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.krOut.error) throw new Error(globalThis.krOut.error);\n"
+        "if (!globalThis.krOut.value || !globalThis.krOut.value.killed)\n"
+        "  throw new Error('kill/redraw segment produced no value');",
+        "slice-kill-redraw-check.mjs");
+  rime::win32::WindowQuery kr_leftover_query;
+  kr_leftover_query.title = "Rime KR Slice";
+  kr_leftover_query.title_match_mode = rime::win32::TitleMatchMode::StartsWith;
+  std::vector<WindowInfo> kr_leftover;
+  assert(service.query(kr_leftover_query, kr_leftover).ok());
+  assert(kr_leftover.empty());
+
   // Segment 6: close destroys the window through the executor (the result
   // snapshot is taken before WM_CLOSE); later operations on the id reject.
   check(runtime,
@@ -912,6 +959,7 @@ int main() {
   //   WinActivateBottom composition (a foreground-lock refusal still
   //   records both);
   // - window.zorder: two pairs (bottom then top) in the zorder segment;
+  // - window.kill / window.redraw: one pair each in the kill-redraw segment;
   // - window.move: segment 1 (move), segment 2 (bad placement), segment 2b
   //   (exhausted deadline), segment 6 (stale id), plus the optional active
   //   move. The deadline action always records Finished but records Started
@@ -945,9 +993,11 @@ int main() {
   }
   // focus: segment 3 plus the WinActivateBottom composition in the zorder
   // segment (a foreground-lock refusal still records the pair). zorder:
-  // bottom then top in the same segment.
+  // bottom then top; kill/redraw: one pair each.
   assert(started_count["window.focus"] == 2);
   assert(started_count["window.zorder"] == 2);
+  assert(started_count["window.kill"] == 1);
+  assert(started_count["window.redraw"] == 1);
   // The exhausted deadline left a Finished entry naming the timeout.
   bool saw_deadline_timeout = false;
   for (const auto& entry : trace->snapshot()) {

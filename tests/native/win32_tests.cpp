@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #include <cassert>
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <optional>
@@ -30,6 +31,26 @@ std::optional<WindowInfo> find_by_title(const std::vector<WindowInfo>& windows) 
     if (window.title.find("Rime WindowService Test Window") != std::string::npos) return window;
   }
   return std::nullopt;
+}
+
+// Counts WM_PAINT deliveries so the redraw test can observe that
+// InvalidateRect actually queued a paint on the owner's pump.
+std::atomic<int> g_paints{0};
+
+LRESULT CALLBACK count_paint_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+  if (message == WM_PAINT) ++g_paints;
+  return DefWindowProcW(window, message, wparam, lparam);
+}
+
+// Answers queries (so snapshots do not block) but stalls on WM_CLOSE for
+// longer than the kill budget - a deterministic stand-in for a window that
+// refuses to close.
+LRESULT CALLBACK stall_close_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+  if (message == WM_CLOSE) {
+    Sleep(700);  // kill waits at most 500ms
+    return 0;    // handled-but-ignored: the window survives
+  }
+  return DefWindowProcW(window, message, wparam, lparam);
 }
 
 }  // namespace
@@ -649,6 +670,108 @@ int main() {
   assert(service.zorder(zorder_id_a, false).code == rime::core::Error::Code::TargetGone);
   assert(service.ui().call([&] { DestroyWindow(zorder_b); }).ok());
 
+  // redraw (AHK WinRedraw): InvalidateRect queues a WM_PAINT that the
+  // owner's pump then delivers - observed through a temporary subclass.
+  HWND redraw_victim = nullptr;
+  WNDPROC original_proc = nullptr;
+  assert(service.ui()
+             .call([&] {
+               redraw_victim = CreateWindowExW(0, L"STATIC", L"Rime Redraw Target",
+                                               WS_OVERLAPPED | WS_VISIBLE, 60, 60, 200, 140,
+                                               nullptr, nullptr, GetModuleHandleW(nullptr),
+                                               nullptr);
+               assert(redraw_victim != nullptr);
+               original_proc = reinterpret_cast<WNDPROC>(
+                   SetWindowLongPtrW(redraw_victim, GWLP_WNDPROC,
+                                     reinterpret_cast<LONG_PTR>(count_paint_proc)));
+               assert(original_proc != nullptr);
+             })
+             .ok());
+  rime::win32::WindowQuery redraw_query;
+  redraw_query.title = "Rime Redraw Target";
+  std::vector<WindowInfo> redraw_match;
+  assert(service.query(redraw_query, redraw_match).ok());
+  assert(redraw_match.size() == 1);
+  // Let the creation paint settle, then require a fresh one after redraw.
+  std::this_thread::sleep_for(50ms);
+  g_paints.store(0);
+  assert(service.redraw(redraw_match.front().id).ok());
+  for (int waited = 0; waited < 200 && g_paints.load() == 0; ++waited) {
+    std::this_thread::sleep_for(10ms);
+  }
+  assert(g_paints.load() > 0);
+  assert(service.ui().call([&] {
+    SetWindowLongPtrW(redraw_victim, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(original_proc));
+  }).ok());
+  // Redraw on a stale id refuses with TargetGone.
+  assert(service.ui().call([&] { DestroyWindow(redraw_victim); }).ok());
+  assert(service.redraw(redraw_match.front().id).code ==
+         rime::core::Error::Code::TargetGone);
+
+  // kill (AHK WinKill): a same-process, pumping target takes the WM_CLOSE
+  // path (DefWindowProc destroys it) and never reaches the terminate
+  // fallback.
+  HWND kill_victim = nullptr;
+  assert(service.ui()
+             .call([&] {
+               kill_victim = CreateWindowExW(0, L"STATIC", L"Rime Kill Target",
+                                             WS_OVERLAPPED | WS_VISIBLE, 120, 160, 200, 140,
+                                             nullptr, nullptr, GetModuleHandleW(nullptr),
+                                             nullptr);
+               assert(kill_victim != nullptr);
+             })
+             .ok());
+  rime::win32::WindowQuery kill_query;
+  kill_query.title = "Rime Kill Target";
+  std::vector<WindowInfo> kill_match;
+  assert(service.query(kill_query, kill_match).ok());
+  assert(kill_match.size() == 1);
+  assert(service.kill(kill_match.front().id).ok());
+  WindowInfo kill_gone;
+  assert(service.info(kill_match.front().id, kill_gone).code ==
+         rime::core::Error::Code::TargetGone);
+
+  // A window that answers queries but stalls on WM_CLOSE past the 500ms
+  // budget makes the terminate fallback fire; it then refuses our own
+  // process instead of suicide.
+  std::atomic<bool> hung_ready{false};
+  std::atomic<bool> hung_quit{false};
+  HWND hung_victim = nullptr;
+  std::thread hung([&] {
+    hung_victim = CreateWindowExW(0, L"STATIC", L"Rime Hung Target", WS_OVERLAPPED, 10, 10,
+                                  160, 120, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    SetWindowLongPtrW(hung_victim, GWLP_WNDPROC,
+                      reinterpret_cast<LONG_PTR>(stall_close_proc));
+    hung_ready.store(true);
+    // Pump so WM_GETTEXT (snapshots) keeps working; quit is honored once
+    // the stall inside the window proc returns.
+    MSG message{};
+    while (!hung_quit.load()) {
+      while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+        if (message.message == WM_QUIT) break;
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+      }
+      if (hung_quit.load()) break;
+      MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    }
+    if (hung_victim) DestroyWindow(hung_victim);
+  });
+  while (!hung_ready.load()) std::this_thread::sleep_for(5ms);
+  rime::win32::WindowQuery hung_query;
+  hung_query.title = "Rime Hung Target";
+  hung_query.include_hidden = true;
+  std::vector<WindowInfo> hung_match;
+  assert(service.query(hung_query, hung_match).ok());
+  assert(hung_match.size() == 1);
+  const auto hung_kill = service.kill(hung_match.front().id, std::chrono::seconds(3));
+  assert(hung_kill.code == rime::core::Error::Code::ExecutionFailed);
+  assert(hung_kill.message.find("own process") != std::string::npos);
+  hung_quit.store(true);
+  hung.join();
+  // After the thread destroyed its window the id is stale.
+  assert(service.kill(hung_match.front().id).code == rime::core::Error::Code::TargetGone);
+
   // WindowExecutor: a contract-valid window.move reaches the service and
   // records the trace pair.
   auto trace = std::make_shared<rime::core::InMemoryTrace>();
@@ -660,6 +783,7 @@ int main() {
   for (const char* type : {"window.move",       "window.focus",  "window.close",
                             "window.hide",       "window.show",   "window.minimize",
                             "window.maximize",   "window.restore", "window.zorder",
+                            "window.kill",       "window.redraw",
                             "window.group.add",
                             "window.group.activate", "window.group.deactivate",
                             "window.group.close"}) {
@@ -773,6 +897,7 @@ int main() {
   constexpr const char* kDeniedTypes[] = {"window.move",  "window.focus",    "window.close",
                                           "window.hide",  "window.show",     "window.minimize",
                                           "window.maximize", "window.restore", "window.zorder",
+                                          "window.kill",  "window.redraw",
                                           "window.group.add", "window.group.activate",
                                           "window.group.deactivate", "window.group.close"};
   for (const char* type : kDeniedTypes) {
@@ -981,6 +1106,43 @@ int main() {
                DestroyWindow(exec_zorder_b);
              })
              .ok());
+
+  // window.redraw round-trips the unchanged snapshot; window.kill delivers
+  // WM_CLOSE through the executor and the id goes stale immediately after.
+  HWND exec_kill = nullptr;
+  assert(service.ui()
+             .call([&] {
+               exec_kill = CreateWindowExW(0, L"STATIC", L"Rime Executor Kill",
+                                           WS_OVERLAPPED | WS_VISIBLE, 120, 120, 200, 140,
+                                           nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+               assert(exec_kill != nullptr);
+             })
+             .ok());
+  std::vector<WindowInfo> exec_kill_match;
+  rime::win32::WindowQuery exec_kill_query;
+  exec_kill_query.title = "Rime Executor Kill";
+  assert(service.query(exec_kill_query, exec_kill_match).ok());
+  assert(exec_kill_match.size() == 1);
+  rime::action::Action redraw_action = move_action;
+  redraw_action.id = 50;
+  redraw_action.type = "window.redraw";
+  redraw_action.target.id = std::to_string(exec_kill_match.front().id);
+  redraw_action.payload = "{}";
+  const auto redraw_result = kernel.execute(redraw_action);
+  assert(redraw_result.succeeded);
+  assert(redraw_result.value.find("title") != nullptr);
+  rime::action::Action kill_action = move_action;
+  kill_action.id = 51;
+  kill_action.type = "window.kill";
+  kill_action.target.id = std::to_string(exec_kill_match.front().id);
+  kill_action.payload = "{}";
+  const auto kill_result = kernel.execute(kill_action);
+  assert(kill_result.succeeded);
+  assert(kill_result.value.is_object());
+  assert(kill_result.value.find("title") != nullptr);
+  WindowInfo kill_after;
+  assert(service.info(exec_kill_match.front().id, kill_after).code ==
+         rime::core::Error::Code::TargetGone);
 
   // The executor dispatches window.close: the pre-close snapshot is the
   // result value and the id goes stale immediately after.

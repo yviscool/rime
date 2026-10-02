@@ -135,6 +135,8 @@
         "window.maximize",
         "window.restore",
         "window.zorder",
+        "window.kill",
+        "window.redraw",
         "window.group.add",
         "window.group.activate",
         "window.group.deactivate",

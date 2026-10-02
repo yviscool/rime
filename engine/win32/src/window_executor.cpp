@@ -25,8 +25,8 @@ const std::unordered_set<std::string>& window_action_types() {
       "window.move",       "window.focus",      "window.close",
       "window.hide",       "window.show",       "window.minimize",
       "window.maximize",   "window.restore",    "window.zorder",
-      "window.group.add",  "window.group.activate", "window.group.deactivate",
-      "window.group.close"};
+      "window.kill",       "window.redraw",     "window.group.add",
+      "window.group.activate", "window.group.deactivate", "window.group.close"};
   return types;
 }
 
@@ -315,10 +315,11 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
   }
 
   rime::core::Error op_error = rime::core::Error::none();
-  // `window.close` destroys the window, so the result value is the snapshot
-  // taken before the close instead of a post-read that would fail.
+  // `window.close` and `window.kill` destroy the window, so the result value
+  // is the snapshot taken before instead of a post-read that would fail.
   WindowInfo snapshot;
-  const bool snapshot_before = action.type == "window.close";
+  const bool snapshot_before =
+      action.type == "window.close" || action.type == "window.kill";
   if (snapshot_before) {
     if (!remaining_timeout(action, timeout)) {
       return fail(action, Code::Timeout, "action deadline exceeded");
@@ -338,6 +339,10 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
     op_error = service_.focus(window_id, timeout);
   } else if (action.type == "window.close") {
     op_error = service_.close(window_id, timeout);
+  } else if (action.type == "window.kill") {
+    op_error = service_.kill(window_id, timeout);
+  } else if (action.type == "window.redraw") {
+    op_error = service_.redraw(window_id, timeout);
   } else if (action.type == "window.hide") {
     op_error = service_.hide(window_id, timeout);
   } else if (action.type == "window.show") {

@@ -183,6 +183,13 @@ export interface WindowsBridge {
     options?: NativeActionOptions,
   ): Promise<WindowHandle>;
   focus(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
+  /**
+   * Force close (AHK WinKill): WM_CLOSE first, TerminateProcess fallback
+   * when the target is hung; resolves with the pre-close snapshot.
+   */
+  kill(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
+  /** Invalidate the window (AHK WinRedraw); resolves with the unchanged snapshot. */
+  redraw(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
   close(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
   hide(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
   show(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
@@ -297,6 +304,8 @@ export interface ActiveWindowRequest {
   /** Reorders the foreground window through the `window.zorder` pipeline. */
   zorder(placement: WindowZorder, options?: ActionOptions): Promise<WindowHandle>;
   focus(options?: ActionOptions): Promise<WindowHandle>;
+  kill(options?: ActionOptions): Promise<WindowHandle>;
+  redraw(options?: ActionOptions): Promise<WindowHandle>;
   close(options?: ActionOptions): Promise<WindowHandle>;
   hide(options?: ActionOptions): Promise<WindowHandle>;
   show(options?: ActionOptions): Promise<WindowHandle>;
@@ -327,6 +336,14 @@ export const Window = {
       focus: (options) =>
         runAction(options, (native) =>
           windowBridge().then((windows) => windows.focus("active", native)),
+        ),
+      kill: (options) =>
+        runAction(options, (native) =>
+          windowBridge().then((windows) => windows.kill("active", native)),
+        ),
+      redraw: (options) =>
+        runAction(options, (native) =>
+          windowBridge().then((windows) => windows.redraw("active", native)),
         ),
       close: (options) =>
         runAction(options, (native) =>
@@ -375,6 +392,10 @@ export const Window = {
   },
   /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
   focus: mutation((windows) => windows.focus),
+  /** Force close via `window.kill`; resolves with the pre-close snapshot. */
+  kill: mutation((windows) => windows.kill),
+  /** Invalidate via `window.redraw` (AHK WinRedraw). */
+  redraw: mutation((windows) => windows.redraw),
   /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
   close: mutation((windows) => windows.close),
   /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */

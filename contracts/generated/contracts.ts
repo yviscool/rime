@@ -103,7 +103,7 @@ export interface WindowV1GroupClosePayload {
   mode?: "" | "reverse" | "all";
 }
 
-export type WindowV1ActionType = "window.move" | "window.focus" | "window.close" | "window.hide" | "window.show" | "window.minimize" | "window.maximize" | "window.restore" | "window.zorder" | "window.group.add" | "window.group.activate" | "window.group.deactivate" | "window.group.close";
+export type WindowV1ActionType = "window.move" | "window.focus" | "window.close" | "window.hide" | "window.show" | "window.minimize" | "window.maximize" | "window.restore" | "window.zorder" | "window.kill" | "window.redraw" | "window.group.add" | "window.group.activate" | "window.group.deactivate" | "window.group.close";
 
 export interface WindowV1 {
   schemaVersion: 1;

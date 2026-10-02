@@ -1510,6 +1510,105 @@ rime::core::Error WindowService::close(const std::uint64_t id,
   return result;
 }
 
+rime::core::Error WindowService::kill(const std::uint64_t id,
+                                      const std::chrono::milliseconds timeout) {
+  if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  rime::core::Error result = rime::core::Error::none();
+  // Absolute deadline like close(): ui.call() already spends part of
+  // `timeout` while queued, and the WM_CLOSE wait below must not
+  // double-count it.
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  const auto call_error = impl_->ui.call(
+      [&, deadline] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND window = impl_->registry.hwnd_for(id);
+        if (!window) {
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
+          return;
+        }
+        const auto remaining = deadline - std::chrono::steady_clock::now();
+        if (remaining <= std::chrono::steady_clock::duration::zero()) {
+          result = expired_deadline();
+          return;
+        }
+        const auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(remaining);
+        // AHK Util_WinKill waits at most 500ms for WM_CLOSE; WinKill is for
+        // suspected-hung targets, so it must not sit on the deadline.
+        auto budget = static_cast<DWORD>(std::min<std::uint64_t>(
+            static_cast<std::uint64_t>(remaining_ms.count()), 500u));
+        if (budget == 0) budget = 1;
+        DWORD_PTR delivered = 0;
+        SetLastError(0);
+        const LRESULT sent = SendMessageTimeoutW(window, WM_CLOSE, 0, 0,
+                                                 SMTO_ABORTIFHUNG | SMTO_ERRORONEXIT, budget,
+                                                 &delivered);
+        // Handled (destroyed or explicitly ignored) or already gone: done.
+        if (sent != 0 || !IsWindow(window)) return;
+        // Hung or undeliverable: fall back to TerminateProcess like AHK,
+        // with one deliberate deviation - never kill our own process.
+        DWORD pid = 0;
+        GetWindowThreadProcessId(window, &pid);
+        if (pid == 0) {
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "cannot force-terminate: window has no process"};
+          return;
+        }
+        if (pid == GetCurrentProcessId()) {
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "refusing to force-terminate the runtime's own process"};
+          return;
+        }
+        HANDLE process = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+        if (!process) {
+          const DWORD failure = GetLastError();
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "OpenProcess failed (win32 error " + std::to_string(failure) + ")"};
+          return;
+        }
+        const BOOL terminated = TerminateProcess(process, 0);
+        const DWORD failure = terminated ? 0u : GetLastError();
+        CloseHandle(process);
+        if (!terminated) {
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "TerminateProcess failed (win32 error " + std::to_string(failure) + ")"};
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::redraw(const std::uint64_t id,
+                                        const std::chrono::milliseconds timeout) {
+  if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  rime::core::Error result = rime::core::Error::none();
+  const auto call_error = impl_->ui.call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND window = impl_->registry.hwnd_for(id);
+        if (!window) {
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
+          return;
+        }
+        // AHK WinRedraw: InvalidateRect only - UpdateWindow would force an
+        // immediate WM_PAINT, which AHK deliberately avoids.
+        if (!InvalidateRect(window, nullptr, TRUE)) {
+          const DWORD failure = GetLastError();
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "InvalidateRect failed (win32 error " + std::to_string(failure) + ")"};
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
 rime::core::Error WindowService::hide(const std::uint64_t id,
                                       const std::chrono::milliseconds timeout) {
   if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();

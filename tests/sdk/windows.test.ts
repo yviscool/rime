@@ -198,6 +198,10 @@ mock.module("rime:window", () => ({
     },
     focus: (target: WindowId | "active", options?: NativeActionOptions) =>
       passThrough("focus", target, options),
+    kill: (target: WindowId | "active", options?: NativeActionOptions) =>
+      passThrough("kill", target, options),
+    redraw: (target: WindowId | "active", options?: NativeActionOptions) =>
+      passThrough("redraw", target, options),
     close: (target: WindowId | "active", options?: NativeActionOptions) =>
       passThrough("close", target, options),
     hide: (target: WindowId | "active", options?: NativeActionOptions) =>
@@ -269,6 +273,15 @@ test("Window.zorder passes target and placement through", async () => {
   calls.length = 0;
   await Window.active().zorder("top");
   expect(calls).toEqual([{ method: "zorder", target: "active", placement: "top", options: undefined }]);
+});
+
+test("kill and redraw route through the window bridge", async () => {
+  calls.length = 0;
+  await Window.kill(7 as WindowId);
+  expect(calls).toEqual([{ method: "kill", target: 7, options: undefined }]);
+  calls.length = 0;
+  await Window.active().redraw();
+  expect(calls).toEqual([{ method: "redraw", target: "active", options: undefined }]);
 });
 
 test("bridge rejections propagate to the caller", async () => {

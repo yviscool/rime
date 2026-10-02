@@ -106,6 +106,28 @@
       "status": "implemented"
     },
     {
+      "type": "window.kill",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/emptyPayload",
+      "executor": "engine/win32/src/window_executor.cpp:337",
+      "module": "engine/win32/js/src/window_module.cpp:779",
+      "sdk": "sdk/src/window.ts:190",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.redraw",
+      "capability": "windows.window.write",
+      "target": { "kind": "window" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/emptyPayload",
+      "executor": "engine/win32/src/window_executor.cpp:339",
+      "module": "engine/win32/js/src/window_module.cpp:784",
+      "sdk": "sdk/src/window.ts:195",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
       "type": "window.group.add",
       "capability": "windows.window.write",
       "target": { "kind": "group" },
@@ -247,7 +269,7 @@
       "status": "implemented",
       "declared": "engine/win32/js/src/window_module.cpp:23",
       "checked": ["engine/action/src/kernel.cpp:97"],
-      "actions": ["window.move", "window.focus", "window.close", "window.hide", "window.show", "window.minimize", "window.maximize", "window.restore", "window.zorder", "window.group.add", "window.group.activate", "window.group.deactivate", "window.group.close"]
+      "actions": ["window.move", "window.focus", "window.close", "window.hide", "window.show", "window.minimize", "window.maximize", "window.restore", "window.zorder", "window.kill", "window.redraw", "window.group.add", "window.group.activate", "window.group.deactivate", "window.group.close"]
     },
     {
       "name": "windows.clipboard.read",

@@ -772,6 +772,16 @@ JSValue windows_zorder(JSContext* context, JSValueConst, int argc, JSValueConst*
   return run_window_mutation(context, argc, argv, "zorder", "window.zorder", 1);
 }
 
+JSValue windows_kill(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void*) {
+  return run_window_mutation(context, argc, argv, "kill", "window.kill", 1);
+}
+
+JSValue windows_redraw(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                       void*) {
+  return run_window_mutation(context, argc, argv, "redraw", "window.redraw", 1);
+}
+
 JSValue windows_close(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                       void*) {
   return run_window_mutation(context, argc, argv, "close", "window.close", 1);
@@ -1213,6 +1223,8 @@ int window_module_init(JSContext* context, JSModuleDef* module) {
       !add(windows, "text", windows_text, 1, 0) || !add(windows, "move", windows_move, 2, 0) ||
       !add(windows, "focus", windows_focus, 1, 0) ||
       !add(windows, "zorder", windows_zorder, 2, 0) ||
+      !add(windows, "kill", windows_kill, 1, 0) ||
+      !add(windows, "redraw", windows_redraw, 1, 0) ||
       !add(windows, "close", windows_close, 1, 0) ||
       !add(windows, "hide", windows_hide, 1, 0) || !add(windows, "show", windows_show, 1, 0) ||
       !add(windows, "minimize", windows_minimize, 1, 0) ||
