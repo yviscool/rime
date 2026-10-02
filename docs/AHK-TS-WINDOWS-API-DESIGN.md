@@ -53,6 +53,8 @@ export interface WindowSnapshot {
 export interface WindowQuery { title?: string | RegExp; text?: string | RegExp; className?: string;
   process?: string | ProcessId; excludeTitle?: string | RegExp; excludeText?: string | RegExp;
   includeHidden?: boolean; lastMatch?: boolean }
+export type WindowPlacement = "left" | "right" | "top" | "bottom" | "full";
+export interface WindowMoveRect { x?: number; y?: number; w?: number; h?: number }
 export const windows: {
   list(query?: WindowQuery, o?: ActionOptions): Promise<WindowSnapshot[]>;
   active(o?: ActionOptions): Promise<WindowSnapshot | null>;
@@ -62,7 +64,7 @@ export const windows: {
   waitClosed(target: WindowRef | WindowQuery, o?: ActionOptions & { timeoutMs?: number }): Promise<boolean>;
   close(target: WindowRef | WindowQuery, o?: ActionOptions & { waitMs?: number }): Promise<void>;
   activate(target: WindowRef | WindowQuery, o?: ActionOptions): Promise<void>;
-  move(target: WindowRef | WindowQuery, rect: Rect, o?: ActionOptions): Promise<void>;
+  move(target: WindowRef | WindowQuery, position: WindowPlacement | WindowMoveRect, o?: ActionOptions): Promise<void>;
   minimize(target: WindowRef | WindowQuery, o?: ActionOptions): Promise<void>;
   maximize(target: WindowRef | WindowQuery, o?: ActionOptions): Promise<void>;
   restore(target: WindowRef | WindowQuery, o?: ActionOptions): Promise<void>;
@@ -82,7 +84,7 @@ export const windows: {
 export interface WindowRef { readonly id: WindowId; snapshot(o?: ActionOptions): Promise<WindowSnapshot>; }
 ```
 
-AHK 的 `WinTitle` 参数统一转换成 `WindowQuery`；`"A"` 映射 `windows.active()`，`ahk_id` 映射 `WindowId`，`ahk_exe` 映射 `process`。`WinGetPos/ClientPos/List/Count/PID/ProcessName/ProcessPath/Class/Style/ExStyle/Text/Title/MinMax/Enabled/AlwaysOnTop/Transparent/TransColor` 均是 `snapshot` 或 `list` 的字段/派生方法。`WinActivateBottom` 经 `list`（保持 z 序）+ `focus` 最后一个匹配组合承载，`WinMoveTop/WinMoveBottom` 经 `windows.zorder(target, "top"|"bottom")` 承载，`WinKill/WinRedraw` 经 `windows.kill`/`windows.redraw` 承载，`WinMinimizeAll/WinMinimizeAllUndo` 经 `windows.minimizeAll()`/`windows.minimizeAllUndo()` 承载，`WinSetTitle/WinSetEnabled/WinSetAlwaysOnTop` 经 `windows.setTitle`/`windows.setEnabled`/`windows.setAlwaysOnTop` 承载，`WinSetStyle/WinSetExStyle/WinSetTransparent/WinSetTransColor` 经 `windows.setStyle`/`windows.setExStyle`/`windows.setTransparent`/`windows.setTransColor` 承载，`WinSetRegion` 经 `windows.setRegion` 承载（附带 `region` 快照读回字段——AHK 无对应读取器）。
+AHK 的 `WinTitle` 参数统一转换成 `WindowQuery`；`"A"` 映射 `windows.active()`，`ahk_id` 映射 `WindowId`，`ahk_exe` 映射 `process`。`WinMove` 经 `windows.move` 承载：命名 placement（工作区对半，Rime 扩展）或 `{x?, y?, w?, h?}` 坐标 rect（AHK 的 X/Y/Width/Height，**省略字段保持当前值**的空参数规则）。`WinGetPos/ClientPos/List/Count/PID/ProcessName/ProcessPath/Class/Style/ExStyle/Text/Title/MinMax/Enabled/AlwaysOnTop/Transparent/TransColor` 均是 `snapshot` 或 `list` 的字段/派生方法。`WinActivateBottom` 经 `list`（保持 z 序）+ `focus` 最后一个匹配组合承载，`WinMoveTop/WinMoveBottom` 经 `windows.zorder(target, "top"|"bottom")` 承载，`WinKill/WinRedraw` 经 `windows.kill`/`windows.redraw` 承载，`WinMinimizeAll/WinMinimizeAllUndo` 经 `windows.minimizeAll()`/`windows.minimizeAllUndo()` 承载，`WinSetTitle/WinSetEnabled/WinSetAlwaysOnTop` 经 `windows.setTitle`/`windows.setEnabled`/`windows.setAlwaysOnTop` 承载，`WinSetStyle/WinSetExStyle/WinSetTransparent/WinSetTransColor` 经 `windows.setStyle`/`windows.setExStyle`/`windows.setTransparent`/`windows.setTransColor` 承载，`WinSetRegion` 经 `windows.setRegion` 承载（附带 `region` 快照读回字段——AHK 无对应读取器）。
 
 实现：UI lane 调用 `EnumWindows`、`GetForegroundWindow`、`GetWindowTextW`、`GetWindowRect`、`GetClientRect`、`GetWindowThreadProcessId`、`IsWindowVisible/IsIconic/IsZoomed/IsWindowEnabled`、`SetWindowPos`、`ShowWindow`、`SetForegroundWindow`、`SetWindowLongPtr`、`SetLayeredWindowAttributes`。稳定 ID 由 UI lane registry 产生且不复用；窗口销毁后所有操作返回 `InvalidState`。激活沿用 AHK 的 restore → `SetForegroundWindow` → 必要时 `AttachThreadInput`/Alt-up 的策略，但必须在 Trace 记录每个尝试。
 

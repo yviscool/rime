@@ -25,6 +25,17 @@ struct Rect {
   friend bool operator==(const Rect&, const Rect&) = default;
 };
 
+// A partial move/resize (AHK WinMove X/Y/Width/Height): omitted fields keep
+// the current value. x/y are screen coordinates of the top-left corner
+// (negative is valid on a multi-monitor desktop); w/h are the outer frame
+// size in pixels and must be >= 1.
+struct RectMove {
+  std::optional<std::int64_t> x;
+  std::optional<std::int64_t> y;
+  std::optional<std::int64_t> w;
+  std::optional<std::int64_t> h;
+};
+
 struct WindowInfo {
   std::uint64_t id{0};
   std::string title;         // UTF-8
@@ -272,10 +283,12 @@ class WindowService final {
   // Moves the window to a named placement: left, right, top, bottom, full.
   rime::core::Error move(std::uint64_t id, std::string_view placement,
                          std::chrono::milliseconds timeout = std::chrono::seconds(5));
-  // Internal/test-only geometry helpers (kept public for CLI/tests; not a
-  // general placement API): move_rect positions by rect, placement_rect
-  // resolves a named placement against the primary monitor work area.
-  rime::core::Error move_rect(std::uint64_t id, const Rect& rect,
+  // Moves/resizes by rect (AHK WinMove X/Y/Width/Height): omitted RectMove
+  // fields keep the current value; w/h must be >= 1; x/y are screen
+  // coordinates. This is the coordinate path behind window.move's rect
+  // payload; `placement_rect` (below) resolves a named placement against the
+  // primary monitor work area.
+  rime::core::Error move_rect(std::uint64_t id, const RectMove& move,
                               std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // Restores when minimized and requests foreground activation.
   rime::core::Error focus(std::uint64_t id,

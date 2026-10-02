@@ -698,18 +698,78 @@ JSValue run_window_mutation(JSContext* context, int argc, JSValueConst* argv,
 
   int cursor = 1;
   std::string placement;
+  json::Value rect_payload = json::Value::object();
+  bool has_rect = false;
   if (std::string_view(action_type) == "window.move") {
     if (argc < 2) return JS_ThrowTypeError(context, "%s(target, position)", function_name);
-    if (!JS_IsString(argv[1])) {
-      return JS_ThrowTypeError(context, "%s(target, position): position must be a string",
-                               function_name);
-    }
-    const char* position_text = JS_ToCString(context, argv[1]);
-    if (!position_text) return JS_EXCEPTION;
-    placement = position_text;
-    JS_FreeCString(context, position_text);
-    if (placement.empty()) {
-      return JS_ThrowTypeError(context, "%s(target, position): position must not be empty",
+    if (JS_IsString(argv[1])) {
+      const char* position_text = JS_ToCString(context, argv[1]);
+      if (!position_text) return JS_EXCEPTION;
+      placement = position_text;
+      JS_FreeCString(context, position_text);
+      if (placement.empty()) {
+        return JS_ThrowTypeError(context, "%s(target, position): position must not be empty",
+                                 function_name);
+      }
+    } else if (JS_IsObject(argv[1]) && !JS_IsArray(argv[1])) {
+      // AHK WinMove's coordinate form: a rect object with at least one
+      // integer field; omitted fields keep the current value. Everything is
+      // validated here so a bad rect throws synchronously before an action
+      // is enqueued (the executor re-validates the built payload).
+      bool any = false;
+      const auto take_rect = [&](const char* key, const double low) -> bool {
+        JSValue field = JS_GetPropertyStr(context, argv[1], key);
+        if (JS_IsException(field)) return false;
+        if (JS_IsUndefined(field)) {
+          JS_FreeValue(context, field);
+          return true;
+        }
+        double raw = 0.0;
+        if (!JS_IsNumber(field)) {
+          JS_FreeValue(context, field);
+          JS_ThrowTypeError(context, "%s(target, position): rect.%s must be a number",
+                            function_name, key);
+          return false;
+        }
+        if (JS_ToFloat64(context, &raw, field)) {
+          JS_FreeValue(context, field);
+          return false;
+        }
+        JS_FreeValue(context, field);
+        if (!std::isfinite(raw)) {
+          JS_ThrowTypeError(context, "%s(target, position): rect.%s must be a number",
+                            function_name, key);
+          return false;
+        }
+        if (raw < low || raw > 2147483647.0) {
+          JS_ThrowTypeError(context, "%s(target, position): rect.%s must be %s", function_name,
+                            key, low >= 1.0 ? "an integer between 1 and 2147483647"
+                                            : "a 32-bit screen coordinate");
+          return false;
+        }
+        if (raw != std::floor(raw)) {
+          JS_ThrowTypeError(context, "%s(target, position): rect.%s must be an integer",
+                            function_name, key);
+          return false;
+        }
+        rect_payload.set(key, json::Value::number(raw));
+        any = true;
+        return true;
+      };
+      if (!take_rect("x", -2147483648.0) || !take_rect("y", -2147483648.0) ||
+          !take_rect("w", 1.0) || !take_rect("h", 1.0)) {
+        return JS_EXCEPTION;
+      }
+      if (!any) {
+        return JS_ThrowTypeError(
+            context, "%s(target, position): rect must set at least one of x, y, w, h",
+            function_name);
+      }
+      has_rect = true;
+    } else {
+      return JS_ThrowTypeError(context,
+                               "%s(target, position): position must be a placement string "
+                               "or a rect object",
                                function_name);
     }
     cursor = 2;
@@ -747,6 +807,8 @@ JSValue run_window_mutation(JSContext* context, int argc, JSValueConst* argv,
   if (!placement.empty()) {
     const char* key = std::string_view(action_type) == "window.move" ? "position" : "placement";
     payload.set(key, json::Value::string(placement));
+  } else if (has_rect) {
+    payload.set("rect", rect_payload);
   }
   auto action = make_action(*binding->next_action_id, "rime:window", action_type,
                             kWindowWriteCapability, {"window", std::move(target_text)},

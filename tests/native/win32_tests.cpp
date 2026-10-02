@@ -20,6 +20,7 @@ namespace {
 
 using namespace std::chrono_literals;
 using rime::win32::Rect;
+using rime::win32::RectMove;
 using rime::win32::TitleMatchMode;
 using rime::win32::WindowInfo;
 using rime::win32::WindowService;
@@ -113,12 +114,17 @@ int main() {
   assert(placement.left == work.left + (work.right - work.left) / 2);
   assert(!service.placement_rect("diagonal", placement).ok());
 
-  // Explicit rect moves round-trip through info().
+  // Explicit rect moves round-trip through info(): a full RectMove sets
+  // every field, a partial one keeps the omitted values (AHK WinMove rule).
   const Rect target{50, 60, 450, 360};
-  assert(service.move_rect(id, target).ok());
+  assert(service.move_rect(id, RectMove{50, 60, 400, 300}).ok());
   WindowInfo resized;
   assert(service.info(id, resized).ok());
   assert(resized.rect == target);
+  assert(service.move_rect(id, RectMove{.x = 75}).ok());
+  WindowInfo partial_resized;
+  assert(service.info(id, partial_resized).ok());
+  assert(partial_resized.rect == (Rect{75, 60, 475, 360}));
 
   // focus is a weak assertion by necessity: SetForegroundWindow may refuse
   // while another window owns the foreground (interactive/CI dependent), so
@@ -1170,6 +1176,42 @@ int main() {
   assert(!bad_placement_result.succeeded);
   assert(bad_placement_result.error.message.find("unknown window placement") !=
          std::string::npos);
+
+  // The coordinate form (AHK WinMove X/Y/Width/Height) is the second
+  // accepted shape for window.move: a full rect reaches the service, a
+  // partial rect keeps the omitted fields, and malformed or mixed payloads
+  // refuse with InvalidContract before any window call. Ids stay below the
+  // denial range (20+).
+  rime::action::Action rect_move = move_action;
+  rect_move.id = 13;
+  rect_move.payload = R"({"rect":{"x":210,"y":150,"w":330,"h":260}})";
+  const auto rect_executed = kernel.execute(rect_move);
+  assert(rect_executed.succeeded);
+  WindowInfo rect_state;
+  assert(service.info(id, rect_state).ok());
+  assert(rect_state.rect == (Rect{210, 150, 540, 410}));
+
+  rect_move.id = 14;
+  rect_move.payload = R"({"rect":{"y":190}})";
+  const auto partial_executed = kernel.execute(rect_move);
+  assert(partial_executed.succeeded);
+  WindowInfo rect_partial;
+  assert(service.info(id, rect_partial).ok());
+  assert(rect_partial.rect == (Rect{210, 190, 540, 450}));
+
+  const auto expect_rect_contract = [&](const char* payload_text, const std::uint64_t bad_id) {
+    rime::action::Action bad_rect = move_action;
+    bad_rect.id = bad_id;
+    bad_rect.payload = payload_text;
+    const auto refused = kernel.execute(bad_rect);
+    assert(!refused.succeeded);
+    assert(refused.error.code == rime::core::Error::Code::InvalidContract);
+  };
+  expect_rect_contract(R"({})", 15);
+  expect_rect_contract(R"({"rect":{}})", 16);
+  expect_rect_contract(R"({"rect":{"w":0}})", 17);
+  expect_rect_contract(R"({"rect":{"x":1.5}})", 18);
+  expect_rect_contract(R"({"rect":{"x":1},"position":"left"})", 19);
 
   // Group actions dispatch through the same kernel. Two disposable victims
   // back a fresh group; the close-all count is exact because nothing else

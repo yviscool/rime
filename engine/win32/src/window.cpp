@@ -1640,9 +1640,19 @@ rime::core::Error WindowService::move(const std::uint64_t id, const std::string_
   return result;
 }
 
-rime::core::Error WindowService::move_rect(const std::uint64_t id, const Rect& rect,
+rime::core::Error WindowService::move_rect(const std::uint64_t id, const RectMove& move,
                                            const std::chrono::milliseconds timeout) {
   if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  // Defense in depth: the executor validates the wire payload too, but a
+  // direct caller must not ask for a degenerate frame or an edge that does
+  // not fit the 32-bit screen coordinates SetWindowPos takes.
+  const auto valid_field = [](const std::optional<std::int64_t>& field, const std::int64_t low) {
+    return !field || (*field >= low && *field <= 2147483647);
+  };
+  if (!valid_field(move.w, 1) || !valid_field(move.h, 1) || !valid_field(move.x, -2147483648) ||
+      !valid_field(move.y, -2147483648)) {
+    return {rime::core::Error::Code::InvalidContract, "rect move fields are out of range"};
+  }
   rime::core::Error result = rime::core::Error::none();
   const auto call_error = impl_->ui.call(
       [&] {
@@ -1655,9 +1665,23 @@ rime::core::Error WindowService::move_rect(const std::uint64_t id, const Rect& r
           result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
           return;
         }
+        // Omitted fields keep the current value (AHK WinMove rule): read the
+        // committed rect first, then apply the patch as one SetWindowPos so
+        // the window never visits an intermediate shape.
+        RECT current{};
+        if (!GetWindowRect(window, &current)) {
+          result = {rime::core::Error::Code::ExecutionFailed, "GetWindowRect failed"};
+          return;
+        }
+        const auto patched = [](const std::optional<std::int64_t>& field, const long value) {
+          return field ? static_cast<long>(*field) : value;
+        };
+        const long x = patched(move.x, current.left);
+        const long y = patched(move.y, current.top);
+        const long w = patched(move.w, current.right - current.left);
+        const long h = patched(move.h, current.bottom - current.top);
         if (IsIconic(window)) ShowWindow(window, SW_RESTORE);
-        if (!SetWindowPos(window, nullptr, rect.left, rect.top, rect.width(), rect.height(),
-                          SWP_NOZORDER | SWP_NOACTIVATE)) {
+        if (!SetWindowPos(window, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE)) {
           result = {rime::core::Error::Code::ExecutionFailed, "SetWindowPos failed"};
         }
       },

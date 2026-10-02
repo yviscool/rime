@@ -77,7 +77,15 @@ export interface WindowV1Snapshot {
 export type WindowV1Placement = "left" | "right" | "top" | "bottom" | "full";
 
 export interface WindowV1MovePayload {
-  position: WindowV1Placement;
+  position?: WindowV1Placement;
+  rect?: WindowV1MoveRect;
+}
+
+export interface WindowV1MoveRect {
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
 }
 
 export type WindowV1EmptyPayload = Record<string, never>;

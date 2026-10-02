@@ -6,6 +6,8 @@ import type {
   TitleMatchModeSpeed,
   WindowHandle,
   WindowId,
+  WindowMoveRect,
+  WindowPlacement,
   WindowQueryFields,
   WindowsBridge,
   WindowsGroupsBridge,
@@ -79,7 +81,7 @@ const movedHandle: WindowHandle = {
 const calls: Array<{
   method: string;
   target: WindowId | "active" | number | string;
-  position?: string;
+  position?: WindowPlacement | WindowMoveRect;
   placement?: string;
   title?: string;
   value?: boolean | number | string;
@@ -187,7 +189,7 @@ mock.module("rime:window", () => ({
       calls.push({ method: "text", target: windowId, options });
       return "Rime Slice Control\r\n";
     },
-    move: (target: WindowId | "active", position: string, options?: NativeActionOptions) => {
+    move: (target: WindowId | "active", position: WindowPlacement | WindowMoveRect, options?: NativeActionOptions) => {
       calls.push({ method: "move", target, position, options });
       if (rejectNext) {
         rejectNext = false;

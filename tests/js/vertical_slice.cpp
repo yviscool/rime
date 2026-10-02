@@ -185,6 +185,79 @@ int main() {
         "  throw new Error('negative deadlineMs must throw TypeError');",
         "slice-bad-deadline-check.mjs");
 
+  // Segment 2d: the coordinate form (AHK WinMove X/Y/Width/Height) applies
+  // an absolute outer rect; a partial rect keeps the omitted fields; a
+  // malformed rect throws TypeError synchronously and dispatch nothing.
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.rectMoved = null;\n"
+        "globalThis.rectFailure = null;\n"
+        "windows.move(" + id_text + ", { x: 120, y: 80, w: 320, h: 240 })\n"
+        "  .then(w => { globalThis.rectMoved = w; },\n"
+        "        e => { globalThis.rectFailure = String(e); });",
+        "slice-move-rect.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.rectFailure)\n"
+        "  throw new Error('rect move failed: ' + globalThis.rectFailure);\n"
+        "const r = globalThis.rectMoved.rect;\n"
+        "if (r.left !== 120 || r.top !== 80 || r.right - r.left !== 320 ||\n"
+        "    r.bottom - r.top !== 240)\n"
+        "  throw new Error('rect move did not apply: ' + JSON.stringify(r));",
+        "slice-move-rect-check.mjs");
+  WindowInfo rect_moved;
+  assert(service.info(id, rect_moved).ok());
+  assert(rect_moved.rect.left == 120 && rect_moved.rect.top == 80);
+  assert(rect_moved.rect.right - rect_moved.rect.left == 320);
+  assert(rect_moved.rect.bottom - rect_moved.rect.top == 240);
+
+  // A partial rect keeps the untouched fields (only y changes here).
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.partialRect = null;\n"
+        "globalThis.partialRectFailure = null;\n"
+        "windows.move(" + id_text + ", { y: 200 })\n"
+        "  .then(w => { globalThis.partialRect = w; },\n"
+        "        e => { globalThis.partialRectFailure = String(e); });",
+        "slice-move-partial.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.partialRectFailure)\n"
+        "  throw new Error('partial rect move failed: ' + globalThis.partialRectFailure);\n"
+        "const r = globalThis.partialRect.rect;\n"
+        "if (r.left !== 120 || r.top !== 200 || r.right - r.left !== 320 ||\n"
+        "    r.bottom - r.top !== 240)\n"
+        "  throw new Error('partial rect kept the wrong fields: ' + JSON.stringify(r));",
+        "slice-move-partial-check.mjs");
+  WindowInfo rect_partial;
+  assert(service.info(id, rect_partial).ok());
+  assert(rect_partial.rect.left == 120 && rect_partial.rect.top == 200);
+  assert(rect_partial.rect.right - rect_partial.rect.left == 320);
+  assert(rect_partial.rect.bottom - rect_partial.rect.top == 240);
+
+  // Malformed rects throw TypeError synchronously: empty rect, w below 1,
+  // a fractional coordinate, a non-number field, and a non-object position.
+  // None of them may enqueue an action (the window stays put).
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.rectTypeErrors = [];\n"
+        "for (const bad of [{}, { w: 0 }, { x: 1.5 }, { x: 'left' }, null]) {\n"
+        "  try { windows.move(" + id_text + ", bad); globalThis.rectTypeErrors.push('no throw'); }\n"
+        "  catch (e) {\n"
+        "    if (!(e instanceof TypeError)) globalThis.rectTypeErrors.push(String(e));\n"
+        "  }\n"
+        "}",
+        "slice-move-bad-rect.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.rectTypeErrors.length)\n"
+        "  throw new Error('bad rects must throw TypeError: ' +\n"
+        "                  globalThis.rectTypeErrors.join(', '));",
+        "slice-move-bad-rect-check.mjs");
+  WindowInfo after_bad_rects;
+  assert(service.info(id, after_bad_rects).ok());
+  assert(after_bad_rects.rect == rect_partial.rect);
+
   // Segment 3: focus and the 'active' target, scoped to OUR window only.
   // No global input injection (keybd_event) and no foreign window is ever
   // moved: the 'active' move runs only when our window owns the foreground,
@@ -1150,10 +1223,11 @@ int main() {
   //   segment (write plus finally-restored write); the synchronous
   //   argument TypeErrors dispatch nothing;
   // - window.move: segment 1 (move), segment 2 (bad placement), segment 2b
-  //   (exhausted deadline), segment 6 (stale id), plus the optional active
-  //   move. The deadline action always records Finished but records Started
-  //   only when it survives kernel pre-dispatch, so Started is base/base+1
-  //   and Finished is Started/Started+1.
+  //   (exhausted deadline), segment 2d (rect move plus partial rect move),
+  //   segment 6 (stale id), plus the optional active move. The deadline
+  //   action always records Finished but records Started only when it
+  //   survives kernel pre-dispatch, so Started is base/base+1 and Finished
+  //   is Started/Started+1. The segment 2d TypeErrors dispatch nothing.
   // - window.settings: segment 5d's settings writes record StateChanged
   //   once per actual change (2 mode, 2 speed, 2 detectHiddenWindows,
   //   2 detectHiddenText); the no-change double set stays silent.
@@ -1169,7 +1243,7 @@ int main() {
     if (subject == "window.move") continue;  // bounded below, not exactly paired
     assert(finished->second == count);
   }
-  const std::size_t move_base = active_move_ran ? 4u : 3u;  // seg 1+2+stale [+active]
+  const std::size_t move_base = active_move_ran ? 6u : 5u;  // seg 1+2+2d(2)+stale [+active]
   const std::size_t move_started = started_count["window.move"];
   const std::size_t move_finished = finished_count["window.move"];
   // +1 Started when the deadline action survived kernel pre-dispatch.

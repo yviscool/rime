@@ -328,13 +328,78 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
   }
 
   std::string placement;
+  bool move_by_rect = false;
+  RectMove move_rect;
+  std::string move_detail;
   if (action.type == "window.move") {
     const rime::core::json::Value* position = payload.value->find("position");
-    if (!position || !position->is_string() || position->as_string().empty()) {
+    const rime::core::json::Value* rect = payload.value->find("rect");
+    if (position && rect) {
       return fail(action, Code::InvalidContract,
-                  "window.move payload requires a string position");
+                  "window.move payload accepts either position or rect, not both");
     }
-    placement = position->as_string();
+    if (position) {
+      if (!position->is_string() || position->as_string().empty()) {
+        return fail(action, Code::InvalidContract,
+                    "window.move payload requires a string position");
+      }
+      placement = position->as_string();
+      move_detail = "window moved to " + placement;
+    } else if (rect) {
+      // The coordinate form (AHK WinMove X/Y/Width/Height): integer fields
+      // only, w/h at least 1, x/y as 32-bit screen coordinates; at least one
+      // field must be set. Omitted fields keep the current value.
+      if (!rect->is_object()) {
+        return fail(action, Code::InvalidContract, "window.move rect must be an object");
+      }
+      const char* keys[] = {"x", "y", "w", "h"};
+      const double lows[] = {-2147483648.0, -2147483648.0, 1.0, 1.0};
+      std::optional<std::int64_t> fields[4];
+      bool any = false;
+      for (int i = 0; i < 4; ++i) {
+        const rime::core::json::Value* field = rect->find(keys[i]);
+        if (!field) continue;
+        const std::string name = std::string("window.move rect.") + keys[i];
+        if (!field->is_number()) {
+          return fail(action, Code::InvalidContract, name + " must be a number");
+        }
+        const double raw = field->as_number();
+        if (!std::isfinite(raw)) {
+          return fail(action, Code::InvalidContract, name + " must be a number");
+        }
+        if (raw < lows[i] || raw > 2147483647.0) {
+          return fail(action, Code::InvalidContract,
+                      i < 2 ? name + " must be a 32-bit screen coordinate"
+                            : name + " must be an integer between 1 and 2147483647");
+        }
+        if (raw != std::floor(raw)) {
+          return fail(action, Code::InvalidContract, name + " must be an integer");
+        }
+        fields[i] = static_cast<std::int64_t>(raw);
+        any = true;
+      }
+      if (!any) {
+        return fail(action, Code::InvalidContract,
+                    "window.move rect must set at least one of x, y, w, h");
+      }
+      move_rect.x = fields[0];
+      move_rect.y = fields[1];
+      move_rect.w = fields[2];
+      move_rect.h = fields[3];
+      move_by_rect = true;
+      std::string rect_text;
+      for (int i = 0; i < 4; ++i) {
+        if (!fields[i]) continue;
+        if (!rect_text.empty()) rect_text += ", ";
+        rect_text += keys[i];
+        rect_text += "=";
+        rect_text += std::to_string(*fields[i]);
+      }
+      move_detail = "window moved to rect(" + rect_text + ")";
+    } else {
+      return fail(action, Code::InvalidContract,
+                  "window.move payload requires a string position or a rect object");
+    }
   } else if (action.type == "window.zorder") {
     const rime::core::json::Value* where = payload.value->find("placement");
     if (!where || !where->is_string()) {
@@ -471,7 +536,8 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
     return fail(action, Code::Timeout, "action deadline exceeded");
   }
   if (action.type == "window.move") {
-    op_error = service_.move(window_id, placement, timeout);
+    op_error = move_by_rect ? service_.move_rect(window_id, move_rect, timeout)
+                            : service_.move(window_id, placement, timeout);
   } else if (action.type == "window.zorder") {
     op_error = service_.zorder(window_id, placement == "bottom", timeout);
   } else if (action.type == "window.focus") {
@@ -527,7 +593,7 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
     }
   }
   const std::string detail = action.type == "window.move"
-                                 ? "window moved to " + placement
+                                 ? move_detail
                                  : action.type == "window.zorder"
                                        ? "window z-order set to " + placement
                                        : action.type + " applied";

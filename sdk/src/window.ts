@@ -7,6 +7,20 @@ export type Brand<K, T> = K & { readonly __brand: T };
 export type WindowId = Brand<number, "WindowId">;
 
 export type WindowPlacement = "left" | "right" | "top" | "bottom" | "full";
+
+/**
+ * The coordinate form of `window.move` (AHK WinMove X/Y/Width/Height): a
+ * partial move/resize where omitted fields keep the current value. `x`/`y`
+ * are screen coordinates of the top-left corner (negative is valid on a
+ * multi-monitor desktop); `w`/`h` are the outer frame size in pixels and
+ * must be at least 1. Mutually exclusive with {@link WindowPlacement}.
+ */
+export interface WindowMoveRect {
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+}
 /** Z-order placement for `zorder` (AHK WinMoveTop/WinMoveBottom). */
 export type WindowZorder = "top" | "bottom";
 
@@ -177,7 +191,7 @@ export interface WindowsBridge {
   /** `target` is a window id or the string "active". */
   move(
     target: WindowId | "active",
-    position: WindowPlacement,
+    position: WindowPlacement | WindowMoveRect,
     options?: NativeActionOptions,
   ): Promise<WindowHandle>;
   /** Reorders to the top/bottom of the z-order without activating (WinMoveTop/WinMoveBottom). */
@@ -381,7 +395,7 @@ export async function groups(): Promise<WindowGroups> {
 
 export interface ActiveWindowRequest {
   /** Moves the foreground window through the `window.move` action pipeline. */
-  move(position: WindowPlacement, options?: ActionOptions): Promise<WindowHandle>;
+  move(position: WindowPlacement | WindowMoveRect, options?: ActionOptions): Promise<WindowHandle>;
   /** Reorders the foreground window through the `window.zorder` pipeline. */
   zorder(placement: WindowZorder, options?: ActionOptions): Promise<WindowHandle>;
   focus(options?: ActionOptions): Promise<WindowHandle>;
@@ -453,10 +467,14 @@ export const Window = {
     };
   },
   /**
-   * Moves a window through the `window.move` action pipeline.
+   * Moves a window through the `window.move` action pipeline: either a
+   * named placement (left half etc.) or a coordinate rect
+   * ({x?, y?, w?, h?}, AHK WinMove X/Y/Width/Height) where omitted fields
+   * keep the current value.
    * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   * @throws TypeError synchronously when the rect object is malformed.
    */
-  move(windowId: WindowId, position: WindowPlacement, options?: ActionOptions): Promise<WindowHandle> {
+  move(windowId: WindowId, position: WindowPlacement | WindowMoveRect, options?: ActionOptions): Promise<WindowHandle> {
     return runAction(options, (native) =>
       windowBridge().then((windows) => windows.move(windowId, position, native)),
     );

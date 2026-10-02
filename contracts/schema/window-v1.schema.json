@@ -79,9 +79,29 @@
     "movePayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["position"],
+      "oneOf": [
+        { "required": ["position"] },
+        { "required": ["rect"] }
+      ],
       "properties": {
-        "position": { "$ref": "#/$defs/placement" }
+        "position": { "$ref": "#/$defs/placement" },
+        "rect": { "$ref": "#/$defs/moveRect" }
+      }
+    },
+    "moveRect": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["x"] },
+        { "required": ["y"] },
+        { "required": ["w"] },
+        { "required": ["h"] }
+      ],
+      "properties": {
+        "x": { "type": "integer", "description": "Screen x of the top-left corner (WinMove X); negative is valid on a multi-monitor desktop." },
+        "y": { "type": "integer", "description": "Screen y of the top-left corner (WinMove Y)." },
+        "w": { "type": "integer", "minimum": 1, "description": "Outer frame width (WinMove Width), pixels." },
+        "h": { "type": "integer", "minimum": 1, "description": "Outer frame height (WinMove Height), pixels." }
       }
     },
     "emptyPayload": {

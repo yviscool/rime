@@ -14,6 +14,8 @@ interface Schema {
   const?: JsonValue;
   enum?: JsonValue[];
   type?: string | string[];
+  oneOf?: Schema[];
+  anyOf?: Schema[];
   required?: string[];
   properties?: Record<string, Schema>;
   additionalProperties?: boolean | Schema;
@@ -28,8 +30,9 @@ const readJson = async (path: string): Promise<JsonValue> =>
   JSON.parse(await readFile(resolve(root, path), "utf8")) as JsonValue;
 
 // Minimal JSON Schema Draft 2020-12 subset validator covering the features
-// used by contracts/schema: type, const, enum, required, properties,
-// additionalProperties, items, $ref, minLength, minimum and maximum.
+// used by contracts/schema: type, const, enum, oneOf, anyOf, required,
+// properties, additionalProperties, items, $ref, minLength, minimum and
+// maximum.
 function validate(schema: Schema, value: JsonValue, rootSchema: Schema, path = "$"): string[] {
   const problems: string[] = [];
   const check = (condition: boolean, message: string): void => {
@@ -54,6 +57,16 @@ function validate(schema: Schema, value: JsonValue, rootSchema: Schema, path = "
     );
     return problems;
   }
+  // Combinators: a branch counts as matching only when it reports no
+  // problems; branch-level detail is collapsed into one parent message.
+  if (schema.oneOf) {
+    const matches = schema.oneOf.filter((branch) => validate(branch, value, rootSchema, path).length === 0);
+    check(matches.length === 1, "must match exactly one oneOf branch");
+  }
+  if (schema.anyOf) {
+    const matches = schema.anyOf.filter((branch) => validate(branch, value, rootSchema, path).length === 0);
+    check(matches.length >= 1, "must match at least one anyOf branch");
+  }
 
   const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
   if (types.length > 0) {
@@ -77,20 +90,23 @@ function validate(schema: Schema, value: JsonValue, rootSchema: Schema, path = "
     });
   }
 
-  if (value !== null && typeof value === "object" && !Array.isArray(value) && schema.properties) {
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     const record = value as Record<string, JsonValue>;
-    const required = schema.required ?? [];
-    for (const key of required) {
+    // `required` applies to objects whether or not this schema lists
+    // properties - combinator branches like {required:["rect"]} rely on it.
+    for (const key of schema.required ?? []) {
       check(Object.hasOwn(record, key), `missing required property '${key}'`);
     }
-    if (schema.additionalProperties === false) {
-      for (const key of Object.keys(record)) {
-        check(Object.hasOwn(schema.properties, key), `unexpected property '${key}'`);
+    if (schema.properties) {
+      if (schema.additionalProperties === false) {
+        for (const key of Object.keys(record)) {
+          check(Object.hasOwn(schema.properties, key), `unexpected property '${key}'`);
+        }
       }
-    }
-    for (const [key, entry] of Object.entries(schema.properties)) {
-      if (Object.hasOwn(record, key)) {
-        problems.push(...validate(entry, record[key], rootSchema, `${path}.${key}`));
+      for (const [key, entry] of Object.entries(schema.properties)) {
+        if (Object.hasOwn(record, key)) {
+          problems.push(...validate(entry, record[key], rootSchema, `${path}.${key}`));
+        }
       }
     }
   }
@@ -148,6 +164,13 @@ const snapshotProblems = validate(windowSchema.$defs?.["snapshot"] as Schema, wi
 assert.deepEqual(snapshotProblems, [], `window snapshot example violates schema:\n${snapshotProblems.join("\n")}`);
 const movePayloadProblems = validate(windowSchema.$defs?.["movePayload"] as Schema, windowMovePayload, windowSchema);
 assert.deepEqual(movePayloadProblems, [], `window move payload violates schema:\n${movePayloadProblems.join("\n")}`);
+const windowRectMovePayload = { rect: { x: -40, y: 80, w: 320 } } as JsonValue;
+const rectMovePayloadProblems = validate(
+  windowSchema.$defs?.["movePayload"] as Schema,
+  windowRectMovePayload,
+  windowSchema,
+);
+assert.deepEqual(rectMovePayloadProblems, [], `window rect move payload violates schema:\n${rectMovePayloadProblems.join("\n")}`);
 const zorderPayload = { placement: "bottom" } as JsonValue;
 const zorderPayloadProblems = validate(
   windowSchema.$defs?.["zorderPayload"] as Schema,
@@ -207,6 +230,11 @@ const violations: Array<[JsonValue, Schema, Schema?]> = [
   [{ ...(windowSnapshot as Record<string, JsonValue>), state: "weird" }, windowSchema.$defs?.["snapshot"] as Schema, windowSchema],
   [{ ...(windowSnapshot as Record<string, JsonValue>), hwnd: 42 }, windowSchema.$defs?.["snapshot"] as Schema, windowSchema],
   [{ ...(windowMovePayload as Record<string, JsonValue>), position: "diagonal" }, windowSchema.$defs?.["movePayload"] as Schema, windowSchema],
+  [{} as Record<string, JsonValue>, windowSchema.$defs?.["movePayload"] as Schema, windowSchema],
+  [{ rect: {} } as Record<string, JsonValue>, windowSchema.$defs?.["movePayload"] as Schema, windowSchema],
+  [{ rect: { w: 0 } } as Record<string, JsonValue>, windowSchema.$defs?.["movePayload"] as Schema, windowSchema],
+  [{ rect: { x: 1.5 } } as Record<string, JsonValue>, windowSchema.$defs?.["movePayload"] as Schema, windowSchema],
+  [{ position: "left", rect: { x: 1 } } as Record<string, JsonValue>, windowSchema.$defs?.["movePayload"] as Schema, windowSchema],
   [{ ...(zorderPayload as Record<string, JsonValue>), placement: "middle" }, windowSchema.$defs?.["zorderPayload"] as Schema, windowSchema],
   [{} as Record<string, JsonValue>, windowSchema.$defs?.["zorderPayload"] as Schema, windowSchema],
   [{ ...(groupAddPayload as Record<string, JsonValue>), unexpected: 1 }, windowSchema.$defs?.["groupAddPayload"] as Schema, windowSchema],
