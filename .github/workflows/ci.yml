@@ -32,6 +32,25 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Restore AHK research snapshot (gitignored, required by matrix:check)
+        shell: pwsh
+        run: |
+          # rime-research/ is gitignored, so a fresh checkout never contains it,
+          # but matrix:check reads two files from it for the denominator drift check.
+          # Restore the pinned snapshot (denominator frozen at 253/101/22/134).
+          $sha = "d8f819c16c08a61a605a746b3e6cc18fadee6c03"
+          $target = "rime-research/AutoHotkey-alpha"
+          if ((Test-Path "$target/source/script.cpp") -and (Test-Path "$target/source/lib/functions.h")) {
+            Write-Host "AHK research snapshot already present, skipping."
+            exit 0
+          }
+          Remove-Item -Recurse -Force $target -ErrorAction SilentlyContinue
+          git init $target
+          git -C $target remote add origin https://github.com/AutoHotkey/AutoHotkey.git
+          git -C $target sparse-checkout set --no-cone source/script.cpp source/lib/functions.h
+          git -C $target fetch --depth 1 --filter=blob:none origin $sha
+          git -C $target checkout FETCH_HEAD
+
       - name: Full suite (contract, typecheck, sdk, MSVC native, QuickJS bundle)
         run: bun run test
 
