@@ -15,7 +15,7 @@
 - 8/8 个写类型经 JS → Dispatcher 队列 → Kernel → Executor → UI lane 端到端验证；`tests/native/win32_tests.cpp` 另覆盖 8/8 写类型的原生分派、空 policy 下逐类型的 capability 拒绝（拒绝后状态不变）与排队超时。
 - `tests/sdk/windows.test.ts` 覆盖 `settings()` 加载与返回前值语义（mock 桥）。
 - `docs/api/coverage.json` 与 `compatibility-matrix.md` 的行是**逐 AHK 函数**状态（已测函数为 `implemented` 并带 contractTest 路径，未测扩展项仍为 `contract-only|missing`），与本页 Rime 原生 API 的状态不构成矛盾：两者粒度不同。
-- cancel（`cancellationId`）：仅 kernel 通用路径有覆盖，window JS 入口尚无取消测试。
+- cancel（`cancellationId`）：写入口由 slice-premature 覆盖（入队前取消，kernel pre-dispatch 拒绝 `cancelled`），读入口由 slice-read-cancel 覆盖（`list({cancellationId})` 经 host async 绑定拒绝 `cancelled`）；kernel 通用路径由 contract 测试覆盖。
 
 ## 执行模型
 

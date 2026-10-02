@@ -649,6 +649,35 @@ int main() {
         "                  globalThis.prematureErrorCode);",
         "slice-premature-check.mjs");
 
+  // A cancellation armed on the window READ entry rejects the pending
+  // promise with code cancelled: reads skip the dispatcher, so this covers
+  // the host async binding (begin_async) instead of kernel pre-dispatch --
+  // the write-entry premature refusal above covers the kernel side.
+  check(runtime,
+        "import { runtime } from 'rime:runtime';\n"
+        "import { windows } from 'rime:window';\n"
+        "const cid = runtime.cancellation();\n"
+        "globalThis.readCancelledOutcome = null;\n"
+        "globalThis.readCancelledCode = null;\n"
+        "globalThis.readCancelledMessage = null;\n"
+        "windows.list({ cancellationId: cid })\n"
+        "  .then(() => { globalThis.readCancelledOutcome = 'resolved'; },\n"
+        "        e => { globalThis.readCancelledOutcome = 'rejected';\n"
+        "               globalThis.readCancelledCode = e.code;\n"
+        "               globalThis.readCancelledMessage = e.message; });\n"
+        "runtime.cancel(cid);",
+        "slice-read-cancel.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.readCancelledOutcome !== 'rejected')\n"
+        "  throw new Error('cancelled read must reject, got: ' +\n"
+        "                  globalThis.readCancelledOutcome);\n"
+        "if (globalThis.readCancelledCode !== 'cancelled')\n"
+        "  throw new Error('read cancel code: ' + globalThis.readCancelledCode);\n"
+        "if (globalThis.readCancelledMessage !== 'cancelled')\n"
+        "  throw new Error('read cancel message: ' + globalThis.readCancelledMessage);",
+        "slice-read-cancel-check.mjs");
+
   // Trace, grouped by action type (no fragile global totals). Sources:
   // - window.focus/hide/show/minimize/maximize/restore/close: one Started +
   //   one Finished each (segments 3/5/5b/5c/6);
