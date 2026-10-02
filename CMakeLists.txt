@@ -43,6 +43,12 @@ endif()
 add_subdirectory(hosts/desktop)
 
 if(RIME_BUILD_TESTS)
+  # Linked into every native test executable: assert/abort/CRT failures must
+  # land on stderr with a nonzero exit code and never raise a dialog, or a
+  # broken test would block ctest until someone clicks the message box.
+  add_library(rime_test_support OBJECT tests/test_support.cpp)
+  target_compile_features(rime_test_support PRIVATE cxx_std_20)
+
   add_subdirectory(tests/native)
   if(RIME_ENABLE_QUICKJS)
     add_subdirectory(tests/js)
