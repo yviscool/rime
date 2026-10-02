@@ -3,9 +3,28 @@
   "title": "Untitled - Notepad",
   "className": "Notepad",
   "processName": "notepad.exe",
-  "rect": { "left": 0, "top": 0, "right": 800, "bottom": 600 },
+  "processPath": "C:\\Program Files\\WindowsApps\\Notepad\\notepad.exe",
+  "rect": {
+    "left": 0,
+    "top": 0,
+    "right": 800,
+    "bottom": 600
+  },
+  "clientRect": {
+    "left": 0,
+    "top": 0,
+    "right": 800,
+    "bottom": 560
+  },
   "visible": true,
   "minimized": false,
   "state": "normal",
-  "processId": 4242
+  "processId": 4242,
+  "style": 13565952,
+  "exStyle": 65536,
+  "enabled": true,
+  "alwaysOnTop": false,
+  "minMax": 0,
+  "transparent": -1,
+  "transColor": ""
 }

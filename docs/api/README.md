@@ -14,7 +14,7 @@
 - `sdk-owned`：由 TypeScript/ECMAScript 标准库承担，不进入 Windows Native binding。
 - `unsupported-by-policy`：保留能力边界说明，但默认不向脚本暴露危险的裸指针或任意进程内调用。
 - `excluded`：AHK v1 别名或版本差异条目，不计入分母；理由记录在各自的 `source` 字段。
-- `implemented`：Native binding、执行器和 contract test 均已完成。当前 Window 基础操作、`process.*` 查询与终止、`input.send`、剪贴板读写和 `A_Clipboard` 达到此标准。
+- `implemented`：Native binding、执行器和 contract test 均已完成。当前 Window 基础操作、窗口扩展读（WinGet 快照字段与 WinExist/WinActive 探针）、控件与文本读（WinGetControls/WinGetText）、窗口全局设置（SetTitleMatchMode/DetectHiddenWindows/DetectHiddenText）、`process.*` 查询与终止、`input.send`、剪贴板读写和 `A_Clipboard` 达到此标准。
 
 当前矩阵的 `sourceFiles` 是基于函数名的源码命中结果，属于研究索引；在进入实现前，必须把它收敛到实际定义函数和关键 Win32 调用，并补充精确的错误和返回值语义。
 

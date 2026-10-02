@@ -57,11 +57,20 @@ export interface WindowV1Snapshot {
   title: string;
   className: string;
   processName: string;
+  processPath: string;
   rect: WindowV1Rect;
+  clientRect: WindowV1Rect;
   visible: boolean;
   minimized: boolean;
   state: WindowV1State;
   processId: number;
+  style: number;
+  exStyle: number;
+  enabled: boolean;
+  alwaysOnTop: boolean;
+  minMax: -1 | 0 | 1;
+  transparent: number;
+  transColor: string;
 }
 
 export type WindowV1Placement = "left" | "right" | "top" | "bottom" | "full";
@@ -77,7 +86,7 @@ export type WindowV1ActionType = "window.move" | "window.focus" | "window.close"
 export interface WindowV1 {
   schemaVersion: 1;
   title?: string;
-  matchMode?: "exact" | "contains";
+  matchMode?: "startswith" | "contains" | "exact" | "regex";
   ahkClass?: string;
   ahkExe?: string;
   ahkId?: string | number;

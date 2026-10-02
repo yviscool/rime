@@ -70,6 +70,12 @@ int main() {
                                          nullptr, nullptr, GetModuleHandleW(nullptr),
                                          nullptr);
                assert(created != nullptr);
+               // A child edit gives WinGetControls/WinGetText something to
+               // enumerate and read through the JS surface.
+               const HWND child_edit = CreateWindowExW(
+                   0, L"EDIT", L"Rime Slice Control", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 10,
+                   10, 300, 24, created, nullptr, GetModuleHandleW(nullptr), nullptr);
+               assert(child_edit != nullptr);
              })
              .ok());
 
@@ -284,7 +290,25 @@ int main() {
         "if (hit.id !== " + id_text + ") throw new Error('query resolved the wrong window');\n"
         "if (hit.className !== 'Static') throw new Error('snapshot className missing');\n"
         "if (!hit.processName) throw new Error('snapshot processName missing');\n"
-        "if (hit.state !== 'normal') throw new Error('snapshot state must be normal');",
+        "if (!hit.processPath || hit.processPath.length <= hit.processName.length)\n"
+        "  throw new Error('snapshot processPath must be the full image path');\n"
+        "if (!hit.processPath.endsWith(hit.processName))\n"
+        "  throw new Error('processPath must end with processName');\n"
+        "if (globalThis.queryHits[globalThis.queryHits.length - 1].id !== hit.id)\n"
+        "  throw new Error('WinGetIDLast must resolve the last match');\n"
+        "if (hit.state !== 'normal') throw new Error('snapshot state must be normal');\n"
+        "if (typeof hit.clientRect.left !== 'number' ||\n"
+        "    typeof hit.clientRect.bottom !== 'number')\n"
+        "  throw new Error('snapshot clientRect missing');\n"
+        "if (typeof hit.style !== 'number' || hit.style <= 0)\n"
+        "  throw new Error('snapshot style must be a positive integer');\n"
+        "if (typeof hit.exStyle !== 'number' || hit.exStyle < 0)\n"
+        "  throw new Error('snapshot exStyle must be an unsigned integer');\n"
+        "if (hit.enabled !== true) throw new Error('snapshot enabled must be true');\n"
+        "if (hit.alwaysOnTop !== false) throw new Error('snapshot alwaysOnTop must be false');\n"
+        "if (hit.minMax !== 0) throw new Error('snapshot minMax must be 0 for a normal window');\n"
+        "if (hit.transparent !== -1) throw new Error('snapshot transparent must be -1 when unset');\n"
+        "if (hit.transColor !== '') throw new Error('snapshot transColor must be empty when unset');",
         "slice-query-check.mjs");
   check(runtime,
         "import { windows } from 'rime:window';\n"
@@ -297,6 +321,59 @@ int main() {
         "if (!Array.isArray(globalThis.emptyHits) || globalThis.emptyHits.length !== 0)\n"
         "  throw new Error('a bogus title must resolve no windows');",
         "slice-query-empty-check.mjs");
+
+  // Segment 4b: WinExist/WinActive probes resolve plain booleans through the
+  // same read capability: existence stops at the first match (no snapshot is
+  // built), isActive only ever inspects the foreground window.
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.probe = null;\n"
+        "globalThis.probeFailure = null;\n"
+        "Promise.all([\n"
+        "  windows.exists({ title: 'Rime Vertical Slice Window', matchMode: 'exact' }),\n"
+        "  windows.exists({ title: 'No Such Window Anywhere In This Test' }),\n"
+        "  windows.isActive({ title: 'Rime Vertical Slice Window' }),\n"
+        "]).then(r => { globalThis.probe = r; },\n"
+        "        e => { globalThis.probeFailure = String(e); });",
+        "slice-probe.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.probeFailure) throw new Error(globalThis.probeFailure);\n"
+        "if (!Array.isArray(globalThis.probe) || globalThis.probe.length !== 3)\n"
+        "  throw new Error('probes must resolve three results');\n"
+        "if (globalThis.probe[0] !== true)\n"
+        "  throw new Error('exists must find our window');\n"
+        "if (globalThis.probe[1] !== false)\n"
+        "  throw new Error('exists must miss a bogus title');\n"
+        "if (typeof globalThis.probe[2] !== 'boolean')\n"
+        "  throw new Error('isActive must resolve a boolean');",
+        "slice-probe-check.mjs");
+
+  // Segment 4c: WinGetControls/WinGetControlsHwnd and WinGetText reach the
+  // child control from JS (stable control ids, AHK ClassNN, CRLF-delimited
+  // text).
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.controlList = null;\n"
+        "globalThis.windowText = null;\n"
+        "globalThis.controlFailure = null;\n"
+        "Promise.all([ windows.controls(" + id_text + "), windows.text(" + id_text + ") ])\n"
+        "  .then(r => { globalThis.controlList = r[0]; globalThis.windowText = r[1]; },\n"
+        "        e => { globalThis.controlFailure = String(e); });",
+        "slice-controls.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.controlFailure) throw new Error(globalThis.controlFailure);\n"
+        "if (!Array.isArray(globalThis.controlList) || globalThis.controlList.length !== 1)\n"
+        "  throw new Error('expected exactly one control');\n"
+        "const control = globalThis.controlList[0];\n"
+        "if (control.classNN !== 'Edit1' || control.className !== 'Edit')\n"
+        "  throw new Error('ClassNN must number the edit as Edit1');\n"
+        "if (typeof control.id !== 'number' || control.id === " + id_text + ")\n"
+        "  throw new Error('control id must be a stable, distinct id');\n"
+        "if (globalThis.windowText !== 'Rime Slice Control\\r\\n')\n"
+        "  throw new Error('unexpected control text: ' + JSON.stringify(globalThis.windowText));",
+        "slice-controls-check.mjs");
 
   // Segment 5: state mutations through the kernel round-trip the snapshot.
   check(runtime,
@@ -384,6 +461,135 @@ int main() {
     }
   }
 
+  // Segment 5d: the global window settings (SetTitleMatchMode /
+  // DetectHiddenWindows / DetectHiddenText) are synchronous state on
+  // rime:window -- reads and writes never enter the action queue. WinTitle
+  // matching is case-sensitive in every mode (AHK rule), a per-query
+  // matchMode overrides the global mode, and bad patterns throw sync
+  // TypeErrors before any queue hop. A second, never-shown window proves
+  // DetectHiddenWindows without disturbing the hide/show counts above.
+  HWND hidden_helper = nullptr;
+  assert(service.ui()
+             .call([&] {
+               hidden_helper =
+                   CreateWindowExW(0, L"STATIC", L"Rime Hidden Slice Window", WS_OVERLAPPED, 110,
+                                   80, 400, 300, nullptr, nullptr, GetModuleHandleW(nullptr),
+                                   nullptr);
+               assert(hidden_helper != nullptr);
+             })
+             .ok());
+  check(runtime,
+        "import { settings, windows } from 'rime:window';\n"
+        "globalThis.s5d = {};\n"
+        "(async () => {\n"
+        "  const out = {};\n"
+        "  out.defaults = [settings.window.titleMatchMode,\n"
+        "                  settings.window.titleMatchModeSpeed,\n"
+        "                  settings.window.detectHiddenWindows,\n"
+        "                  settings.window.detectHiddenText].join(',');\n"
+        "  out.lower = await windows.exists({ title: 'rime vertical slice window' });\n"
+        "  out.exact = await windows.exists({ title: 'Rime Vertical Slice Window', matchMode: 'exact' });\n"
+        "  out.prefix = await windows.exists({ title: 'Rime Vertical Slice', matchMode: 'startswith' });\n"
+        "  out.prefixMiss = await windows.exists({ title: 'Vertical Slice Window', matchMode: 'startswith' });\n"
+        "  out.regex = await windows.exists({ title: '^Rime Vertical Slice Window$', matchMode: 'regex' });\n"
+        "  out.regexI = await windows.exists({ title: 'i)^rime vertical slice window$', matchMode: 'regex' });\n"
+        "  try { windows.exists({ title: 'Nope(', matchMode: 'regex' }); out.bad = 'no-throw'; }\n"
+        "  catch (e) { out.bad = (e instanceof TypeError ? 'TypeError' : typeof e) + ':' + e.message; }\n"
+        "  try { windows.exists({ title: 'x)foo', matchMode: 'regex' }); out.opt = 'no-throw'; }\n"
+        "  catch (e) { out.opt = (e instanceof TypeError ? 'TypeError' : typeof e) + ':' + e.message; }\n"
+        "  settings.window.titleMatchMode = '3';\n"
+        "  out.exactGlobal = await windows.exists({ title: 'Rime Vertical Slice' });\n"
+        "  out.modeBack = settings.window.setTitleMatchMode('2');\n"
+        "  out.containsGlobal = await windows.exists({ title: 'Rime Vertical Slice' });\n"
+        "  out.speedBack = settings.window.setTitleMatchMode('Slow');\n"
+        "  out.speedNow = settings.window.titleMatchModeSpeed;\n"
+        "  settings.window.titleMatchModeSpeed = 'Fast';\n"
+        "  out.hiddenOff = await windows.exists({ title: 'Rime Hidden Slice Window' });\n"
+        "  out.hiddenBack = settings.window.setDetectHiddenWindows(true);\n"
+        "  out.hiddenOn = await windows.exists({ title: 'Rime Hidden Slice Window' });\n"
+        "  out.hiddenListed = (await windows.list()).some(w => w.title === 'Rime Hidden Slice Window');\n"
+        "  out.hiddenSame = settings.window.setDetectHiddenWindows(true);\n"
+        "  settings.window.detectHiddenWindows = false;\n"
+        "  out.hiddenRestored = await windows.exists({ title: 'Rime Hidden Slice Window' });\n"
+        "  return out;\n"
+        "})().then(v => { globalThis.s5d.value = v; },\n"
+        "         e => { globalThis.s5d.error = String(e); });",
+        "slice-settings.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.s5d.error) throw new Error(globalThis.s5d.error);\n"
+        "const v = globalThis.s5d.value;\n"
+        "if (!v) throw new Error('segment 5d produced no value');\n"
+        "if (v.defaults !== '2,Fast,false,false')\n"
+        "  throw new Error('wrong settings defaults: ' + v.defaults);\n"
+        "if (v.lower !== false)\n"
+        "  throw new Error('title match must be case-sensitive');\n"
+        "if (!v.exact || !v.prefix || v.prefixMiss)\n"
+        "  throw new Error('exact/startswith match failed');\n"
+        "if (!v.regex || !v.regexI)\n"
+        "  throw new Error('regex match failed');\n"
+        "if (v.bad !== 'TypeError:invalid regular expression pattern')\n"
+        "  throw new Error('bad pattern must throw sync TypeError: ' + v.bad);\n"
+        "if (v.opt !== 'TypeError:unsupported regex option: x')\n"
+        "  throw new Error('bad option must throw sync TypeError: ' + v.opt);\n"
+        "if (v.exactGlobal !== false)\n"
+        "  throw new Error('global exact mode must reject substrings');\n"
+        "if (v.modeBack !== '3' || !v.containsGlobal)\n"
+        "  throw new Error('mode restore failed: ' + v.modeBack);\n"
+        "if (v.speedBack !== 'Fast' || v.speedNow !== 'Slow')\n"
+        "  throw new Error('speed knob failed');\n"
+        "if (v.hiddenOff !== false || v.hiddenBack !== false || !v.hiddenOn || !v.hiddenListed)\n"
+        "  throw new Error('detectHiddenWindows failed');\n"
+        "if (v.hiddenSame !== true)\n"
+        "  throw new Error('no-change set must return the current value');\n"
+        "if (v.hiddenRestored !== false)\n"
+        "  throw new Error('detectHiddenWindows restore failed');",
+        "slice-settings-check.mjs");
+
+  // DetectHiddenText: a hidden child control contributes only while the
+  // setting is on; controls() counts hidden children either way.
+  HWND hidden_text_child = nullptr;
+  assert(service.ui()
+             .call([&] {
+               hidden_text_child =
+                   CreateWindowExW(0, L"STATIC", L"Rime Hidden Slice Text", WS_CHILD, 10, 40, 300,
+                                   24, created, nullptr, GetModuleHandleW(nullptr), nullptr);
+               assert(hidden_text_child != nullptr);
+             })
+             .ok());
+  check(runtime,
+        "import { settings, windows } from 'rime:window';\n"
+        "globalThis.s5t = {};\n"
+        "(async () => {\n"
+        "  const out = {};\n"
+        "  out.textOff = await windows.text(" + id_text + ");\n"
+        "  out.controls = (await windows.controls(" + id_text + ")).map(c => c.classNN).join(',');\n"
+        "  out.hiddenBack = settings.window.setDetectHiddenText(true);\n"
+        "  out.textOn = await windows.text(" + id_text + ");\n"
+        "  settings.window.detectHiddenText = false;\n"
+        "  out.textRestored = await windows.text(" + id_text + ");\n"
+        "  return out;\n"
+        "})().then(v => { globalThis.s5t.value = v; },\n"
+        "         e => { globalThis.s5t.error = String(e); });",
+        "slice-text-settings.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.s5t.error) throw new Error(globalThis.s5t.error);\n"
+        "const v = globalThis.s5t.value;\n"
+        "if (!v) throw new Error('segment 5d-text produced no value');\n"
+        "if (v.textOff.includes('Rime Hidden Slice Text'))\n"
+        "  throw new Error('hidden text must stay excluded by default');\n"
+        "if (!v.controls.split(',').includes('Edit1') ||\n"
+        "    !v.controls.split(',').includes('Static1'))\n"
+        "  throw new Error('controls must count hidden children: ' + v.controls);\n"
+        "if (v.hiddenBack !== false)\n"
+        "  throw new Error('detectHiddenText must start false');\n"
+        "if (!v.textOn.includes('Rime Hidden Slice Text'))\n"
+        "  throw new Error('hidden text must appear when enabled');\n"
+        "if (v.textRestored.includes('Rime Hidden Slice Text'))\n"
+        "  throw new Error('detectHiddenText restore failed');",
+        "slice-text-settings-check.mjs");
+
   // Segment 6: close destroys the window through the executor (the result
   // snapshot is taken before WM_CLOSE); later operations on the id reject.
   check(runtime,
@@ -451,6 +657,9 @@ int main() {
   //   move. The deadline action always records Finished but records Started
   //   only when it survives kernel pre-dispatch, so Started is base/base+1
   //   and Finished is Started/Started+1.
+  // - window.settings: segment 5d's settings writes record StateChanged
+  //   once per actual change (2 mode, 2 speed, 2 detectHiddenWindows,
+  //   2 detectHiddenText); the no-change double set stays silent.
   std::map<std::string, std::size_t> started_count;
   std::map<std::string, std::size_t> finished_count;
   for (const auto& entry : trace->snapshot()) {
@@ -485,6 +694,22 @@ int main() {
   }
   assert(saw_deadline_timeout);
 
+  // Segment 5d's settings writes are the only StateChanged entries: one per
+  // actual change, all on window.settings, detail "key before -> after".
+  std::map<std::string, std::size_t> settings_changes;
+  for (const auto& entry : trace->snapshot()) {
+    if (entry.kind != rime::core::TraceKind::StateChanged) continue;
+    assert(entry.subject == "window.settings");
+    const auto split = entry.detail.find(' ');
+    assert(split != std::string::npos);
+    ++settings_changes[entry.detail.substr(0, split)];
+  }
+  assert(settings_changes["titleMatchMode"] == 2);       // 2 -> 3 -> 2
+  assert(settings_changes["titleMatchModeSpeed"] == 2);  // Fast -> Slow -> Fast
+  assert(settings_changes["detectHiddenWindows"] == 2);  // false -> true -> false
+  assert(settings_changes["detectHiddenText"] == 2);     // false -> true -> false
+  assert(settings_changes.size() == 4);
+
   assert(runtime.stop().ok());
 
   // Capability gate: an empty policy rejects reads and writes with the
@@ -500,6 +725,31 @@ int main() {
     rime::js::Runtime denied_runtime;
     assert(rime::win32::register_window_module(denied_runtime, &denied_binding).ok());
     assert(denied_runtime.start().ok());
+    // The settings surface enforces capabilities synchronously: reads name
+    // windows.window.read, writes name windows.window.write, both as
+    // TypeErrors instead of queue hops.
+    check(denied_runtime,
+          "import { settings } from 'rime:window';\n"
+          "globalThis.settingsReadDenied = null;\n"
+          "globalThis.settingsWriteDenied = null;\n"
+          "try { globalThis.settingsReadDenied = 'got:' + settings.window.titleMatchMode; }\n"
+          "catch (e) { globalThis.settingsReadDenied = String(e); }\n"
+          "try { settings.window.titleMatchMode = '3';\n"
+          "      globalThis.settingsWriteDenied = 'unexpected success'; }\n"
+          "catch (e) { globalThis.settingsWriteDenied = String(e); }",
+          "slice-deny-settings.mjs");
+    assert(denied_runtime.settle(5000ms).ok());
+    check(denied_runtime,
+          "if (!globalThis.settingsReadDenied ||\n"
+          "    !globalThis.settingsReadDenied.includes('windows.window.read'))\n"
+          "  throw new Error('settings read must name the capability: ' +\n"
+          "                  globalThis.settingsReadDenied);\n"
+          "if (!globalThis.settingsWriteDenied ||\n"
+          "    !globalThis.settingsWriteDenied.includes('windows.window.write'))\n"
+          "  throw new Error('settings write must name the capability: ' +\n"
+          "                  globalThis.settingsWriteDenied);",
+          "slice-deny-settings-check.mjs");
+
     check(denied_runtime,
           "import { windows } from 'rime:window';\n"
           "globalThis.readDenied = null;\n"
@@ -575,6 +825,13 @@ int main() {
           "slice-queue-full-check.mjs");
     assert(full_runtime.stop().ok());
   }
+
+  assert(service.ui()
+             .call([&] {
+               if (hidden_text_child) DestroyWindow(hidden_text_child);
+               if (hidden_helper) DestroyWindow(hidden_helper);
+             })
+             .ok());
 
   assert(service.stop().ok());
   return 0;

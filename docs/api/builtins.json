@@ -1314,9 +1314,10 @@
         "source": "rime-research/AutoHotkey-alpha/source/script.cpp#g_BIV_A(DetectHiddenText); rime-research/AutoHotkey-alpha/source/lib/vars.cpp#BIV_DetectHiddenText",
         "updatePoint": "runtime-state-change",
         "lane": "js",
-        "capability": "runtime",
+        "capability": "windows.window.read",
         "tsReplacement": "settings.window.detectHiddenText",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "tests/js/vertical_slice.cpp",
+        "status": "implemented"
       },
       {
         "name": "A_DetectHiddenWindows",
@@ -1325,9 +1326,10 @@
         "source": "rime-research/AutoHotkey-alpha/source/script.cpp#g_BIV_A; rime-research/AutoHotkey-alpha/source/lib/vars.cpp#BIV_DetectHiddenWindows+BIV_DetectHiddenWindows_Set",
         "updatePoint": "runtime-state-change",
         "lane": "js",
-        "capability": "runtime",
-        "tsReplacement": "context.snapshot().detectHiddenWindows",
-        "compatibilityTest": "missing"
+        "capability": "windows.window.read",
+        "tsReplacement": "settings.window.detectHiddenWindows",
+        "compatibilityTest": "tests/js/vertical_slice.cpp",
+        "status": "implemented"
       },
       {
         "name": "A_HotIf",
@@ -1601,9 +1603,10 @@
         "source": "rime-research/AutoHotkey-alpha/source/script.cpp#g_BIV_A(TitleMatchMode); rime-research/AutoHotkey-alpha/source/lib/vars.cpp#BIV_TitleMatchMode",
         "updatePoint": "runtime-state-change",
         "lane": "js",
-        "capability": "runtime",
+        "capability": "windows.window.read",
         "tsReplacement": "settings.window.titleMatchMode",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "tests/js/vertical_slice.cpp",
+        "status": "implemented"
       },
       {
         "name": "A_TitleMatchModeSpeed",
@@ -1612,9 +1615,10 @@
         "source": "rime-research/AutoHotkey-alpha/source/script.cpp#g_BIV_A(TitleMatchModeSpeed); rime-research/AutoHotkey-alpha/source/lib/vars.cpp#BIV_TitleMatchModeSpeed",
         "updatePoint": "runtime-state-change",
         "lane": "js",
-        "capability": "runtime",
+        "capability": "windows.window.read",
         "tsReplacement": "settings.window.titleMatchModeSpeed",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "tests/js/vertical_slice.cpp",
+        "status": "implemented"
       },
       {
         "name": "A_WinDelay",

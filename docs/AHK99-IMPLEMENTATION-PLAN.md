@@ -79,7 +79,7 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 - 补齐 39 个 contract-only：`WinGetText/WinGetControls/WinGetClientPos/WinGetPos/WinGetMinMax/WinGetStyle系/WinSetAlwaysOnTop/WinSetRegion/WinSetTitle/WinSetEnabled/…`；
 - `WinWait/WinWaitActive/WinWaitClose/WinWaitNotActive/WinWaitNotActive` → **条件等待服务**（scheduler sleep + 窗口事件唤醒，绝不阻塞线程；deadline+取消）；
 - `WinExist/WinActive`（M0 追踪的 g_BIF）与 `GroupAdd/GroupActivate/GroupClose/GroupDeactivate`（WinGroup）；
-- 全局窗口设置：`SetTitleMatchMode/DetectHiddenWindows` → `WindowService` 集中设置（进 Trace）；
+- 全局窗口设置：`SetTitleMatchMode/DetectHiddenWindows/DetectHiddenText` → `settings.window` 同步面（`WindowService` 原子状态，get=read/set=write，实际变化记 `StateChanged` Trace；四模式 `matchMode` 含 `regex`）——**已完成**；
 - 补 window JS 入口取消测试（audit 指出的缺口）。
 
 ### M2 输入与事件中枢（15 + 14 + 指令 11 + InputHook 23，XL，最高难度）

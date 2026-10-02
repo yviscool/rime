@@ -25,27 +25,95 @@ export interface WindowHandle {
   className: string;
   /** Process image basename, e.g. "notepad.exe". */
   processName: string;
+  /** Full image path (WinGetProcessPath); "" when the path cannot be read. */
+  processPath: string;
   rect: WindowRect;
+  /** Client area in screen coordinates (WinGetClientPos). */
+  clientRect: WindowRect;
   visible: boolean;
   minimized: boolean;
   state: WindowState;
   processId: ProcessId;
+  /** GWL_STYLE bits (WinGetStyle). */
+  style: number;
+  /** GWL_EXSTYLE bits (WinGetExStyle). */
+  exStyle: number;
+  /** IsWindowEnabled (WinGetEnabled). */
+  enabled: boolean;
+  /** WS_EX_TOPMOST (WinGetAlwaysOnTop). */
+  alwaysOnTop: boolean;
+  /** WinGetMinMax: -1 minimized | 0 normal | 1 maximized. */
+  minMax: -1 | 0 | 1;
+  /** Layered alpha 0..255, or -1 when the window has no LWA_ALPHA (WinGetTransparent). */
+  transparent: number;
+  /** Layered color key as "0xRRGGBB", or "" when absent (WinGetTransColor). */
+  transColor: string;
 }
+
+/** A child control from `windows.controls` (WinGetControls/WinGetControlsHwnd). */
+export interface WindowControl {
+  /** Stable id in the same space as `WindowHandle.id` — never a raw HWND. */
+  id: WindowId;
+  /** Win32 class name, e.g. "Edit". */
+  className: string;
+  /** AHK ClassNN, e.g. "Edit1". */
+  classNN: string;
+}
+
+/** AHK TitleMatchMode vocabulary: "1" startswith, "2" contains, "3" exact, "RegEx". */
+export type TitleMatchMode = "1" | "2" | "3" | "RegEx";
+
+/** SetTitleMatchMode's speed knob (default "Fast"); orthogonal to the mode. */
+export type TitleMatchModeSpeed = "Fast" | "Slow";
 
 /** WinTitle-style selector fields shared by reads (window-v1 query). */
 export interface WindowQueryFields {
-  /** Case-insensitive substring (`contains`) or exact (`exact`) title match. */
+  /**
+   * Window title pattern. Case-sensitive in every match mode (AHK rule) —
+   * `regex` mode is case-sensitive too unless the pattern carries AHK's
+   * `i)` option prefix.
+   */
   title?: string;
-  matchMode?: "exact" | "contains";
-  /** Case-insensitive Win32 class-name match. */
+  /** Title match mode override; absent resolves against `settings.window.titleMatchMode`. */
+  matchMode?: "startswith" | "contains" | "exact" | "regex";
+  /** Case-insensitive Win32 class-name match (`regex` mode applies `title`'s pattern instead). */
   ahkClass?: string;
   /** Case-insensitive match against the process image basename only. */
   ahkExe?: string;
   ahkId?: WindowId | string;
-  /** When true, hidden windows are included — still-unheaded (title-less) windows stay filtered. */
+  /** When true, hidden windows are included — absent resolves against `settings.window.detectHiddenWindows`; untitled (title-less) windows stay filtered. */
   includeHidden?: boolean;
   /** Selects the foreground window (same as `title: "A"`). */
   active?: boolean;
+}
+
+/**
+ * Global window settings (SetTitleMatchMode / DetectHiddenWindows /
+ * DetectHiddenText). Synchronous reads and writes — never an Action.
+ * Each setter returns the previous value (AHK's return-previous contract).
+ */
+export interface WindowSettings {
+  titleMatchMode: TitleMatchMode;
+  titleMatchModeSpeed: TitleMatchModeSpeed;
+  detectHiddenWindows: boolean;
+  detectHiddenText: boolean;
+}
+
+/** One-field settings patch; unset fields keep their current value. */
+export interface WindowSettingsPatch {
+  titleMatchMode?: TitleMatchMode;
+  titleMatchModeSpeed?: TitleMatchModeSpeed;
+  detectHiddenWindows?: boolean;
+  detectHiddenText?: boolean;
+}
+
+/** Synchronous settings surface of `rime:window` (`settings.window`). */
+export interface WindowSettingsBridge extends WindowSettings {
+  /** Returns the previous mode ("Fast"/"Slow" returns the previous speed knob). */
+  setTitleMatchMode(mode: TitleMatchMode): TitleMatchMode;
+  setTitleMatchMode(mode: TitleMatchModeSpeed): TitleMatchModeSpeed;
+  setDetectHiddenWindows(value: boolean): boolean;
+  setDetectHiddenText(value: boolean): boolean;
 }
 
 /** Options accepted by `windows.list` on the wire. */
@@ -56,7 +124,15 @@ export interface WindowsBridge {
   list(options?: WindowsListOptions): Promise<WindowHandle[]>;
   /** Resolves null when no window is foreground. */
   active(options?: NativeActionOptions): Promise<WindowHandle | null>;
+  /** WinExist: true when at least one window matches the query. */
+  exists(options?: WindowsListOptions): Promise<boolean>;
+  /** WinActive: true when the foreground window matches the query. */
+  isActive(options?: WindowsListOptions): Promise<boolean>;
   info(windowId: WindowId, options?: NativeActionOptions): Promise<WindowHandle>;
+  /** WinGetControls/WinGetControlsHwnd: child controls in z-order (hidden included). */
+  controls(windowId: WindowId, options?: NativeActionOptions): Promise<WindowControl[]>;
+  /** WinGetText: concatenated control text, "\r\n" after each non-empty entry. */
+  text(windowId: WindowId, options?: NativeActionOptions): Promise<string>;
   /** `target` is a window id or the string "active". */
   move(
     target: WindowId | "active",
@@ -75,6 +151,16 @@ export interface WindowsBridge {
 async function windowBridge(): Promise<WindowsBridge> {
   const module = await import("rime:window");
   return module.windows;
+}
+
+/**
+ * Loads the synchronous settings surface (`settings.window`). Reads and
+ * writes after the first await never go through the Action pipeline.
+ * @throws TypeError on invalid mode/pattern (sync), never rejects on values.
+ */
+export async function settings(): Promise<WindowSettingsBridge> {
+  const module = await import("rime:window");
+  return module.settings.window;
 }
 
 export interface ActiveWindowRequest {
@@ -176,6 +262,46 @@ export const Window = {
   info(windowId: WindowId, options?: ActionOptions): Promise<WindowHandle> {
     return runAction(options, (native) =>
       windowBridge().then((windows) => windows.info(windowId, native)),
+    );
+  },
+  /**
+   * WinGetControls/WinGetControlsHwnd: child controls with stable ids and
+   * AHK ClassNN names, in z-order (hidden controls included).
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  controls(windowId: WindowId, options?: ActionOptions): Promise<WindowControl[]> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.controls(windowId, native)),
+    );
+  },
+  /**
+   * WinGetText: concatenated control text ("\r\n"-separated); hidden controls
+   * are skipped while DetectHiddenText is off.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  text(windowId: WindowId, options?: ActionOptions): Promise<string> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.text(windowId, native)),
+    );
+  },
+  /**
+   * WinExist: true when at least one window matches the query.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
+  exists(query?: WindowQueryFields & ActionOptions): Promise<boolean> {
+    const { signal: _signal, ...fields } = query ?? {};
+    return runAction(query, (native) =>
+      windowBridge().then((windows) => windows.exists({ ...fields, ...native })),
+    );
+  },
+  /**
+   * WinActive: true when the foreground window matches the query.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
+  isActive(query?: WindowQueryFields & ActionOptions): Promise<boolean> {
+    const { signal: _signal, ...fields } = query ?? {};
+    return runAction(query, (native) =>
+      windowBridge().then((windows) => windows.isActive({ ...fields, ...native })),
     );
   },
 };

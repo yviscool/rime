@@ -19,6 +19,7 @@ namespace {
 
 using namespace std::chrono_literals;
 using rime::win32::Rect;
+using rime::win32::TitleMatchMode;
 using rime::win32::WindowInfo;
 using rime::win32::WindowService;
 
@@ -44,14 +45,20 @@ int main() {
   assert(service.start().ok());
   assert(!service.start().ok());  // start-once
 
-  // Create the test window on the UI thread.
+  // Create the test window (with one child edit for the control reads) on
+  // the UI thread.
   HWND created = nullptr;
+  HWND child_edit = nullptr;
   assert(service.ui()
              .call([&] {
                created = CreateWindowExW(0, L"STATIC", kTestWindowTitle,
                                          WS_OVERLAPPED | WS_VISIBLE, 120, 80, 640, 480, nullptr,
                                          nullptr, GetModuleHandleW(nullptr), nullptr);
                assert(created != nullptr);
+               child_edit = CreateWindowExW(
+                   0, L"EDIT", L"Rime Control Text", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 10,
+                   10, 300, 24, created, nullptr, GetModuleHandleW(nullptr), nullptr);
+               assert(child_edit != nullptr);
              })
              .ok());
 
@@ -110,6 +117,65 @@ int main() {
   assert(snapshot.state == "normal");
   assert(!snapshot.minimized);
 
+  // WinGetProcessPath: the full image path, not just the basename (empty is
+  // only legal for processes that cannot be opened, and ours cannot hide).
+  assert(!snapshot.process_path.empty());
+  assert(snapshot.process_path.find('\\') != std::string::npos);
+  assert(snapshot.process_path.size() > snapshot.process_name.size());
+  assert(snapshot.process_path.compare(snapshot.process_path.size() -
+                                            snapshot.process_name.size(),
+                                        std::string::npos, snapshot.process_name) == 0);
+
+  // WinGetControls/WinGetControlsHwnd (stable ids, AHK ClassNN numbering) and
+  // WinGetText ("\r\n" after each non-empty control text).
+  std::vector<rime::win32::ControlInfo> controls;
+  assert(service.controls(id, controls).ok());
+  assert(controls.size() == 1);
+  assert(controls[0].class_name == "Edit");
+  assert(controls[0].class_nn == "Edit1");
+  assert(controls[0].id != id);  // a control id is not its parent's id
+  std::string window_text_value;
+  assert(service.text(id, window_text_value).ok());
+  assert(window_text_value == "Rime Control Text\r\n");
+
+  // Extended snapshot fields (WinGet* family): client area in screen
+  // coordinates, unsigned style bits, enable/topmost flags, the min/max
+  // triple, and layered attributes that stay unset (-1 / "") for a window
+  // that never opted into layered mode.
+  assert(snapshot.client_rect.left >= snapshot.rect.left);
+  assert(snapshot.client_rect.top >= snapshot.rect.top);
+  assert(snapshot.client_rect.right <= snapshot.rect.right);
+  assert(snapshot.client_rect.bottom <= snapshot.rect.bottom);
+  assert(snapshot.client_rect.width() > 0);
+  assert(snapshot.client_rect.height() > 0);
+  assert(snapshot.style > 0);  // WS_VISIBLE at minimum
+  assert(snapshot.ex_style >= 0);
+  assert(snapshot.enabled);
+  assert(!snapshot.always_on_top);
+  assert(snapshot.min_max == 0);
+  assert(snapshot.transparent == -1);
+  assert(snapshot.trans_color.empty());
+
+  // Existence probes: WinExist short-circuits on the first match, WinActive
+  // only ever inspects the foreground window (so only the negative result
+  // of a title no window can carry is asserted here).
+  rime::win32::WindowQuery probe;
+  probe.title = "Rime WindowService";
+  bool probe_found = false;
+  assert(service.exists(probe, probe_found).ok());
+  assert(probe_found);
+
+  rime::win32::WindowQuery missing;
+  missing.title = "No Such Window Anywhere In This Test";
+  assert(service.exists(missing, probe_found).ok());
+  assert(!probe_found);
+
+  bool foreground_match = true;
+  assert(service.matches_active(missing, foreground_match).ok());
+  assert(!foreground_match);
+  bool foreground_probe = false;
+  assert(service.matches_active(probe, foreground_probe).ok());  // value is CI-dependent
+
   // WinTitle-style queries resolve on the UI lane: contains vs exact title,
   // class and executable filters, and the hidden window rule.
   rime::win32::WindowQuery by_title;
@@ -120,17 +186,97 @@ int main() {
 
   rime::win32::WindowQuery exact;
   exact.title = "Rime WindowService Test Window";
-  exact.exact_title = true;
+  exact.title_match_mode = TitleMatchMode::Exact;
   matched.clear();
   assert(service.query(exact, matched).ok());
   assert(find_by_title(matched).has_value());
 
   rime::win32::WindowQuery exact_partial;
   exact_partial.title = "Rime WindowService";
-  exact_partial.exact_title = true;
+  exact_partial.title_match_mode = TitleMatchMode::Exact;
   matched.clear();
   assert(service.query(exact_partial, matched).ok());
   assert(!find_by_title(matched).has_value());
+
+  // WinTitle matching is case-sensitive in every mode (AHK rule); the
+  // lowercase spelling of our own title must miss.
+  rime::win32::WindowQuery lowercase;
+  lowercase.title = "rime windowservice test window";
+  matched.clear();
+  assert(service.query(lowercase, matched).ok());
+  assert(matched.empty());
+
+  // TitleMatchMode 1 (startswith): the needle must be a leading part of the
+  // title, not just any substring.
+  rime::win32::WindowQuery prefix;
+  prefix.title = "Rime WindowService Test";
+  prefix.title_match_mode = TitleMatchMode::StartsWith;
+  matched.clear();
+  assert(service.query(prefix, matched).ok());
+  assert(find_by_title(matched).has_value());
+  prefix.title = "WindowService Test Window";
+  matched.clear();
+  assert(service.query(prefix, matched).ok());
+  assert(matched.empty());
+
+  // TitleMatchMode 4 (RegEx): pattern search over the title, case-sensitive
+  // by default and case-insensitive through AHK's i) option prefix.
+  rime::win32::WindowQuery regex_query;
+  regex_query.title = "^Rime WindowService Test Window$";
+  regex_query.title_match_mode = TitleMatchMode::Regex;
+  matched.clear();
+  assert(service.query(regex_query, matched).ok());
+  assert(find_by_title(matched).has_value());
+  regex_query.title = "i)^rime windowservice test window$";
+  matched.clear();
+  assert(service.query(regex_query, matched).ok());
+  assert(find_by_title(matched).has_value());
+  regex_query.title = "^Nope";
+  matched.clear();
+  assert(service.query(regex_query, matched).ok());
+  assert(matched.empty());
+
+  // Bad patterns fail the query itself: invalid syntax is InvalidContract,
+  // an unknown option prefix letter is Unsupported (never silently ignored).
+  rime::win32::WindowQuery bad_regex;
+  bad_regex.title = "Nope(";
+  bad_regex.title_match_mode = TitleMatchMode::Regex;
+  matched.clear();
+  const auto bad_pattern = service.query(bad_regex, matched);
+  assert(!bad_pattern.ok());
+  assert(bad_pattern.code == rime::core::Error::Code::InvalidContract);
+  rime::win32::WindowQuery bad_option;
+  bad_option.title = "x)foo";
+  bad_option.title_match_mode = TitleMatchMode::Regex;
+  const auto unsupported_option = service.query(bad_option, matched);
+  assert(!unsupported_option.ok());
+  assert(unsupported_option.code == rime::core::Error::Code::Unsupported);
+
+  // validate_window_regex is the shared parse-time checker: same codes
+  // without going through a query.
+  assert(rime::win32::validate_window_regex("^abc$").ok());
+  assert(rime::win32::validate_window_regex("i)^abc$").ok());
+  assert(rime::win32::validate_window_regex("Nope(").code ==
+         rime::core::Error::Code::InvalidContract);
+  assert(rime::win32::validate_window_regex("x)foo").code ==
+         rime::core::Error::Code::Unsupported);
+  // m)/s) need multiline/dotall, which the runtime regex engine cannot
+  // provide: rejected as Unsupported rather than silently reinterpreted.
+  assert(rime::win32::validate_window_regex("m)foo").code ==
+         rime::core::Error::Code::Unsupported);
+  assert(rime::win32::validate_window_regex("s)foo").code ==
+         rime::core::Error::Code::Unsupported);
+  assert(rime::win32::validate_window_regex("i)").code ==
+         rime::core::Error::Code::InvalidContract);
+
+  // The AHK settings vocabulary round-trips.
+  assert(rime::win32::parse_title_match_mode("1") == TitleMatchMode::StartsWith);
+  assert(rime::win32::parse_title_match_mode("3") == TitleMatchMode::Exact);
+  assert(rime::win32::parse_title_match_mode("RegEx") == TitleMatchMode::Regex);
+  assert(rime::win32::parse_title_match_mode("regex") == TitleMatchMode::Regex);
+  assert(rime::win32::parse_title_match_mode("Fast") == std::nullopt);
+  assert(rime::win32::title_match_mode_text(TitleMatchMode::Contains) == "2");
+  assert(rime::win32::title_match_mode_text(TitleMatchMode::Regex) == "RegEx");
 
   rime::win32::WindowQuery by_class;
   by_class.class_name = "STATIC";
@@ -154,6 +300,38 @@ int main() {
   assert(service.query(bogus, matched).ok());
   assert(matched.empty());
 
+  // Global window settings (SetTitleMatchMode/DetectHiddenWindows/
+  // DetectHiddenText): defaults, return-previous semantics, and the effect
+  // on queries that do not override the mode themselves.
+  const rime::win32::WindowSettings defaults = service.settings();
+  assert(defaults.title_match_mode == TitleMatchMode::Contains);
+  assert(!defaults.title_match_mode_slow);
+  assert(!defaults.detect_hidden_windows);
+  assert(!defaults.detect_hidden_text);
+
+  rime::win32::WindowSettingsPatch to_exact;
+  to_exact.title_match_mode = TitleMatchMode::Exact;
+  const rime::win32::WindowSettings before_exact = service.set_settings(to_exact);
+  assert(before_exact.title_match_mode == TitleMatchMode::Contains);
+  assert(service.settings().title_match_mode == TitleMatchMode::Exact);
+  // A query without matchMode now resolves against the global exact mode:
+  // the substring "Rime WindowService" no longer matches.
+  rime::win32::WindowQuery implicit_mode;
+  implicit_mode.title = "Rime WindowService";
+  matched.clear();
+  assert(service.query(implicit_mode, matched).ok());
+  assert(matched.empty());
+  // A per-query matchMode still wins over the global setting.
+  implicit_mode.title_match_mode = TitleMatchMode::Contains;
+  matched.clear();
+  assert(service.query(implicit_mode, matched).ok());
+  assert(find_by_title(matched).has_value());
+  rime::win32::WindowSettingsPatch to_contains;
+  to_contains.title_match_mode = TitleMatchMode::Contains;
+  const rime::win32::WindowSettings before_contains = service.set_settings(to_contains);
+  assert(before_contains.title_match_mode == TitleMatchMode::Exact);
+  assert(service.settings().title_match_mode == TitleMatchMode::Contains);
+
   // State mutations: hide/show/minimize/maximize/restore round-trip through
   // the snapshot state machine.
   assert(service.hide(id).ok());
@@ -168,13 +346,79 @@ int main() {
   matched.clear();
   assert(service.query(by_title, matched).ok());
   assert(find_by_title(matched).has_value());
+  by_title.include_hidden = std::nullopt;  // back to the global default
+
+  // DetectHiddenWindows flips the global rule: with it on, queries and the
+  // plain list() both see the hidden window; an explicit per-query
+  // includeHidden still overrides in either direction.
+  rime::win32::WindowSettingsPatch hidden_on;
+  hidden_on.detect_hidden_windows = true;
+  const rime::win32::WindowSettings before_hidden = service.set_settings(hidden_on);
+  assert(!before_hidden.detect_hidden_windows);
+  matched.clear();
+  assert(service.query(by_title, matched).ok());
+  assert(find_by_title(matched).has_value());
   by_title.include_hidden = false;
+  matched.clear();
+  assert(service.query(by_title, matched).ok());
+  assert(!find_by_title(matched).has_value());
+  by_title.include_hidden = std::nullopt;
+  assert(service.list(windows).ok());
+  assert(find_by_title(windows).has_value());
+  rime::win32::WindowSettingsPatch hidden_off;
+  hidden_off.detect_hidden_windows = false;
+  assert(service.set_settings(hidden_off).detect_hidden_windows);
+  assert(!service.settings().detect_hidden_windows);
+  matched.clear();
+  assert(service.query(by_title, matched).ok());
+  assert(!find_by_title(matched).has_value());
 
   assert(service.show(id).ok());
   WindowInfo shown;
   assert(service.info(id, shown).ok());
   assert(shown.visible);
   assert(shown.state == "normal");
+
+  // DetectHiddenText: a hidden child control contributes only while the
+  // setting is on; controls() keeps counting hidden children either way.
+  HWND hidden_child = nullptr;
+  assert(service.ui()
+             .call([&] {
+               hidden_child = CreateWindowExW(0, L"STATIC", L"Rime Hidden Text", WS_CHILD, 10, 40,
+                                              300, 24, created, nullptr,
+                                              GetModuleHandleW(nullptr), nullptr);
+               assert(hidden_child != nullptr);
+             })
+             .ok());
+  std::string visible_text;
+  assert(service.text(id, visible_text).ok());
+  assert(visible_text == "Rime Control Text\r\n");
+  rime::win32::WindowSettingsPatch text_on;
+  text_on.detect_hidden_text = true;
+  assert(!service.set_settings(text_on).detect_hidden_text);
+  std::string all_text;
+  assert(service.text(id, all_text).ok());
+  assert(all_text.find("Rime Hidden Text") != std::string::npos);
+  assert(all_text.find("Rime Control Text") != std::string::npos);
+  rime::win32::WindowSettingsPatch text_off;
+  text_off.detect_hidden_text = false;
+  assert(service.set_settings(text_off).detect_hidden_text);
+  assert(!service.settings().detect_hidden_text);
+
+  // Hidden children participate in ClassNN numbering; a focus-driven IME
+  // may also inject its own notification window, so look the names up
+  // instead of asserting an exact set.
+  std::vector<rime::win32::ControlInfo> controls_with_hidden;
+  assert(service.controls(id, controls_with_hidden).ok());
+  assert(controls_with_hidden.size() >= 2);
+  bool saw_edit = false;
+  bool saw_static = false;
+  for (const auto& control : controls_with_hidden) {
+    if (control.class_nn == "Edit1" && control.class_name == "Edit") saw_edit = true;
+    if (control.class_nn == "Static1" && control.class_name == "Static") saw_static = true;
+  }
+  assert(saw_edit);
+  assert(saw_static);
 
   assert(service.minimize(id).ok());
   WindowInfo minimized;

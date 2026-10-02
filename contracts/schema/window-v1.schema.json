@@ -7,12 +7,12 @@
   "required": ["schemaVersion"],
   "properties": {
     "schemaVersion": { "const": 1, "description": "Vocabulary marker only; never sent on the wire." },
-    "title": { "type": "string", "description": "Case-insensitive title filter (exact or substring per matchMode)." },
-    "matchMode": { "enum": ["exact", "contains"], "default": "contains" },
+    "title": { "type": "string", "description": "Title filter, case-sensitive in every match mode (AHK rule); matchMode regex reads it as an AHK regex where the i) option prefix opts into case-insensitivity." },
+    "matchMode": { "enum": ["startswith", "contains", "exact", "regex"], "default": "contains", "description": "Title match mode; when absent the query resolves against the runtime's global titleMatchMode setting (default contains)." },
     "ahkClass": { "type": "string", "minLength": 1, "description": "Case-insensitive Win32 class-name filter." },
     "ahkExe": { "type": "string", "minLength": 1, "description": "Case-insensitive filter on the process image basename only; directory parts are ignored." },
     "ahkId": { "type": ["string", "integer"], "minLength": 1 },
-    "includeHidden": { "type": "boolean", "description": "When true, hidden windows are included; title-less windows are still filtered out." },
+    "includeHidden": { "type": "boolean", "description": "When true, hidden windows are included; when absent the global detectHiddenWindows setting (default false) decides; title-less windows are always filtered out." },
     "active": { "type": "boolean" }
   },
   "$defs": {
@@ -36,22 +36,40 @@
         "title",
         "className",
         "processName",
+        "processPath",
         "rect",
+        "clientRect",
         "visible",
         "minimized",
         "state",
-        "processId"
+        "processId",
+        "style",
+        "exStyle",
+        "enabled",
+        "alwaysOnTop",
+        "minMax",
+        "transparent",
+        "transColor"
       ],
       "properties": {
         "id": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "title": { "type": "string" },
         "className": { "type": "string" },
         "processName": { "type": "string" },
+        "processPath": { "type": "string" },
         "rect": { "$ref": "#/$defs/rect" },
+        "clientRect": { "$ref": "#/$defs/rect" },
         "visible": { "type": "boolean" },
         "minimized": { "type": "boolean" },
         "state": { "$ref": "#/$defs/state" },
-        "processId": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+        "processId": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "style": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "exStyle": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "enabled": { "type": "boolean" },
+        "alwaysOnTop": { "type": "boolean" },
+        "minMax": { "enum": [-1, 0, 1] },
+        "transparent": { "type": "integer", "minimum": -1, "maximum": 255 },
+        "transColor": { "type": "string", "pattern": "^$|^0x[0-9A-F]{6}$" }
       }
     },
     "placement": { "enum": ["left", "right", "top", "bottom", "full"] },
