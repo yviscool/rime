@@ -5,6 +5,8 @@
 
 #include <charconv>
 #include <chrono>
+#include <cmath>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -19,11 +21,21 @@ using Code = rime::core::Error::Code;
 // Every action type this executor dispatches; capability for all of them is
 // `windows.window.write` (the kernel checks it before dispatch).
 const std::unordered_set<std::string>& window_action_types() {
-  static const std::unordered_set<std::string> types = {"window.move", "window.focus",
-                                                        "window.close", "window.hide",
-                                                        "window.show",  "window.minimize",
-                                                        "window.maximize", "window.restore"};
+  static const std::unordered_set<std::string> types = {
+      "window.move",          "window.focus",       "window.close",
+      "window.hide",          "window.show",        "window.minimize",
+      "window.maximize",      "window.restore",     "window.group.add",
+      "window.group.activate", "window.group.deactivate", "window.group.close"};
   return types;
+}
+
+// The group subset dispatches against a named group (target kind "group",
+// target id = the group name) instead of a window identity.
+bool is_group_action(const std::string& type) {
+  static const std::unordered_set<std::string> types = {
+      "window.group.add", "window.group.activate", "window.group.deactivate",
+      "window.group.close"};
+  return types.contains(type);
 }
 
 Result fail(const rime::action::Action& action, const Code code, std::string message) {
@@ -84,6 +96,78 @@ bool resolve_target(WindowService& service, const rime::action::Action& action,
   return true;
 }
 
+// Parses the window.group.add payload query - the wire twin of the JS
+// query object ({title, matchMode, ahkClass, ahkExe, ahkId, includeHidden,
+// active}). Fields are all optional but at least one selector is required;
+// Rime refuses the empty spec AHK tolerates as a placeholder. Regex fields
+// are only compiled when the group is evaluated, so a bad pattern surfaces
+// from activate/deactivate/close (the module validates them up front for
+// JS callers).
+rime::core::Error parse_group_query(const rime::core::json::Value& value, WindowQuery& out) {
+  const auto string_field = [&](const char* name, std::string& target) -> rime::core::Error {
+    const rime::core::json::Value* text = value.find(name);
+    if (!text) return rime::core::Error::none();
+    if (!text->is_string()) {
+      return {Code::InvalidContract, std::string("group query: ") + name + " must be a string"};
+    }
+    target = text->as_string();
+    return rime::core::Error::none();
+  };
+  const auto flag_field = [&](const char* name, std::optional<bool>& target) -> rime::core::Error {
+    const rime::core::json::Value* flag = value.find(name);
+    if (!flag) return rime::core::Error::none();
+    if (!flag->is_bool()) {
+      return {Code::InvalidContract, std::string("group query: ") + name + " must be a boolean"};
+    }
+    target = flag->as_bool();
+    return rime::core::Error::none();
+  };
+  if (const auto error = string_field("title", out.title); !error.ok()) return error;
+  if (const auto error = string_field("ahkClass", out.class_name); !error.ok()) return error;
+  if (const auto error = string_field("ahkExe", out.process_name); !error.ok()) return error;
+  if (const auto error = flag_field("includeHidden", out.include_hidden); !error.ok()) return error;
+  std::optional<bool> active;
+  if (const auto error = flag_field("active", active); !error.ok()) return error;
+  out.active = active.value_or(false);
+  if (const rime::core::json::Value* mode = value.find("matchMode"); mode) {
+    if (!mode->is_string()) {
+      return {Code::InvalidContract, "group query: matchMode must be a string"};
+    }
+    const std::string text = mode->as_string();
+    if (text == "exact") {
+      out.title_match_mode = TitleMatchMode::Exact;
+    } else if (text == "contains") {
+      out.title_match_mode = TitleMatchMode::Contains;
+    } else if (text == "startswith") {
+      out.title_match_mode = TitleMatchMode::StartsWith;
+    } else if (text == "regex") {
+      out.title_match_mode = TitleMatchMode::Regex;
+    } else {
+      return {Code::InvalidContract,
+              "group query: matchMode must be 'startswith', 'contains', 'exact' or 'regex'"};
+    }
+  }
+  if (const rime::core::json::Value* id = value.find("ahkId"); id) {
+    // Same 2^53 bound as js_int64_strict: the module writes integers that
+    // survived that check, and everything above is lossy in a double.
+    constexpr double kMaxExactInteger = 9007199254740991.0;
+    if (!id->is_number()) {
+      return {Code::InvalidContract, "group query: ahkId must be a positive window id"};
+    }
+    const double raw = id->as_number();
+    if (!(raw > 0.0) || raw != std::floor(raw) || raw > kMaxExactInteger) {
+      return {Code::InvalidContract, "group query: ahkId must be a positive window id"};
+    }
+    out.id = static_cast<std::uint64_t>(raw);
+  }
+  if (!out.active && out.title.empty() && out.class_name.empty() && out.process_name.empty() &&
+      out.id == 0) {
+    return {Code::InvalidContract,
+            "window.group.add query must select at least one window field"};
+  }
+  return rime::core::Error::none();
+}
+
 }  // namespace
 
 rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
@@ -95,7 +179,13 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
   if (!window_action_types().contains(action.type)) {
     return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
   }
-  if (action.target.kind != "window") {
+  const bool group_action = is_group_action(action.type);
+  if (group_action) {
+    if (action.target.kind != "group") {
+      return fail(action, Code::InvalidContract,
+                  "window group actions require target kind 'group', got: " + action.target.kind);
+    }
+  } else if (action.target.kind != "window") {
     return fail(action, Code::InvalidContract,
                 "window actions require target kind 'window', got: " + action.target.kind);
   }
@@ -114,6 +204,80 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
   if (!payload.ok() || !payload.value->is_object()) {
     return fail(action, Code::InvalidContract,
                 action.type + " payload must be a JSON object");
+  }
+
+  if (group_action) {
+    // Group actions carry the group name as the target id and never resolve
+    // a window identity; the deadline bounds each queued UI call the same
+    // way as the window path.
+    const std::string& name = action.target.id;
+    if (name.empty()) {
+      return fail(action, Code::InvalidContract, "group target id must not be empty");
+    }
+    if (action.type == "window.group.add") {
+      WindowQuery spec;
+      if (const auto parsed = parse_group_query(*payload.value, spec); !parsed.ok()) {
+        return fail(action, parsed.code, parsed.message);
+      }
+      std::size_t spec_count = 0;
+      const auto op_error = service_.group_add(name, spec, spec_count, timeout);
+      if (!op_error.ok()) return fail(action, op_error.code, op_error.message);
+      if (cancellation.cancelled()) {
+        return cancelled(action, "action was cancelled after execution");
+      }
+      rime::core::json::Value value = rime::core::json::Value::object();
+      value.set("count", rime::core::json::Value::number(static_cast<double>(spec_count)));
+      return {action.id, true, false, "group spec added", {}, std::move(value)};
+    }
+    if (action.type == "window.group.activate" || action.type == "window.group.deactivate") {
+      bool reverse = false;
+      if (const rime::core::json::Value* flag = payload.value->find("reverse"); flag) {
+        if (!flag->is_bool()) {
+          return fail(action, Code::InvalidContract,
+                      action.type + " payload: reverse must be a boolean");
+        }
+        reverse = flag->as_bool();
+      }
+      std::optional<WindowInfo> out;
+      rime::core::Error op_error = rime::core::Error::none();
+      if (action.type == "window.group.activate") {
+        op_error = service_.group_activate(name, reverse, out, timeout);
+      } else {
+        op_error = service_.group_deactivate(name, reverse, out, timeout);
+      }
+      if (!op_error.ok()) return fail(action, op_error.code, op_error.message);
+      if (cancellation.cancelled()) {
+        return cancelled(action, "action was cancelled after execution");
+      }
+      const char* detail =
+          action.type == "window.group.activate" ? "group window activated"
+                                                  : "non-member activated";
+      // Nothing matched (empty group, nothing eligible): resolve null like
+      // active()/wait() instead of failing the operation.
+      return {action.id, true, false, detail, {},
+              out ? window_info_json(*out) : rime::core::json::Value::null()};
+    }
+    std::string mode;
+    if (const rime::core::json::Value* text = payload.value->find("mode"); text) {
+      if (!text->is_string()) {
+        return fail(action, Code::InvalidContract,
+                    "window.group.close payload: mode must be a string");
+      }
+      mode = text->as_string();
+    }
+    std::uint64_t closed = 0;
+    std::optional<WindowInfo> activated;
+    const auto op_error = service_.group_close(name, mode, closed, activated, timeout);
+    if (!op_error.ok()) return fail(action, op_error.code, op_error.message);
+    if (cancellation.cancelled()) {
+      return cancelled(action, "action was cancelled after execution");
+    }
+    rime::core::json::Value value = rime::core::json::Value::object();
+    value.set("closed", rime::core::json::Value::number(static_cast<double>(closed)));
+    value.set("activated", activated ? window_info_json(*activated)
+                                     : rime::core::json::Value::null());
+    const std::string detail = std::to_string(closed) + " window(s) closed";
+    return {action.id, true, false, detail, {}, std::move(value)};
   }
 
   std::string placement;

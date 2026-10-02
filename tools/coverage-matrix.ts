@@ -160,9 +160,12 @@ async function checkActionRegistry(
     .filter((f) => f.endsWith(".cpp") && f.includes("executor"));
   for (const rel of executors) {
     const text = await readFile(resolve(root, "engine", rel), "utf8");
-    for (const m of text.matchAll(/"([a-z][a-z0-9]*)\.([a-z][a-z0-9]*)"/g)) {
-      if (non_type_verbs.has(m[2])) continue;
-      code_types.add(`${m[1]}.${m[2]}`);
+    // Two or more dotted segments ("window.move", "window.group.add");
+    // the last segment doubles as the file-extension filter below.
+    for (const m of text.matchAll(/"([a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+)"/g)) {
+      const segments = m[1].split(".");
+      if (non_type_verbs.has(segments[segments.length - 1])) continue;
+      code_types.add(m[1]);
     }
   }
   for (const name of code_types) {

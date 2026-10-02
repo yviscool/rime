@@ -770,6 +770,185 @@ JSValue windows_restore(JSContext* context, JSValueConst, int argc, JSValueConst
 }
 
 // ---------------------------------------------------------------------------
+// groups: named window groups (AHK GroupAdd/GroupActivate/GroupDeactivate/
+// GroupClose). Every call dispatches a write action through the kernel like
+// the other mutations; the group registry and the visited-window cycle
+// state live on the UI lane inside WindowService. All argument validation
+// (name, query shape, mode, reverse) happens synchronously here so contract
+// mistakes reject without an Action Trace entry.
+// ---------------------------------------------------------------------------
+
+bool parse_group_name(JSContext* context, JSValueConst value, std::string& out) {
+  if (!JS_IsString(value)) {
+    JS_ThrowTypeError(context, "group name must be a string");
+    return false;
+  }
+  const char* text = JS_ToCString(context, value);
+  if (!text) return false;
+  out = text;
+  JS_FreeCString(context, text);
+  if (out.empty()) {
+    JS_ThrowTypeError(context, "group name must not be empty");
+    return false;
+  }
+  return true;
+}
+
+// Wire twin of parse_window_query: serializes a parsed query back into the
+// group.add payload object (the executor parses it with the same field
+// names and semantics).
+json::Value group_query_payload(const WindowQuery& query) {
+  json::Value payload = json::Value::object();
+  if (!query.title.empty()) payload.set("title", json::Value::string(query.title));
+  if (!query.class_name.empty()) payload.set("ahkClass", json::Value::string(query.class_name));
+  if (!query.process_name.empty()) payload.set("ahkExe", json::Value::string(query.process_name));
+  if (query.id != 0) payload.set("ahkId", json::Value::number(static_cast<double>(query.id)));
+  if (query.include_hidden.has_value()) {
+    payload.set("includeHidden", json::Value::boolean(*query.include_hidden));
+  }
+  if (query.active) payload.set("active", json::Value::boolean(true));
+  if (query.title_match_mode.has_value()) {
+    const char* mode = "contains";
+    switch (*query.title_match_mode) {
+      case TitleMatchMode::StartsWith:
+        mode = "startswith";
+        break;
+      case TitleMatchMode::Exact:
+        mode = "exact";
+        break;
+      case TitleMatchMode::Regex:
+        mode = "regex";
+        break;
+      case TitleMatchMode::Contains:
+        break;
+    }
+    payload.set("matchMode", json::Value::string(mode));
+  }
+  return payload;
+}
+
+// Shared setup for the group calls: binding check plus the non-empty group
+// name in argv[0].
+bool group_call_entry(JSContext* context, int argc, JSValueConst* argv, const char* usage,
+                      WindowModuleBinding*& binding, std::string& name) {
+  binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
+    JS_ThrowInternalError(context, "rime:window is not wired");
+    return false;
+  }
+  if (argc < 1) {
+    JS_ThrowTypeError(context, "%s", usage);
+    return false;
+  }
+  return parse_group_name(context, argv[0], name);
+}
+
+// Reads the optional `reverse` boolean from an options object (shared by
+// activate/deactivate); absent or null means false.
+bool parse_reverse_option(JSContext* context, JSValueConst options, bool& reverse) {
+  if (JS_IsUndefined(options) || JS_IsNull(options)) return true;
+  JSValue flag = JS_GetPropertyStr(context, options, "reverse");
+  if (JS_IsException(flag)) return false;
+  if (!JS_IsUndefined(flag) && !JS_IsNull(flag)) {
+    if (!JS_IsBool(flag)) {
+      JS_FreeValue(context, flag);
+      JS_ThrowTypeError(context, "options.reverse must be a boolean");
+      return false;
+    }
+    reverse = JS_ToBool(context, flag);
+  }
+  JS_FreeValue(context, flag);
+  return true;
+}
+
+JSValue groups_add(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int, void*) {
+  WindowModuleBinding* binding = nullptr;
+  std::string name;
+  if (!group_call_entry(context, argc, argv, "add(name, query, options?)", binding, name)) {
+    return JS_EXCEPTION;
+  }
+  if (argc > 3) return JS_ThrowTypeError(context, "add(name, query, options?)");
+  if (argc < 2 || !JS_IsObject(argv[1])) {
+    return JS_ThrowTypeError(context, "add(name, query, options?): query must be an object");
+  }
+  WindowQuery spec;
+  if (!parse_window_query(context, argv[1], spec)) return JS_EXCEPTION;
+  ActionOptions options;
+  if (argc == 3 && !parse_action_options(context, argv[2], options)) return JS_EXCEPTION;
+  auto action = make_action(*binding->next_action_id, "rime:window", "window.group.add",
+                            kWindowWriteCapability, {"group", std::move(name)},
+                            json::stringify(group_query_payload(spec)), options);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
+}
+
+// Shared body for activate/deactivate(name[, options]) - both only differ
+// in the action type and the detail the executor reports.
+JSValue run_group_focus_cycle(JSContext* context, int argc, JSValueConst* argv,
+                              const char* usage, const char* action_type) {
+  WindowModuleBinding* binding = nullptr;
+  std::string name;
+  if (!group_call_entry(context, argc, argv, usage, binding, name)) return JS_EXCEPTION;
+  if (argc > 2) return JS_ThrowTypeError(context, "%s", usage);
+  ActionOptions options;
+  bool reverse = false;
+  if (argc == 2) {
+    if (!parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
+    if (!parse_reverse_option(context, argv[1], reverse)) return JS_EXCEPTION;
+  }
+  json::Value payload = json::Value::object();
+  if (reverse) payload.set("reverse", json::Value::boolean(true));
+  auto action = make_action(*binding->next_action_id, "rime:window", action_type,
+                            kWindowWriteCapability, {"group", std::move(name)},
+                            json::stringify(payload), options);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
+}
+
+JSValue groups_activate(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                        void*) {
+  return run_group_focus_cycle(context, argc, argv, "activate(name, options?)",
+                               "window.group.activate");
+}
+
+JSValue groups_deactivate(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                          void*) {
+  return run_group_focus_cycle(context, argc, argv, "deactivate(name, options?)",
+                               "window.group.deactivate");
+}
+
+JSValue groups_close(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int, void*) {
+  WindowModuleBinding* binding = nullptr;
+  std::string name;
+  if (!group_call_entry(context, argc, argv, "close(name, mode?, options?)", binding, name)) {
+    return JS_EXCEPTION;
+  }
+  if (argc > 3) return JS_ThrowTypeError(context, "close(name, mode?, options?)");
+  if (argc == 3 && !JS_IsString(argv[1])) {
+    return JS_ThrowTypeError(context, "close(name, mode, options?): mode must be a string");
+  }
+  std::string mode;
+  int cursor = 1;
+  if (argc >= 2 && JS_IsString(argv[1])) {
+    const char* text = JS_ToCString(context, argv[1]);
+    if (!text) return JS_EXCEPTION;
+    mode = text;
+    JS_FreeCString(context, text);
+    if (mode != "" && mode != "reverse" && mode != "all") {
+      return JS_ThrowTypeError(context, "close(name, mode): mode must be '', 'reverse' or 'all'");
+    }
+    cursor = 2;
+  }
+  ActionOptions options;
+  if (argc > cursor && !parse_action_options(context, argv[cursor], options)) return JS_EXCEPTION;
+  json::Value payload = json::Value::object();
+  if (!mode.empty()) payload.set("mode", json::Value::string(mode));
+  auto action = make_action(*binding->next_action_id, "rime:window", "window.group.close",
+                            kWindowWriteCapability, {"group", std::move(name)},
+                            json::stringify(payload), options);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
+}
+
+// ---------------------------------------------------------------------------
 // settings.window: the synchronous home of SetTitleMatchMode /
 // DetectHiddenWindows / DetectHiddenText and the A_TitleMatchMode* /
 // A_DetectHidden* builtin variables. State lives in WindowService atomics,
@@ -1065,11 +1244,32 @@ int window_module_init(JSContext* context, JSModuleDef* module) {
     JS_FreeValue(context, windows);
     return -1;
   }
+  // groups: the named-group mutation surface (add/activate/deactivate/
+  // close); wired last so every earlier failure path stays unchanged.
+  JSValue groups = JS_NewObject(context);
+  if (JS_IsException(groups)) {
+    JS_FreeValue(context, settings);
+    JS_FreeValue(context, windows);
+    return -1;
+  }
+  if (!add(groups, "add", groups_add, 2, 0) || !add(groups, "activate", groups_activate, 1, 0) ||
+      !add(groups, "deactivate", groups_deactivate, 1, 0) ||
+      !add(groups, "close", groups_close, 1, 0)) {
+    JS_FreeValue(context, groups);
+    JS_FreeValue(context, settings);
+    JS_FreeValue(context, windows);
+    return -1;
+  }
   if (JS_SetModuleExport(context, module, "windows", windows) < 0) {
+    JS_FreeValue(context, groups);
     JS_FreeValue(context, settings);
     return -1;
   }
-  return JS_SetModuleExport(context, module, "settings", settings);
+  if (JS_SetModuleExport(context, module, "settings", settings) < 0) {
+    JS_FreeValue(context, groups);
+    return -1;
+  }
+  return JS_SetModuleExport(context, module, "groups", groups);
 }
 
 JSModuleDef* create_window_module(JSContext* context) {
@@ -1077,6 +1277,7 @@ JSModuleDef* create_window_module(JSContext* context) {
   if (!module) return nullptr;
   if (JS_AddModuleExport(context, module, "windows") < 0) return nullptr;
   if (JS_AddModuleExport(context, module, "settings") < 0) return nullptr;
+  if (JS_AddModuleExport(context, module, "groups") < 0) return nullptr;
   return module;
 }
 

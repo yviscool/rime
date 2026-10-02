@@ -6,7 +6,8 @@ declare module "rime:runtime" {
 declare module "rime:window" {
   const windows: import("./index").WindowsBridge;
   const settings: { window: import("./index").WindowSettingsBridge };
-  export { settings, windows };
+  const groups: import("./index").WindowsGroupsBridge;
+  export { groups, settings, windows };
 }
 
 declare module "rime:input" {

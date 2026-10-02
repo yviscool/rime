@@ -518,6 +518,85 @@ int main() {
     assert(service.info(active->id, again).ok());
   }
 
+  // Window groups: spec dedup and the missing-group policy are exact;
+  // activation/deactivation stay weak because the foreground lock can deny
+  // focus. Two disposable victims carry the group and are torn down through
+  // the same query afterwards so later sections never see them.
+  HWND group_victim_a = nullptr;
+  HWND group_victim_b = nullptr;
+  assert(service.ui()
+             .call([&] {
+               group_victim_a = CreateWindowExW(0, L"STATIC", L"Rime Group A",
+                                                WS_OVERLAPPED | WS_VISIBLE, 100, 100, 320, 240,
+                                                nullptr, nullptr, GetModuleHandleW(nullptr),
+                                                nullptr);
+               group_victim_b = CreateWindowExW(0, L"STATIC", L"Rime Group B",
+                                                WS_OVERLAPPED | WS_VISIBLE, 140, 140, 320, 240,
+                                                nullptr, nullptr, GetModuleHandleW(nullptr),
+                                                nullptr);
+               assert(group_victim_a != nullptr);
+               assert(group_victim_b != nullptr);
+             })
+             .ok());
+  rime::win32::WindowQuery victim_spec;
+  victim_spec.title = "Rime Group";
+  victim_spec.title_match_mode = TitleMatchMode::StartsWith;
+  std::size_t group_specs = 0;
+  assert(service.group_add("native_group", victim_spec, group_specs).ok());
+  assert(group_specs == 1);
+  // An exact duplicate spec is skipped (AHK GroupAdd's dedup).
+  assert(service.group_add("native_group", victim_spec, group_specs).ok());
+  assert(group_specs == 1);
+  rime::win32::WindowQuery distinct_spec = victim_spec;
+  distinct_spec.process_name = "definitely-not-running.exe";
+  assert(service.group_add("native_group", distinct_spec, group_specs).ok());
+  assert(group_specs == 2);
+  assert(service.group_add("", victim_spec, group_specs).code ==
+         rime::core::Error::Code::InvalidContract);
+
+  // GroupActivate creates a missing group (which resolves nullopt when
+  // empty); Deactivate and Close require a group that exists.
+  std::optional<WindowInfo> group_out;
+  assert(service.group_activate("native_new", false, group_out).ok());
+  assert(!group_out.has_value());
+  std::uint64_t group_closed = 0;
+  assert(service.group_deactivate("native_missing", false, group_out).code ==
+         rime::core::Error::Code::InvalidContract);
+  assert(service.group_close("native_missing", "", group_closed, group_out).code ==
+         rime::core::Error::Code::InvalidContract);
+  assert(service.group_close("native_group", "bogus", group_closed, group_out).code ==
+         rime::core::Error::Code::InvalidContract);
+
+  // Weak: focus can be denied by the foreground lock; when a target does
+  // resolve it must be a live, inspectable window.
+  const auto group_activate_result = service.group_activate("native_group", false, group_out);
+  assert(group_activate_result.ok() ||
+         group_activate_result.code == rime::core::Error::Code::ExecutionFailed);
+  if (group_out.has_value()) {
+    WindowInfo group_target;
+    assert(service.info(group_out->id, group_target).ok());
+  }
+  const auto group_deactivate_result = service.group_deactivate("native_group", false, group_out);
+  assert(group_deactivate_result.ok() ||
+         group_deactivate_result.code == rime::core::Error::Code::ExecutionFailed);
+  if (group_out.has_value()) {
+    WindowInfo group_target;
+    assert(service.info(group_out->id, group_target).ok());
+  }
+  // Advance-only close: whatever happened to the foreground, the call either
+  // succeeds or reports the focus denial - it must not corrupt group state.
+  const auto group_noop_close = service.group_close("native_group", "", group_closed, group_out);
+  assert(group_noop_close.ok() ||
+         group_noop_close.code == rime::core::Error::Code::ExecutionFailed);
+
+  // Tear any surviving victim down through the same query so the window
+  // set is deterministic for the sections that follow.
+  std::vector<WindowInfo> victim_leftovers;
+  assert(service.query(victim_spec, victim_leftovers).ok());
+  for (const auto& leftover : victim_leftovers) {
+    assert(service.close(leftover.id).ok());
+  }
+
   // WindowExecutor: a contract-valid window.move reaches the service and
   // records the trace pair.
   auto trace = std::make_shared<rime::core::InMemoryTrace>();
@@ -526,9 +605,11 @@ int main() {
           std::unordered_set<std::string>{"windows.window.read", "windows.window.write"}),
       trace);
   const auto window_executor = std::make_shared<rime::win32::WindowExecutor>(service);
-  for (const char* type : {"window.move", "window.focus", "window.close", "window.hide",
-                           "window.show", "window.minimize", "window.maximize",
-                           "window.restore"}) {
+  for (const char* type : {"window.move",       "window.focus",  "window.close",
+                            "window.hide",       "window.show",   "window.minimize",
+                            "window.maximize",   "window.restore", "window.group.add",
+                            "window.group.activate", "window.group.deactivate",
+                            "window.group.close"}) {
     assert(kernel.register_executor(type, window_executor).ok());
   }
 
@@ -638,7 +719,9 @@ int main() {
       trace);
   constexpr const char* kDeniedTypes[] = {"window.move",  "window.focus",    "window.close",
                                           "window.hide",  "window.show",     "window.minimize",
-                                          "window.maximize", "window.restore"};
+                                          "window.maximize", "window.restore",
+                                          "window.group.add", "window.group.activate",
+                                          "window.group.deactivate", "window.group.close"};
   for (const char* type : kDeniedTypes) {
     const auto registered = denied.register_executor(type, window_executor);
     assert(registered.ok());
@@ -676,6 +759,118 @@ int main() {
   assert(!bad_placement_result.succeeded);
   assert(bad_placement_result.error.message.find("unknown window placement") !=
          std::string::npos);
+
+  // Group actions dispatch through the same kernel. Two disposable victims
+  // back a fresh group; the close-all count is exact because nothing else
+  // touches that pair, while activate/deactivate stay weak (foreground
+  // lock). Ids continue above the earlier executor actions.
+  HWND exec_group_a = nullptr;
+  HWND exec_group_b = nullptr;
+  assert(service.ui()
+             .call([&] {
+               exec_group_a = CreateWindowExW(0, L"STATIC", L"Rime Group Close A",
+                                              WS_OVERLAPPED | WS_VISIBLE, 180, 180, 320, 240,
+                                              nullptr, nullptr, GetModuleHandleW(nullptr),
+                                              nullptr);
+               exec_group_b = CreateWindowExW(0, L"STATIC", L"Rime Group Close B",
+                                              WS_OVERLAPPED | WS_VISIBLE, 220, 220, 320, 240,
+                                              nullptr, nullptr, GetModuleHandleW(nullptr),
+                                              nullptr);
+               assert(exec_group_a != nullptr);
+               assert(exec_group_b != nullptr);
+             })
+             .ok());
+  rime::action::Action group_add_action = move_action;
+  group_add_action.id = 40;
+  group_add_action.type = "window.group.add";
+  group_add_action.target = {"group", "executor_group"};
+  group_add_action.payload = R"({"title":"Rime Group Close","matchMode":"startswith"})";
+  const auto group_added = kernel.execute(group_add_action);
+  assert(group_added.succeeded);
+  assert(group_added.value.find("count") != nullptr);
+  assert(group_added.value.find("count")->as_number() == 1.0);
+  // An exact duplicate spec is skipped, so the count stays at one.
+  group_add_action.id = 41;
+  const auto group_added_again = kernel.execute(group_add_action);
+  assert(group_added_again.succeeded);
+  assert(group_added_again.value.find("count")->as_number() == 1.0);
+
+  // Contract failures: an empty spec, the wrong target kind, a reverse
+  // value that is not a boolean and an unknown close mode.
+  rime::action::Action empty_spec = group_add_action;
+  empty_spec.id = 42;
+  empty_spec.payload = "{}";
+  const auto empty_spec_result = kernel.execute(empty_spec);
+  assert(!empty_spec_result.succeeded);
+  assert(empty_spec_result.error.code == rime::core::Error::Code::InvalidContract);
+
+  rime::action::Action bad_group_kind = group_add_action;
+  bad_group_kind.id = 43;
+  bad_group_kind.target = {"window", std::to_string(id)};
+  const auto bad_kind_result = kernel.execute(bad_group_kind);
+  assert(!bad_kind_result.succeeded);
+  assert(bad_kind_result.error.code == rime::core::Error::Code::InvalidContract);
+
+  rime::action::Action group_focus_action = move_action;
+  group_focus_action.id = 44;
+  group_focus_action.type = "window.group.activate";
+  group_focus_action.target = {"group", "executor_group"};
+  group_focus_action.payload = R"({"reverse":"yes"})";
+  const auto bad_reverse_result = kernel.execute(group_focus_action);
+  assert(!bad_reverse_result.succeeded);
+  assert(bad_reverse_result.error.code == rime::core::Error::Code::InvalidContract);
+
+  // Reverse activation and deactivation: weak, but a resolved target must
+  // be inspectable.
+  group_focus_action.id = 45;
+  group_focus_action.payload = R"({"reverse":true})";
+  const auto group_focused = kernel.execute(group_focus_action);
+  assert(group_focused.succeeded ||
+         group_focused.error.code == rime::core::Error::Code::ExecutionFailed);
+  group_focus_action.id = 46;
+  group_focus_action.type = "window.group.deactivate";
+  group_focus_action.payload = R"({"reverse":true})";
+  const auto group_deactivated = kernel.execute(group_focus_action);
+  assert(group_deactivated.succeeded ||
+         group_deactivated.error.code == rime::core::Error::Code::ExecutionFailed);
+
+  rime::action::Action group_close_action = move_action;
+  group_close_action.id = 47;
+  group_close_action.type = "window.group.close";
+  group_close_action.target = {"group", "executor_group"};
+  group_close_action.payload = R"({"mode":"bogus"})";
+  const auto bad_mode_result = kernel.execute(group_close_action);
+  assert(!bad_mode_result.succeeded);
+  assert(bad_mode_result.error.code == rime::core::Error::Code::InvalidContract);
+
+  // Reverse close advances the cycle: weak on focus, exact on the payload
+  // shape it reports.
+  group_close_action.id = 48;
+  group_close_action.payload = R"({"mode":"reverse"})";
+  const auto group_reverse_close = kernel.execute(group_close_action);
+  assert(group_reverse_close.succeeded ||
+         group_reverse_close.error.code == rime::core::Error::Code::ExecutionFailed);
+  if (group_reverse_close.succeeded) {
+    assert(group_reverse_close.value.find("closed") != nullptr);
+    assert(group_reverse_close.value.find("activated") != nullptr);
+  }
+
+  // Close-all: exact count and no activation. The pair only lives in this
+  // group, so exactly two closes are observed.
+  group_close_action.id = 49;
+  group_close_action.payload = R"({"mode":"all"})";
+  const auto group_close_all = kernel.execute(group_close_action);
+  assert(group_close_all.succeeded);
+  assert(group_close_all.value.find("closed") != nullptr);
+  assert(group_close_all.value.find("closed")->as_number() == 2.0);
+  assert(group_close_all.value.find("activated") != nullptr);
+  assert(group_close_all.value.find("activated")->is_null());
+  rime::win32::WindowQuery closeall_query;
+  closeall_query.title = "Rime Group Close";
+  closeall_query.title_match_mode = TitleMatchMode::StartsWith;
+  std::vector<WindowInfo> closeall_leftovers;
+  assert(service.query(closeall_query, closeall_leftovers).ok());
+  assert(closeall_leftovers.empty());
 
   // The executor dispatches window.close: the pre-close snapshot is the
   // result value and the id goes stale immediately after.

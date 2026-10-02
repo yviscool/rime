@@ -95,6 +95,50 @@
       "status": "implemented"
     },
     {
+      "type": "window.group.add",
+      "capability": "windows.window.write",
+      "target": { "kind": "group" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/groupAddPayload",
+      "executor": "engine/win32/src/window_executor.cpp:217",
+      "module": "engine/win32/js/src/window_module.cpp:865",
+      "sdk": "sdk/src/window.ts:232",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.group.activate",
+      "capability": "windows.window.write",
+      "target": { "kind": "group" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/groupFocusPayload",
+      "executor": "engine/win32/src/window_executor.cpp:232",
+      "module": "engine/win32/js/src/window_module.cpp:909",
+      "sdk": "sdk/src/window.ts:239",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.group.deactivate",
+      "capability": "windows.window.write",
+      "target": { "kind": "group" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/groupFocusPayload",
+      "executor": "engine/win32/src/window_executor.cpp:232",
+      "module": "engine/win32/js/src/window_module.cpp:915",
+      "sdk": "sdk/src/window.ts:245",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "window.group.close",
+      "capability": "windows.window.write",
+      "target": { "kind": "group" },
+      "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/groupClosePayload",
+      "executor": "engine/win32/src/window_executor.cpp:260",
+      "module": "engine/win32/js/src/window_module.cpp:919",
+      "sdk": "sdk/src/window.ts:255",
+      "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
+      "status": "implemented"
+    },
+    {
       "type": "input.send",
       "capability": "windows.input.inject",
       "target": { "kind": "input", "example": "keyboard" },
@@ -192,7 +236,7 @@
       "status": "implemented",
       "declared": "engine/win32/js/src/window_module.cpp:23",
       "checked": ["engine/action/src/kernel.cpp:97"],
-      "actions": ["window.move", "window.focus", "window.close", "window.hide", "window.show", "window.minimize", "window.maximize", "window.restore"]
+      "actions": ["window.move", "window.focus", "window.close", "window.hide", "window.show", "window.minimize", "window.maximize", "window.restore", "window.group.add", "window.group.activate", "window.group.deactivate", "window.group.close"]
     },
     {
       "name": "windows.clipboard.read",

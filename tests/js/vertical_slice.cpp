@@ -93,7 +93,8 @@ int main() {
   const auto window_executor = std::make_shared<rime::win32::WindowExecutor>(service);
   for (const char* type : {"window.move", "window.focus", "window.close", "window.hide",
                            "window.show", "window.minimize", "window.maximize",
-                           "window.restore"}) {
+                           "window.restore", "window.group.add", "window.group.activate",
+                           "window.group.deactivate", "window.group.close"}) {
     assert(kernel.register_executor(type, window_executor).ok());
   }
 
@@ -649,6 +650,99 @@ int main() {
         "if (out.cancel !== 'cancelled')\n"
         "  throw new Error('wait cancel must reject with cancelled, got: ' + out.cancel);",
         "slice-wait-check.mjs");
+
+  // Window groups (GroupAdd/GroupActivate/GroupDeactivate/GroupClose): two
+  // disposable victims back the group. Names and modes are validated
+  // synchronously by the module; the executor enforces the payload
+  // contract; the service owns the registry on the UI lane. Dedup, the
+  // create-if-missing activate and the missing-group InvalidContract are
+  // exact; close-all counts exactly because the pair lives only in this
+  // group. Focus-dependent outcomes stay out (foreground lock). These are
+  // writes: they record per-type trace pairs, which only the grouped trace
+  // section observes.
+  HWND group_slice_a = nullptr;
+  HWND group_slice_b = nullptr;
+  assert(service.ui()
+             .call([&] {
+               group_slice_a = CreateWindowExW(0, L"STATIC", L"Rime Group Slice A",
+                                               WS_OVERLAPPED | WS_VISIBLE, 160, 160, 320, 240,
+                                               nullptr, nullptr, GetModuleHandleW(nullptr),
+                                               nullptr);
+               group_slice_b = CreateWindowExW(0, L"STATIC", L"Rime Group Slice B",
+                                               WS_OVERLAPPED | WS_VISIBLE, 200, 200, 320, 240,
+                                               nullptr, nullptr, GetModuleHandleW(nullptr),
+                                               nullptr);
+               assert(group_slice_a != nullptr);
+               assert(group_slice_b != nullptr);
+             })
+             .ok());
+  check(runtime,
+        "import { groups } from 'rime:window';\n"
+        "globalThis.groupOut = {};\n"
+        "const spec = { title: 'Rime Group Slice', matchMode: 'startswith' };\n"
+        // The duplicate probe waits for the first add to finish: two identical
+        // adds in flight would let the dispatcher's same-args key merge
+        // supersede the older one, which is timing-dependent.
+        "groups.add('slice_group', spec)\n"
+        "  .then(r => { globalThis.groupOut.add = r.count; },\n"
+        "        e => { globalThis.groupOut.addErr = String(e); })\n"
+        "  .then(() => groups.add('slice_group', spec))\n"
+        "  .then(r => { globalThis.groupOut.dup = r.count; },\n"
+        "        e => { globalThis.groupOut.dupErr = String(e); });\n"
+        "groups.activate('slice_missing')\n"
+        "  .then(w => { globalThis.groupOut.missing = w; },\n"
+        "        e => { globalThis.groupOut.missingErr = String(e); });\n"
+        "groups.deactivate('slice_never')\n"
+        "  .then(w => { globalThis.groupOut.noGroup = w; },\n"
+        "        e => { globalThis.groupOut.noGroupCode = e.code; });\n"
+        "groups.close('slice_never', 'all')\n"
+        "  .then(r => { globalThis.groupOut.noClose = r; },\n"
+        "        e => { globalThis.groupOut.noCloseCode = e.code; });",
+        "slice-group-add.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "const g = globalThis.groupOut;\n"
+        "if (g.addErr) throw new Error('group add rejected: ' + g.addErr);\n"
+        "if (g.add !== 1) throw new Error('first group add must count 1, got: ' + g.add);\n"
+        "if (g.dupErr) throw new Error('duplicate group add rejected: ' + g.dupErr);\n"
+        "if (g.dup !== 1) throw new Error('duplicate spec must stay at 1, got: ' + g.dup);\n"
+        "if (g.missingErr) throw new Error('missing-group activate rejected: ' + g.missingErr);\n"
+        "if (g.missing !== null)\n"
+        "  throw new Error('create-if-missing activate must resolve null, got: ' +\n"
+        "                  JSON.stringify(g.missing));\n"
+        "if (g.noGroupCode !== 'invalid_contract')\n"
+        "  throw new Error('missing-group deactivate must reject invalid_contract, got: ' +\n"
+        "                  g.noGroupCode);\n"
+        "if (g.noCloseCode !== 'invalid_contract')\n"
+        "  throw new Error('missing-group close must reject invalid_contract, got: ' +\n"
+        "                  g.noCloseCode);",
+        "slice-group-add-check.mjs");
+  check(runtime,
+        "import { groups } from 'rime:window';\n"
+        "globalThis.groupCloseAll = null;\n"
+        "globalThis.groupCloseAllErr = null;\n"
+        "groups.close('slice_group', 'all')\n"
+        "  .then(r => { globalThis.groupCloseAll = r; },\n"
+        "        e => { globalThis.groupCloseAllErr = String(e); });",
+        "slice-group-closeall.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.groupCloseAllErr)\n"
+        "  throw new Error('group close all rejected: ' + globalThis.groupCloseAllErr);\n"
+        "const r = globalThis.groupCloseAll;\n"
+        "if (!r || r.closed !== 2)\n"
+        "  throw new Error('group close all must close exactly 2, got: ' +\n"
+        "                  JSON.stringify(r));\n"
+        "if (r.activated !== null)\n"
+        "  throw new Error('group close all must not activate, got: ' +\n"
+        "                  JSON.stringify(r.activated));",
+        "slice-group-closeall-check.mjs");
+  std::vector<WindowInfo> group_slice_left;
+  rime::win32::WindowQuery group_slice_query;
+  group_slice_query.title = "Rime Group Slice";
+  group_slice_query.title_match_mode = rime::win32::TitleMatchMode::StartsWith;
+  assert(service.query(group_slice_query, group_slice_left).ok());
+  assert(group_slice_left.empty());
 
   // Segment 6: close destroys the window through the executor (the result
   // snapshot is taken before WM_CLOSE); later operations on the id reject.

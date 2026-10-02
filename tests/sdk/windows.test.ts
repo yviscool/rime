@@ -1,16 +1,19 @@
 import { expect, mock, test } from "bun:test";
 import type { NativeActionOptions } from "../../sdk/src/action";
 import type {
+  GroupFocusOptions,
   TitleMatchMode,
   TitleMatchModeSpeed,
   WindowHandle,
   WindowId,
+  WindowQueryFields,
   WindowsBridge,
+  WindowsGroupsBridge,
   WindowsListOptions,
   WindowsWaitOptions,
 } from "../../sdk/src/window";
 import type { ProcessId } from "../../sdk/src/process";
-import { settings, Window } from "../../sdk/src/window";
+import { groups, settings, Window } from "../../sdk/src/window";
 
 const runtimeIds = { next: 1000, cancelled: [] as number[], released: [] as number[] };
 
@@ -73,11 +76,11 @@ const movedHandle: WindowHandle = {
 
 const calls: Array<{
   method: string;
-  target: WindowId | "active" | number;
+  target: WindowId | "active" | number | string;
   position?: string;
   // WindowsWaitOptions is a superset of WindowsListOptions (until is
-  // optional), so every existing push type-checks against it.
-  options?: WindowsWaitOptions;
+  // optional); group calls add their own fields (reverse/mode) on top.
+  options?: WindowsWaitOptions & { reverse?: boolean; mode?: string };
 }> = [];
 let rejectNext = false;
 
@@ -202,6 +205,24 @@ mock.module("rime:window", () => ({
     restore: (target: WindowId | "active", options?: NativeActionOptions) =>
       passThrough("restore", target, options),
   } satisfies WindowsBridge,
+  groups: {
+    add: async (name: string, query: WindowQueryFields, options?: NativeActionOptions) => {
+      calls.push({ method: "group.add", target: name, options: { ...query, ...options } });
+      return { count: 3 };
+    },
+    activate: async (name: string, options?: GroupFocusOptions) => {
+      calls.push({ method: "group.activate", target: name, options });
+      return name === "empty" ? null : movedHandle;
+    },
+    deactivate: async (name: string, options?: GroupFocusOptions) => {
+      calls.push({ method: "group.deactivate", target: name, options });
+      return movedHandle;
+    },
+    close: async (name: string, mode?: string, options?: NativeActionOptions) => {
+      calls.push({ method: "group.close", target: name, options: { mode, ...options } });
+      return { closed: 2, activated: null };
+    },
+  } satisfies WindowsGroupsBridge,
 }));
 
 test("settings exposes the synchronous bridge with return-previous setters", async () => {
@@ -336,4 +357,47 @@ test("active/info forward native options", async () => {
   expect(calls).toEqual([
     { method: "info", target: 5, options: { deadlineMs: 60, parentActionId: 2 } },
   ]);
+});
+
+test("groups routes add/activate/deactivate/close through the group bridge", async () => {
+  calls.length = 0;
+  const facade = await groups();
+  expect(await facade.add("demo", { title: "Notepad", matchMode: "exact", deadlineMs: 50 })).toBe(3);
+  expect(await facade.activate("demo", { reverse: true })).toEqual(movedHandle);
+  expect(await facade.activate("empty")).toBeNull();
+  expect(await facade.deactivate("demo")).toEqual(movedHandle);
+  expect(await facade.close("demo", "all", { deadlineMs: 60 })).toEqual({
+    closed: 2,
+    activated: null,
+  });
+  expect(calls[0]).toEqual({
+    method: "group.add",
+    target: "demo",
+    options: { title: "Notepad", matchMode: "exact", deadlineMs: 50 },
+  });
+  expect(calls[1]).toEqual({
+    method: "group.activate",
+    target: "demo",
+    options: { reverse: true },
+  });
+  expect(calls[2]).toEqual({ method: "group.activate", target: "empty", options: {} });
+  expect(calls[3]).toEqual({ method: "group.deactivate", target: "demo", options: {} });
+  expect(calls[4]).toEqual({
+    method: "group.close",
+    target: "demo",
+    options: { mode: "all", deadlineMs: 60 },
+  });
+});
+
+test("groups strips the signal and binds a cancellation id", async () => {
+  runtimeIds.cancelled.length = 0;
+  runtimeIds.released.length = 0;
+  calls.length = 0;
+  const signal = new FakeSignal();
+  const facade = await groups();
+  expect(await facade.add("demo", { title: "Notepad", signal })).toBe(3);
+  const wire = calls[0]?.options as { cancellationId?: number; signal?: unknown } | undefined;
+  expect("signal" in (wire ?? {})).toBe(false);
+  expect(wire?.cancellationId).toBeGreaterThan(0);
+  expect(runtimeIds.released).toContain(wire?.cancellationId ?? 0);
 });

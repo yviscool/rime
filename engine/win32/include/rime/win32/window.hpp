@@ -105,6 +105,9 @@ struct WindowQuery {
   std::uint64_t id{0};              // ahk_id: stable id; 0 = unset
   std::optional<bool> include_hidden;
   bool active{false};
+  // Exact equality powers window-group dedup (AHK GroupAdd skips a spec the
+  // group already carries).
+  friend bool operator==(const WindowQuery&, const WindowQuery&) = default;
 };
 
 // Validates one AHK-style RegEx pattern (optional i)/m)/s) option prefix) for
@@ -175,6 +178,33 @@ class WindowService final {
   rime::core::Error evaluate_wait(const WindowQuery& query, WaitCondition until,
                                   WaitEvaluation& out,
                                   std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Window groups (AHK GroupAdd/GroupActivate/GroupClose/GroupDeactivate):
+  // named lists of query specs evaluated against live windows with the
+  // current settings. The registry and the visited-window cycle state are
+  // UI-thread only, so every method runs through the UI lane without locks.
+  // group_add appends a spec unless the group already carries it and
+  // resolves with the resulting spec count; a missing group is created.
+  rime::core::Error group_add(const std::string& name, const WindowQuery& spec,
+                              std::size_t& spec_count,
+                              std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Cycles focus through the group's members (AHK GroupActivate): resolves
+  // with the activated snapshot, or nullopt when there is nothing to
+  // activate. A missing group is created empty (AHK's create-if-missing).
+  rime::core::Error group_activate(const std::string& name, bool reverse,
+                                   std::optional<WindowInfo>& out,
+                                   std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Activates an eligible non-member (AHK GroupDeactivate); InvalidContract
+  // when the group was never created (AHK's argument error).
+  rime::core::Error group_deactivate(const std::string& name, bool reverse,
+                                     std::optional<WindowInfo>& out,
+                                     std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // mode: "" closes the foreground member (if any) then activates the next;
+  // "reverse" does so starting from the most recent member; "all" closes
+  // every member and activates nothing. InvalidContract for an unknown mode
+  // or a group that was never created.
+  rime::core::Error group_close(const std::string& name, std::string_view mode,
+                                std::uint64_t& closed, std::optional<WindowInfo>& activated,
+                                std::chrono::milliseconds timeout = std::chrono::seconds(5));
   rime::core::Error info(std::uint64_t id, WindowInfo& out,
                          std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // WinGetControls/WinGetControlsHwnd: child controls in EnumChildWindows

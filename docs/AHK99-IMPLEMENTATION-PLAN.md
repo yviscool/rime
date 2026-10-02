@@ -37,7 +37,7 @@
 ### 1.3 代码现状（结构事实，M0 之后）
 
 - **已有**：15 个 action type、16 个 capability（12 `implemented` + 1 `test-only` + 3 `planned`）、5 个 service（window/input/process/clipboard/automation）+ UiThread + Dispatcher/Kernel + TimerService + 完整垂直切片模板（七段式 slice 测试）；`Lane::Worker` + `WorkerService`（异步读/泵与 5 个 executor 的 lane 检查）；中央真值源 `contracts/registry/actions.json` + `matrix:check` 漂移检查；共享 `rime::win32::Bootstrap` 生产接线（`tests/js/js_bundle.cpp` 与 `hosts/desktop` 同源，`rime_host <script>` 走同一生命周期）。
-- **缺失**：registry/screen/fs/通用 COM/GUI/declarative Hotkey/OnMessage 零实现；WinGroup、`Send` 字符串语言（M2 语法层，底层 `input.send` 已具备）。
+- **缺失**：registry/screen/fs/通用 COM/GUI/declarative Hotkey/OnMessage 零实现；`Send` 字符串语言（M2 语法层，底层 `input.send` 已具备）。
 - **原版规模参考**（`rime-research/AutoHotkey-alpha`，≈103,700 行）：语言核心 ≈30k（排除）、GUI+Menu ≈15.5k、Hook/Hotkey/Send ≈13.3k、BIF 实现面 ≈12.5k、调度内核 ≈3.5k。我们的对应面：GUI/Menu 与 Hook/事件中枢是两个最大战役，BIF 面广而浅。
 
 ## 2. 阶段总览
@@ -78,7 +78,7 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 
 - 补齐 39 个 contract-only：`WinGetText/WinGetControls/WinGetClientPos/WinGetPos/WinGetMinMax/WinGetStyle系/WinSetAlwaysOnTop/WinSetRegion/WinSetTitle/WinSetEnabled/…`；
 - `WinWait/WinWaitActive/WinWaitClose/WinWaitNotActive` → **条件等待服务**：`windows.wait({until})`，25ms 调度器轮询 + worker lane 求值（`evaluate_wait`），绝不阻塞线程；deadlineMs 整预算 + 取消——**已完成**（WinEvent 窗口事件唤醒为后续优化）；
-- `WinExist/WinActive`（M0 追踪的 g_BIF）与 `GroupAdd/GroupActivate/GroupClose/GroupDeactivate`（WinGroup）；
+- `WinExist/WinActive`（M0 追踪的 g_BIF，已由 `exists`/`isActive` 覆盖）与 `GroupAdd/GroupActivate/GroupClose/GroupDeactivate`（WinGroup → `rime:window` 的 `groups` 导出与 `window.group.*` 动作，SDK `groups()` 门面）——**已完成**；
 - 全局窗口设置：`SetTitleMatchMode/DetectHiddenWindows/DetectHiddenText` → `settings.window` 同步面（`WindowService` 原子状态，get=read/set=write，实际变化记 `StateChanged` Trace；四模式 `matchMode` 含 `regex`）——**已完成**；
 - 补 window JS 入口取消测试（audit 指出的缺口）——**已完成**（写入口 slice-premature、读入口 slice-read-cancel）。
 

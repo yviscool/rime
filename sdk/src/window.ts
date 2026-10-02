@@ -131,6 +131,23 @@ export type WindowWaitUntil = "exists" | "active" | "closed" | "notActive";
 /** Wire options for `windows.wait`: one query plus the `until` condition. */
 export type WindowsWaitOptions = WindowsListOptions & { until?: WindowWaitUntil };
 
+/** Close modes for `groups.close` (AHK GroupClose's second argument). */
+export type GroupCloseMode = "reverse" | "all";
+
+/** Options for the group focus cycle (`groups.activate` / `groups.deactivate`). */
+export interface GroupFocusOptions extends NativeActionOptions {
+  /** Starts the cycle at the most recent (top) member instead of the oldest. */
+  reverse?: boolean;
+}
+
+/** Result of `groups.close`: the number of windows closed plus the window the cycle landed on. */
+export interface GroupCloseResult {
+  /** How many members this call actually closed (0 when the foreground was not a member). */
+  closed: number;
+  /** The successor the cycle activated, or null when it had nowhere to land (mode "all", or an empty group). */
+  activated: WindowHandle | null;
+}
+
 /** Bridge of the `rime:window` module. Every mutation is an Action. */
 export interface WindowsBridge {
   list(options?: WindowsListOptions): Promise<WindowHandle[]>;
@@ -166,6 +183,29 @@ export interface WindowsBridge {
   restore(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
 }
 
+/** Bridge of the named-window-group surface (`rime:window`'s `groups` export). */
+export interface WindowsGroupsBridge {
+  /**
+   * GroupAdd: appends a query spec to the group unless an exact duplicate
+   * is already registered; a missing group is created.
+   */
+  add(
+    name: string,
+    query: WindowQueryFields,
+    options?: NativeActionOptions,
+  ): Promise<{ count: number }>;
+  /** GroupActivate: cycles focus through the members; null when there is nothing to activate. */
+  activate(name: string, options?: GroupFocusOptions): Promise<WindowHandle | null>;
+  /** GroupDeactivate: activates an eligible non-member; null when there is none. */
+  deactivate(name: string, options?: GroupFocusOptions): Promise<WindowHandle | null>;
+  /** GroupClose: `mode` defaults to "" (close the foreground member, then activate the next). */
+  close(
+    name: string,
+    mode?: GroupCloseMode | "",
+    options?: NativeActionOptions,
+  ): Promise<GroupCloseResult>;
+}
+
 async function windowBridge(): Promise<WindowsBridge> {
   const module = await import("rime:window");
   return module.windows;
@@ -179,6 +219,68 @@ async function windowBridge(): Promise<WindowsBridge> {
 export async function settings(): Promise<WindowSettingsBridge> {
   const module = await import("rime:window");
   return module.settings.window;
+}
+
+/** Action-mapped surface of the named-window-group mutations. */
+export interface WindowGroups {
+  /**
+   * GroupAdd: registers a deduplicated query spec (a missing group is
+   * created) and resolves with the resulting spec count.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   * @throws TypeError (sync) when the name is empty or the query is invalid.
+   */
+  add(name: string, query?: WindowQueryFields & ActionOptions): Promise<number>;
+  /**
+   * GroupActivate: cycles focus through the group's members (oldest first;
+   * `reverse` starts at the most recent). A missing group is created and
+   * resolves null; an existing empty group also resolves null.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
+  activate(name: string, options?: GroupFocusOptions & ActionOptions): Promise<WindowHandle | null>;
+  /**
+   * GroupDeactivate: activates an eligible non-member (AHK's "deactivate to
+   * the next window"). The group must exist.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
+  deactivate(
+    name: string,
+    options?: GroupFocusOptions & ActionOptions,
+  ): Promise<WindowHandle | null>;
+  /**
+   * GroupClose: "" closes the foreground member (when it is one) and then
+   * activates the next; "reverse" walks from the most recent member; "all"
+   * closes every member and activates nothing. The group must exist.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
+  close(name: string, mode?: GroupCloseMode, options?: ActionOptions): Promise<GroupCloseResult>;
+}
+
+/**
+ * Loads the named-window-group surface (`groups` on `rime:window`). Every
+ * method is an Action (capability `windows.window.write`); group state
+ * itself lives on the UI lane inside the window service.
+ */
+export async function groups(): Promise<WindowGroups> {
+  const module = await import("rime:window");
+  const bridge = module.groups;
+  return {
+    add: (name, query) => {
+      const { signal: _signal, ...fields } = query ?? {};
+      return runAction(query, (native) => bridge.add(name, fields, native)).then(
+        (result) => result.count,
+      );
+    },
+    activate: (name, options) => {
+      const { signal: _signal, ...fields } = options ?? {};
+      return runAction(options, (native) => bridge.activate(name, { ...fields, ...native }));
+    },
+    deactivate: (name, options) => {
+      const { signal: _signal, ...fields } = options ?? {};
+      return runAction(options, (native) => bridge.deactivate(name, { ...fields, ...native }));
+    },
+    close: (name, mode, options) =>
+      runAction(options, (native) => bridge.close(name, mode, native)),
+  };
 }
 
 export interface ActiveWindowRequest {

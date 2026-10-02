@@ -86,6 +86,36 @@
       "type": "object",
       "additionalProperties": false
     },
+    "groupAddPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "window.group.add payload: one query spec. At least one selector field (title/ahkClass/ahkExe/ahkId/active) is required; the executor enforces that rule (the schema subset cannot express it) and rejects the empty spec AHK tolerates as a placeholder.",
+      "properties": {
+        "title": { "type": "string", "description": "Title filter, case-sensitive in every match mode (AHK rule)." },
+        "matchMode": { "enum": ["startswith", "contains", "exact", "regex"], "default": "contains" },
+        "ahkClass": { "type": "string", "minLength": 1 },
+        "ahkExe": { "type": "string", "minLength": 1 },
+        "ahkId": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "includeHidden": { "type": "boolean" },
+        "active": { "type": "boolean" }
+      }
+    },
+    "groupFocusPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "window.group.activate / window.group.deactivate payload: cycle direction only.",
+      "properties": {
+        "reverse": { "type": "boolean", "default": false, "description": "Start the cycle at the most recent (top) member instead of the oldest." }
+      }
+    },
+    "groupClosePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "window.group.close payload: AHK GroupClose's mode.",
+      "properties": {
+        "mode": { "enum": ["", "reverse", "all"], "default": "", "description": "'' closes the foreground member then activates the next; 'reverse' walks from the most recent member; 'all' closes every member and activates nothing." }
+      }
+    },
     "actionType": {
       "enum": [
         "window.move",
@@ -95,7 +125,11 @@
         "window.show",
         "window.minimize",
         "window.maximize",
-        "window.restore"
+        "window.restore",
+        "window.group.add",
+        "window.group.activate",
+        "window.group.deactivate",
+        "window.group.close"
       ]
     }
   }

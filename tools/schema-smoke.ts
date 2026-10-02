@@ -148,6 +148,23 @@ const snapshotProblems = validate(windowSchema.$defs?.["snapshot"] as Schema, wi
 assert.deepEqual(snapshotProblems, [], `window snapshot example violates schema:\n${snapshotProblems.join("\n")}`);
 const movePayloadProblems = validate(windowSchema.$defs?.["movePayload"] as Schema, windowMovePayload, windowSchema);
 assert.deepEqual(movePayloadProblems, [], `window move payload violates schema:\n${movePayloadProblems.join("\n")}`);
+const groupAddPayload = { title: "Rime Group", matchMode: "startswith", includeHidden: false } as JsonValue;
+const groupAddProblems = validate(windowSchema.$defs?.["groupAddPayload"] as Schema, groupAddPayload, windowSchema);
+assert.deepEqual(groupAddProblems, [], `window group add payload violates schema:\n${groupAddProblems.join("\n")}`);
+const groupFocusPayload = { reverse: true } as JsonValue;
+const groupFocusProblems = validate(
+  windowSchema.$defs?.["groupFocusPayload"] as Schema,
+  groupFocusPayload,
+  windowSchema,
+);
+assert.deepEqual(groupFocusProblems, [], `window group focus payload violates schema:\n${groupFocusProblems.join("\n")}`);
+const groupClosePayload = { mode: "all" } as JsonValue;
+const groupCloseProblems = validate(
+  windowSchema.$defs?.["groupClosePayload"] as Schema,
+  groupClosePayload,
+  windowSchema,
+);
+assert.deepEqual(groupCloseProblems, [], `window group close payload violates schema:\n${groupCloseProblems.join("\n")}`);
 
 // A failed result may carry the timeout code produced by deadline enforcement.
 const timeoutResult: Record<string, JsonValue> = {
@@ -183,6 +200,12 @@ const violations: Array<[JsonValue, Schema, Schema?]> = [
   [{ ...(windowSnapshot as Record<string, JsonValue>), state: "weird" }, windowSchema.$defs?.["snapshot"] as Schema, windowSchema],
   [{ ...(windowSnapshot as Record<string, JsonValue>), hwnd: 42 }, windowSchema.$defs?.["snapshot"] as Schema, windowSchema],
   [{ ...(windowMovePayload as Record<string, JsonValue>), position: "diagonal" }, windowSchema.$defs?.["movePayload"] as Schema, windowSchema],
+  [{ ...(groupAddPayload as Record<string, JsonValue>), unexpected: 1 }, windowSchema.$defs?.["groupAddPayload"] as Schema, windowSchema],
+  [{ ...(groupAddPayload as Record<string, JsonValue>), matchMode: "fuzzy" }, windowSchema.$defs?.["groupAddPayload"] as Schema, windowSchema],
+  [{ ...(groupAddPayload as Record<string, JsonValue>), ahkId: 0 }, windowSchema.$defs?.["groupAddPayload"] as Schema, windowSchema],
+  [{ ...(groupFocusPayload as Record<string, JsonValue>), reverse: "yes" }, windowSchema.$defs?.["groupFocusPayload"] as Schema, windowSchema],
+  [{ ...(groupClosePayload as Record<string, JsonValue>), mode: "bogus" }, windowSchema.$defs?.["groupClosePayload"] as Schema, windowSchema],
+  [{ mode: "all", extra: true }, windowSchema.$defs?.["groupClosePayload"] as Schema, windowSchema],
 ];
 for (const [value, schema, schemaRoot] of violations) {
   const problems = validate(schema, value, schemaRoot ?? schema);

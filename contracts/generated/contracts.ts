@@ -81,7 +81,25 @@ export interface WindowV1MovePayload {
 
 export type WindowV1EmptyPayload = Record<string, never>;
 
-export type WindowV1ActionType = "window.move" | "window.focus" | "window.close" | "window.hide" | "window.show" | "window.minimize" | "window.maximize" | "window.restore";
+export interface WindowV1GroupAddPayload {
+  title?: string;
+  matchMode?: "startswith" | "contains" | "exact" | "regex";
+  ahkClass?: string;
+  ahkExe?: string;
+  ahkId?: number;
+  includeHidden?: boolean;
+  active?: boolean;
+}
+
+export interface WindowV1GroupFocusPayload {
+  reverse?: boolean;
+}
+
+export interface WindowV1GroupClosePayload {
+  mode?: "" | "reverse" | "all";
+}
+
+export type WindowV1ActionType = "window.move" | "window.focus" | "window.close" | "window.hide" | "window.show" | "window.minimize" | "window.maximize" | "window.restore" | "window.group.add" | "window.group.activate" | "window.group.deactivate" | "window.group.close";
 
 export interface WindowV1 {
   schemaVersion: 1;
