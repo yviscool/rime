@@ -11,6 +11,7 @@ import type {
   WindowsGroupsBridge,
   WindowsListOptions,
   WindowsWaitOptions,
+  WindowZorder,
 } from "../../sdk/src/window";
 import type { ProcessId } from "../../sdk/src/process";
 import { groups, settings, Window } from "../../sdk/src/window";
@@ -78,6 +79,7 @@ const calls: Array<{
   method: string;
   target: WindowId | "active" | number | string;
   position?: string;
+  placement?: string;
   // WindowsWaitOptions is a superset of WindowsListOptions (until is
   // optional); group calls add their own fields (reverse/mode) on top.
   options?: WindowsWaitOptions & { reverse?: boolean; mode?: string };
@@ -190,6 +192,10 @@ mock.module("rime:window", () => ({
       }
       return Promise.resolve(movedHandle);
     },
+    zorder: (target: WindowId | "active", placement: WindowZorder, options?: NativeActionOptions) => {
+      calls.push({ method: "zorder", target, placement, options });
+      return Promise.resolve(movedHandle);
+    },
     focus: (target: WindowId | "active", options?: NativeActionOptions) =>
       passThrough("focus", target, options),
     close: (target: WindowId | "active", options?: NativeActionOptions) =>
@@ -253,6 +259,16 @@ test("Window.move passes the window id through", async () => {
   const handle = await Window.move(7 as WindowId, "right");
   expect(calls).toEqual([{ method: "move", target: 7, position: "right", options: undefined }]);
   expect(handle.id as number).toBe(7);
+});
+
+test("Window.zorder passes target and placement through", async () => {
+  calls.length = 0;
+  const handle = await Window.zorder(7 as WindowId, "bottom");
+  expect(calls).toEqual([{ method: "zorder", target: 7, placement: "bottom", options: undefined }]);
+  expect(handle).toEqual(movedHandle);
+  calls.length = 0;
+  await Window.active().zorder("top");
+  expect(calls).toEqual([{ method: "zorder", target: "active", placement: "top", options: undefined }]);
 });
 
 test("bridge rejections propagate to the caller", async () => {

@@ -690,7 +690,7 @@ JSValue run_window_mutation(JSContext* context, int argc, JSValueConst* argv,
     return JS_ThrowInternalError(context, "rime:window is not wired");
   }
   if (argc < required_args) {
-    return JS_ThrowTypeError(context, "%s(target[, position][, options?])", function_name);
+    return JS_ThrowTypeError(context, "%s(target[, options?])", function_name);
   }
   std::string target_text;
   if (!parse_window_target(context, argv[0], target_text)) return JS_EXCEPTION;
@@ -712,15 +712,41 @@ JSValue run_window_mutation(JSContext* context, int argc, JSValueConst* argv,
                                function_name);
     }
     cursor = 2;
+  } else if (std::string_view(action_type) == "window.zorder") {
+    if (argc < 2) return JS_ThrowTypeError(context, "%s(target, placement)", function_name);
+    if (!JS_IsString(argv[1])) {
+      return JS_ThrowTypeError(context, "%s(target, placement): placement must be a string",
+                               function_name);
+    }
+    const char* where_text = JS_ToCString(context, argv[1]);
+    if (!where_text) return JS_EXCEPTION;
+    placement = where_text;
+    JS_FreeCString(context, where_text);
+    if (placement != "top" && placement != "bottom") {
+      return JS_ThrowTypeError(context,
+                               "%s(target, placement): placement must be 'top' or 'bottom'",
+                               function_name);
+    }
+    cursor = 2;
   }
   if (argc > cursor + 1) {
-    return JS_ThrowTypeError(context, "%s(target[, position][, options?])", function_name);
+    const char* middle =
+        std::string_view(action_type) == "window.move"
+            ? "position"
+            : (std::string_view(action_type) == "window.zorder" ? "placement" : "");
+    if (middle[0] == '\0') {
+      return JS_ThrowTypeError(context, "%s(target[, options?])", function_name);
+    }
+    return JS_ThrowTypeError(context, "%s(target[, %s][, options?])", function_name, middle);
   }
   ActionOptions options;
   if (argc > cursor && !parse_action_options(context, argv[cursor], options)) return JS_EXCEPTION;
 
   json::Value payload = json::Value::object();
-  if (!placement.empty()) payload.set("position", json::Value::string(placement));
+  if (!placement.empty()) {
+    const char* key = std::string_view(action_type) == "window.move" ? "position" : "placement";
+    payload.set(key, json::Value::string(placement));
+  }
   auto action = make_action(*binding->next_action_id, "rime:window", action_type,
                             kWindowWriteCapability, {"window", std::move(target_text)},
                             json::stringify(payload), options);
@@ -737,6 +763,13 @@ JSValue windows_move(JSContext* context, JSValueConst, int argc, JSValueConst* a
 JSValue windows_focus(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                       void*) {
   return run_window_mutation(context, argc, argv, "focus", "window.focus", 1);
+}
+
+JSValue windows_zorder(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                       void*) {
+  // NOTE: required_args stays 1 here; the (target, placement) arity for
+  // zorder is enforced by the window.zorder branch inside run_window_mutation.
+  return run_window_mutation(context, argc, argv, "zorder", "window.zorder", 1);
 }
 
 JSValue windows_close(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
@@ -1179,6 +1212,7 @@ int window_module_init(JSContext* context, JSModuleDef* module) {
       !add(windows, "controls", windows_controls, 1, 0) ||
       !add(windows, "text", windows_text, 1, 0) || !add(windows, "move", windows_move, 2, 0) ||
       !add(windows, "focus", windows_focus, 1, 0) ||
+      !add(windows, "zorder", windows_zorder, 2, 0) ||
       !add(windows, "close", windows_close, 1, 0) ||
       !add(windows, "hide", windows_hide, 1, 0) || !add(windows, "show", windows_show, 1, 0) ||
       !add(windows, "minimize", windows_minimize, 1, 0) ||

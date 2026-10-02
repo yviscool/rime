@@ -93,8 +93,9 @@ int main() {
   const auto window_executor = std::make_shared<rime::win32::WindowExecutor>(service);
   for (const char* type : {"window.move", "window.focus", "window.close", "window.hide",
                            "window.show", "window.minimize", "window.maximize",
-                           "window.restore", "window.group.add", "window.group.activate",
-                           "window.group.deactivate", "window.group.close"}) {
+                           "window.restore", "window.zorder", "window.group.add",
+                           "window.group.activate", "window.group.deactivate",
+                           "window.group.close"}) {
     assert(kernel.register_executor(type, window_executor).ok());
   }
 
@@ -744,6 +745,78 @@ int main() {
   assert(service.query(group_slice_query, group_slice_left).ok());
   assert(group_slice_left.empty());
 
+  // z-order writes (WinMoveTop/WinMoveBottom) and the WinActivateBottom
+  // composition: list() keeps the EnumWindows top-to-bottom order, so the
+  // last match of a query is the bottom-most window AHK would activate.
+  HWND zslice_a = nullptr;
+  HWND zslice_b = nullptr;
+  assert(service.ui()
+             .call([&] {
+               zslice_a = CreateWindowExW(0, L"STATIC", L"Rime ZSlice A",
+                                          WS_OVERLAPPED | WS_VISIBLE, 40, 140, 160, 120, nullptr,
+                                          nullptr, GetModuleHandleW(nullptr), nullptr);
+               zslice_b = CreateWindowExW(0, L"STATIC", L"Rime ZSlice B",
+                                          WS_OVERLAPPED | WS_VISIBLE, 240, 140, 160, 120, nullptr,
+                                          nullptr, GetModuleHandleW(nullptr), nullptr);
+               assert(zslice_a != nullptr);
+               assert(zslice_b != nullptr);
+             })
+             .ok());
+  check(runtime,
+        "import { windows } from 'rime:window';\n"
+        "globalThis.zorderOut = {};\n"
+        "(async () => {\n"
+        "  const spec = { title: 'Rime ZSlice', matchMode: 'startswith' };\n"
+        "  const initial = await windows.list(spec);\n"
+        "  const a = initial.find(w => w.title === 'Rime ZSlice A');\n"
+        "  const b = initial.find(w => w.title === 'Rime ZSlice B');\n"
+        "  if (!a || !b) throw new Error('zorder victims must both be listed');\n"
+        "  await windows.zorder(a.id, 'bottom');\n"
+        "  const sank = await windows.list(spec);\n"
+        "  if (sank.length !== 2 || sank[0].id !== b.id || sank[1].id !== a.id)\n"
+        "    throw new Error('A must sink below B: ' +\n"
+        "                    JSON.stringify(sank.map(w => w.title)));\n"
+        "  await windows.zorder(a.id, 'top');\n"
+        "  const risen = await windows.list(spec);\n"
+        "  if (risen.length !== 2 || risen[0].id !== a.id || risen[1].id !== b.id)\n"
+        "    throw new Error('A must rise above B: ' +\n"
+        "                    JSON.stringify(risen.map(w => w.title)));\n"
+        "  let syncErr = null;\n"
+        "  try { windows.zorder(a.id, 'middle'); }\n"
+        "  catch (e) { syncErr = String(e); }\n"
+        "  if (!syncErr || !syncErr.includes('placement'))\n"
+        "    throw new Error('bad placement must throw synchronously: ' + syncErr);\n"
+        // WinActivateBottom: focus the last match. SetForegroundWindow may
+        // be refused by the foreground lock, so only the success path is
+        // asserted back in the checker.
+        "  const bottomMost = risen[risen.length - 1];\n"
+        "  let focusErr = null;\n"
+        "  try { await windows.focus(bottomMost.id); }\n"
+        "  catch (e) { focusErr = String(e); }\n"
+        "  const act = await windows.active();\n"
+        "  return { actedOn: bottomMost.id, activeId: act ? act.id : null, focusErr };\n"
+        "})().then(v => { globalThis.zorderOut.value = v; },\n"
+        "         e => { globalThis.zorderOut.error = String(e); });",
+        "slice-zorder.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.zorderOut.error)\n"
+        "  throw new Error(globalThis.zorderOut.error);\n"
+        "const v = globalThis.zorderOut.value;\n"
+        "if (!v) throw new Error('zorder segment produced no value');\n"
+        "if (v.focusErr === null && v.activeId !== v.actedOn)\n"
+        "  throw new Error('activating the bottom-most match must focus it: ' +\n"
+        "                  JSON.stringify(v));",
+        "slice-zorder-check.mjs");
+  rime::win32::WindowQuery zslice_query;
+  zslice_query.title = "Rime ZSlice";
+  zslice_query.title_match_mode = rime::win32::TitleMatchMode::StartsWith;
+  std::vector<WindowInfo> zslice_left;
+  assert(service.query(zslice_query, zslice_left).ok());
+  for (const auto& leftover : zslice_left) {
+    assert(service.close(leftover.id).ok());
+  }
+
   // Segment 6: close destroys the window through the executor (the result
   // snapshot is taken before WM_CLOSE); later operations on the id reject.
   check(runtime,
@@ -833,8 +906,12 @@ int main() {
         "slice-read-cancel-check.mjs");
 
   // Trace, grouped by action type (no fragile global totals). Sources:
-  // - window.focus/hide/show/minimize/maximize/restore/close: one Started +
+  // - window.hide/show/minimize/maximize/restore/close: one Started +
   //   one Finished each (segments 3/5/5b/5c/6);
+  // - window.focus: two pairs - segment 3 plus the zorder segment's
+  //   WinActivateBottom composition (a foreground-lock refusal still
+  //   records both);
+  // - window.zorder: two pairs (bottom then top) in the zorder segment;
   // - window.move: segment 1 (move), segment 2 (bad placement), segment 2b
   //   (exhausted deadline), segment 6 (stale id), plus the optional active
   //   move. The deadline action always records Finished but records Started
@@ -862,10 +939,15 @@ int main() {
   assert(move_started == move_base || move_started == move_base + 1);
   // +1 Finished when the deadline action died in pre-dispatch (no Started).
   assert(move_finished == move_started || move_finished == move_started + 1);
-  for (const char* type : {"window.focus", "window.hide", "window.show", "window.minimize",
+  for (const char* type : {"window.hide", "window.show", "window.minimize",
                            "window.maximize", "window.restore", "window.close"}) {
     assert(started_count[type] == 1);
   }
+  // focus: segment 3 plus the WinActivateBottom composition in the zorder
+  // segment (a foreground-lock refusal still records the pair). zorder:
+  // bottom then top in the same segment.
+  assert(started_count["window.focus"] == 2);
+  assert(started_count["window.zorder"] == 2);
   // The exhausted deadline left a Finished entry naming the timeout.
   bool saw_deadline_timeout = false;
   for (const auto& entry : trace->snapshot()) {

@@ -1424,6 +1424,35 @@ rime::core::Error WindowService::focus(const std::uint64_t id,
   return result;
 }
 
+rime::core::Error WindowService::zorder(const std::uint64_t id, const bool bottom,
+                                        const std::chrono::milliseconds timeout) {
+  if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  rime::core::Error result = rime::core::Error::none();
+  const auto call_error = impl_->ui.call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND window = impl_->registry.hwnd_for(id);
+        if (!window) {
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
+          return;
+        }
+        // AHK WinMoveTopBottom: SWP_NOACTIVATE is required, otherwise the
+        // target window often fails to move.
+        if (!SetWindowPos(window, bottom ? HWND_BOTTOM : HWND_TOP, 0, 0, 0, 0,
+                          SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)) {
+          const DWORD failure = GetLastError();
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "SetWindowPos failed (win32 error " + std::to_string(failure) + ")"};
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
 namespace {
 
 // Shared body for the flag-based state mutations (hide/show/min/max/restore).

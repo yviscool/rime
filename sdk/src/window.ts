@@ -7,6 +7,8 @@ export type Brand<K, T> = K & { readonly __brand: T };
 export type WindowId = Brand<number, "WindowId">;
 
 export type WindowPlacement = "left" | "right" | "top" | "bottom" | "full";
+/** Z-order placement for `zorder` (AHK WinMoveTop/WinMoveBottom). */
+export type WindowZorder = "top" | "bottom";
 
 export type WindowState = "normal" | "minimized" | "maximized" | "hidden";
 
@@ -174,6 +176,12 @@ export interface WindowsBridge {
     position: WindowPlacement,
     options?: NativeActionOptions,
   ): Promise<WindowHandle>;
+  /** Reorders to the top/bottom of the z-order without activating (WinMoveTop/WinMoveBottom). */
+  zorder(
+    target: WindowId | "active",
+    placement: WindowZorder,
+    options?: NativeActionOptions,
+  ): Promise<WindowHandle>;
   focus(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
   close(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
   hide(target: WindowId | "active", options?: NativeActionOptions): Promise<WindowHandle>;
@@ -286,6 +294,8 @@ export async function groups(): Promise<WindowGroups> {
 export interface ActiveWindowRequest {
   /** Moves the foreground window through the `window.move` action pipeline. */
   move(position: WindowPlacement, options?: ActionOptions): Promise<WindowHandle>;
+  /** Reorders the foreground window through the `window.zorder` pipeline. */
+  zorder(placement: WindowZorder, options?: ActionOptions): Promise<WindowHandle>;
   focus(options?: ActionOptions): Promise<WindowHandle>;
   close(options?: ActionOptions): Promise<WindowHandle>;
   hide(options?: ActionOptions): Promise<WindowHandle>;
@@ -309,6 +319,10 @@ export const Window = {
       move: (position, options) =>
         runAction(options, (native) =>
           windowBridge().then((windows) => windows.move("active", position, native)),
+        ),
+      zorder: (placement, options) =>
+        runAction(options, (native) =>
+          windowBridge().then((windows) => windows.zorder("active", placement, native)),
         ),
       focus: (options) =>
         runAction(options, (native) =>
@@ -347,6 +361,16 @@ export const Window = {
   move(windowId: WindowId, position: WindowPlacement, options?: ActionOptions): Promise<WindowHandle> {
     return runAction(options, (native) =>
       windowBridge().then((windows) => windows.move(windowId, position, native)),
+    );
+  },
+  /**
+   * Moves a window to the top/bottom of the z-order without activating it
+   * (`window.zorder`; AHK WinMoveTop/WinMoveBottom).
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  zorder(windowId: WindowId, placement: WindowZorder, options?: ActionOptions): Promise<WindowHandle> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.zorder(windowId, placement, native)),
     );
   },
   /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */

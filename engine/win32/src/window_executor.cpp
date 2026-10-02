@@ -22,10 +22,11 @@ using Code = rime::core::Error::Code;
 // `windows.window.write` (the kernel checks it before dispatch).
 const std::unordered_set<std::string>& window_action_types() {
   static const std::unordered_set<std::string> types = {
-      "window.move",          "window.focus",       "window.close",
-      "window.hide",          "window.show",        "window.minimize",
-      "window.maximize",      "window.restore",     "window.group.add",
-      "window.group.activate", "window.group.deactivate", "window.group.close"};
+      "window.move",       "window.focus",      "window.close",
+      "window.hide",       "window.show",       "window.minimize",
+      "window.maximize",   "window.restore",    "window.zorder",
+      "window.group.add",  "window.group.activate", "window.group.deactivate",
+      "window.group.close"};
   return types;
 }
 
@@ -288,6 +289,17 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
                   "window.move payload requires a string position");
     }
     placement = position->as_string();
+  } else if (action.type == "window.zorder") {
+    const rime::core::json::Value* where = payload.value->find("placement");
+    if (!where || !where->is_string()) {
+      return fail(action, Code::InvalidContract,
+                  "window.zorder payload requires a string placement");
+    }
+    placement = where->as_string();
+    if (placement != "top" && placement != "bottom") {
+      return fail(action, Code::InvalidContract,
+                  "window.zorder placement must be 'top' or 'bottom'");
+    }
   }
 
   std::uint64_t window_id = 0;
@@ -320,6 +332,8 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
   }
   if (action.type == "window.move") {
     op_error = service_.move(window_id, placement, timeout);
+  } else if (action.type == "window.zorder") {
+    op_error = service_.zorder(window_id, placement == "bottom", timeout);
   } else if (action.type == "window.focus") {
     op_error = service_.focus(window_id, timeout);
   } else if (action.type == "window.close") {
@@ -352,8 +366,11 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
       return fail(action, after.code, after.message);
     }
   }
-  const std::string detail = action.type == "window.move" ? "window moved to " + placement
-                                                          : action.type + " applied";
+  const std::string detail = action.type == "window.move"
+                                 ? "window moved to " + placement
+                                 : action.type == "window.zorder"
+                                       ? "window z-order set to " + placement
+                                       : action.type + " applied";
   return {action.id, true, false, detail, {}, window_info_json(snapshot)};
 }
 

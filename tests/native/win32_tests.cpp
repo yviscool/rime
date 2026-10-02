@@ -597,6 +597,58 @@ int main() {
     assert(service.close(leftover.id).ok());
   }
 
+  // z-order (AHK WinMoveTop/WinMoveBottom): relative order between two
+  // disposable victims, checked by walking GW_HWNDNEXT - other desktop
+  // windows in between do not matter. The lambda stays in scope for the
+  // executor section below.
+  auto zorder_above = [](HWND higher, HWND lower) {
+    for (HWND walk = higher; (walk = GetWindow(walk, GW_HWNDNEXT)) != nullptr;) {
+      if (walk == lower) return true;
+    }
+    return false;
+  };
+  HWND zorder_a = nullptr;
+  HWND zorder_b = nullptr;
+  assert(service.ui()
+             .call([&] {
+               zorder_a = CreateWindowExW(0, L"STATIC", L"Rime ZOrder A",
+                                          WS_OVERLAPPED | WS_VISIBLE, 40, 40, 160, 120, nullptr,
+                                          nullptr, GetModuleHandleW(nullptr), nullptr);
+               zorder_b = CreateWindowExW(0, L"STATIC", L"Rime ZOrder B",
+                                          WS_OVERLAPPED | WS_VISIBLE, 240, 40, 160, 120, nullptr,
+                                          nullptr, GetModuleHandleW(nullptr), nullptr);
+               assert(zorder_a != nullptr);
+               assert(zorder_b != nullptr);
+             })
+             .ok());
+  rime::win32::WindowQuery zorder_query;
+  zorder_query.title = "Rime ZOrder";
+  zorder_query.title_match_mode = TitleMatchMode::StartsWith;
+  std::vector<WindowInfo> zorder_matches;
+  assert(service.query(zorder_query, zorder_matches).ok());
+  assert(zorder_matches.size() == 2);
+  std::uint64_t zorder_id_a = 0;
+  std::uint64_t zorder_id_b = 0;
+  for (const auto& match : zorder_matches) {
+    if (match.title == "Rime ZOrder A") zorder_id_a = match.id;
+    if (match.title == "Rime ZOrder B") zorder_id_b = match.id;
+  }
+  assert(zorder_id_a != 0 && zorder_id_b != 0);
+  // Bottom: A sinks below B regardless of its creation order; top: A rises.
+  assert(service.zorder(zorder_id_a, true).ok());
+  assert(zorder_above(zorder_b, zorder_a));
+  assert(service.zorder(zorder_id_a, false).ok());
+  assert(zorder_above(zorder_a, zorder_b));
+  assert(service.zorder(zorder_id_b, true).ok());
+  assert(zorder_above(zorder_a, zorder_b));
+  // Stale ids refuse with TargetGone like every other write.
+  assert(service.ui().call([&] { DestroyWindow(zorder_a); }).ok());
+  WindowInfo zorder_gone;
+  assert(service.info(zorder_id_a, zorder_gone).code ==
+         rime::core::Error::Code::TargetGone);
+  assert(service.zorder(zorder_id_a, false).code == rime::core::Error::Code::TargetGone);
+  assert(service.ui().call([&] { DestroyWindow(zorder_b); }).ok());
+
   // WindowExecutor: a contract-valid window.move reaches the service and
   // records the trace pair.
   auto trace = std::make_shared<rime::core::InMemoryTrace>();
@@ -607,7 +659,8 @@ int main() {
   const auto window_executor = std::make_shared<rime::win32::WindowExecutor>(service);
   for (const char* type : {"window.move",       "window.focus",  "window.close",
                             "window.hide",       "window.show",   "window.minimize",
-                            "window.maximize",   "window.restore", "window.group.add",
+                            "window.maximize",   "window.restore", "window.zorder",
+                            "window.group.add",
                             "window.group.activate", "window.group.deactivate",
                             "window.group.close"}) {
     assert(kernel.register_executor(type, window_executor).ok());
@@ -719,7 +772,7 @@ int main() {
       trace);
   constexpr const char* kDeniedTypes[] = {"window.move",  "window.focus",    "window.close",
                                           "window.hide",  "window.show",     "window.minimize",
-                                          "window.maximize", "window.restore",
+                                          "window.maximize", "window.restore", "window.zorder",
                                           "window.group.add", "window.group.activate",
                                           "window.group.deactivate", "window.group.close"};
   for (const char* type : kDeniedTypes) {
@@ -871,6 +924,63 @@ int main() {
   std::vector<WindowInfo> closeall_leftovers;
   assert(service.query(closeall_query, closeall_leftovers).ok());
   assert(closeall_leftovers.empty());
+
+  // window.zorder through the kernel: bottom then top reorders the pair,
+  // and a bad placement refuses as InvalidContract before any Win32 call.
+  HWND exec_zorder_a = nullptr;
+  HWND exec_zorder_b = nullptr;
+  assert(service.ui()
+             .call([&] {
+               exec_zorder_a = CreateWindowExW(0, L"STATIC", L"Rime ZOrder Exec",
+                                               WS_OVERLAPPED | WS_VISIBLE, 90, 90, 160, 120,
+                                               nullptr, nullptr, GetModuleHandleW(nullptr),
+                                               nullptr);
+               exec_zorder_b = CreateWindowExW(0, L"STATIC", L"Rime ZOrder Exec B",
+                                               WS_OVERLAPPED | WS_VISIBLE, 290, 90, 160, 120,
+                                               nullptr, nullptr, GetModuleHandleW(nullptr),
+                                               nullptr);
+               assert(exec_zorder_a != nullptr);
+               assert(exec_zorder_b != nullptr);
+             })
+             .ok());
+  rime::win32::WindowQuery exec_zorder_query;
+  exec_zorder_query.title = "Rime ZOrder Exec";
+  exec_zorder_query.title_match_mode = TitleMatchMode::StartsWith;
+  std::vector<WindowInfo> exec_zorder_matches;
+  assert(service.query(exec_zorder_query, exec_zorder_matches).ok());
+  assert(exec_zorder_matches.size() == 2);
+  std::uint64_t exec_zorder_id_a = 0;
+  std::uint64_t exec_zorder_id_b = 0;
+  for (const auto& match : exec_zorder_matches) {
+    if (match.title == "Rime ZOrder Exec") exec_zorder_id_a = match.id;
+    if (match.title == "Rime ZOrder Exec B") exec_zorder_id_b = match.id;
+  }
+  assert(exec_zorder_id_a != 0 && exec_zorder_id_b != 0);
+  rime::action::Action zorder_action = move_action;
+  zorder_action.id = 46;
+  zorder_action.type = "window.zorder";
+  zorder_action.target.id = std::to_string(exec_zorder_id_a);
+  zorder_action.payload = R"({"placement":"bottom"})";
+  auto zorder_result = kernel.execute(zorder_action);
+  assert(zorder_result.succeeded);
+  assert(zorder_result.detail.find("z-order") != std::string::npos);
+  assert(zorder_above(exec_zorder_b, exec_zorder_a));
+  zorder_action.id = 47;
+  zorder_action.payload = R"({"placement":"top"})";
+  zorder_result = kernel.execute(zorder_action);
+  assert(zorder_result.succeeded);
+  assert(zorder_above(exec_zorder_a, exec_zorder_b));
+  zorder_action.id = 48;
+  zorder_action.payload = R"({"placement":"middle"})";
+  zorder_result = kernel.execute(zorder_action);
+  assert(!zorder_result.succeeded);
+  assert(zorder_result.error.code == rime::core::Error::Code::InvalidContract);
+  assert(service.ui()
+             .call([&] {
+               DestroyWindow(exec_zorder_a);
+               DestroyWindow(exec_zorder_b);
+             })
+             .ok());
 
   // The executor dispatches window.close: the pre-close snapshot is the
   // result value and the id goes stale immediately after.

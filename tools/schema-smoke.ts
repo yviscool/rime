@@ -148,6 +148,13 @@ const snapshotProblems = validate(windowSchema.$defs?.["snapshot"] as Schema, wi
 assert.deepEqual(snapshotProblems, [], `window snapshot example violates schema:\n${snapshotProblems.join("\n")}`);
 const movePayloadProblems = validate(windowSchema.$defs?.["movePayload"] as Schema, windowMovePayload, windowSchema);
 assert.deepEqual(movePayloadProblems, [], `window move payload violates schema:\n${movePayloadProblems.join("\n")}`);
+const zorderPayload = { placement: "bottom" } as JsonValue;
+const zorderPayloadProblems = validate(
+  windowSchema.$defs?.["zorderPayload"] as Schema,
+  zorderPayload,
+  windowSchema,
+);
+assert.deepEqual(zorderPayloadProblems, [], `window zorder payload violates schema:\n${zorderPayloadProblems.join("\n")}`);
 const groupAddPayload = { title: "Rime Group", matchMode: "startswith", includeHidden: false } as JsonValue;
 const groupAddProblems = validate(windowSchema.$defs?.["groupAddPayload"] as Schema, groupAddPayload, windowSchema);
 assert.deepEqual(groupAddProblems, [], `window group add payload violates schema:\n${groupAddProblems.join("\n")}`);
@@ -200,6 +207,8 @@ const violations: Array<[JsonValue, Schema, Schema?]> = [
   [{ ...(windowSnapshot as Record<string, JsonValue>), state: "weird" }, windowSchema.$defs?.["snapshot"] as Schema, windowSchema],
   [{ ...(windowSnapshot as Record<string, JsonValue>), hwnd: 42 }, windowSchema.$defs?.["snapshot"] as Schema, windowSchema],
   [{ ...(windowMovePayload as Record<string, JsonValue>), position: "diagonal" }, windowSchema.$defs?.["movePayload"] as Schema, windowSchema],
+  [{ ...(zorderPayload as Record<string, JsonValue>), placement: "middle" }, windowSchema.$defs?.["zorderPayload"] as Schema, windowSchema],
+  [{} as Record<string, JsonValue>, windowSchema.$defs?.["zorderPayload"] as Schema, windowSchema],
   [{ ...(groupAddPayload as Record<string, JsonValue>), unexpected: 1 }, windowSchema.$defs?.["groupAddPayload"] as Schema, windowSchema],
   [{ ...(groupAddPayload as Record<string, JsonValue>), matchMode: "fuzzy" }, windowSchema.$defs?.["groupAddPayload"] as Schema, windowSchema],
   [{ ...(groupAddPayload as Record<string, JsonValue>), ahkId: 0 }, windowSchema.$defs?.["groupAddPayload"] as Schema, windowSchema],

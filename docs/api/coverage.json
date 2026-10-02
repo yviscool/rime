@@ -3413,10 +3413,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
       "tsModule": "@rime/window",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.window.write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3647,10 +3647,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
       "tsModule": "@rime/window",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.window.read",
-      "contractTest": "missing",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3877,10 +3877,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
       "tsModule": "@rime/window",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.window.write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3892,10 +3892,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
       "tsModule": "@rime/window",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.window.write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },

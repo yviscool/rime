@@ -227,6 +227,11 @@ class WindowService final {
   // Restores when minimized and requests foreground activation.
   rime::core::Error focus(std::uint64_t id,
                           std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // z-order changes (AHK WinMoveTop/WinMoveBottom): SetWindowPos with
+  // SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE onto HWND_TOP/HWND_BOTTOM - no
+  // move, no resize, no activation. `bottom` picks HWND_BOTTOM.
+  rime::core::Error zorder(std::uint64_t id, bool bottom,
+                           std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // Window state mutations (WinClose/WinHide/WinShow/WinMinimize/WinMaximize/
   // WinRestore equivalents). `close` delivers WM_CLOSE and waits for the
   // target thread to process it within the timeout.
