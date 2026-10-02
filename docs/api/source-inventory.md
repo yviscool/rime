@@ -31,7 +31,7 @@
 - `RegExMatchObject`: `__Enum`、`__Get`、`Len`、`Name`、`Pos`。
 - `ComObject`: `__Item`、`__Value`、`Ptr` 以及 VARIANT/SAFEARRAY 语义。
 
-这些能力不能简单映射为普通 JS 对象：需要明确可变性、迭代协议、原型、异常、生命周期和是否允许跨线程。Rime 标准库优先使用原生 TS 类型；只有 AHK 兼容层才模拟名称和调用形状。
+这些能力不能简单映射为普通 JS 对象：需要明确可变性、迭代协议、原型、异常、生命周期和是否允许跨线程。Rime 标准库优先使用原生 TS 类型；不为兼容目的模拟 AHK 的名称和调用形状。
 
 ## 宿主 ABI 清单
 

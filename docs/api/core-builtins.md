@@ -16,7 +16,7 @@
 - `NumGet`/`NumPut`/`StrPtr`/`VarSetStrCapacity` 涉及内存地址，默认不能直接映射到公共 TS API；
 - `Throw`、`Type`、`DefineProp`、`HasBase`、`HasProp`、`Props` 属于语言/对象运行时，不是 Windows 自动化模块；
 - `Click` 是输入注入能力，必须与 `MouseClick` 的兼容语义合并审计；
-- `Random`、数学、字符串和格式化函数属于 SDK-owned，但仍需 AHK 兼容测试。
+- `Random`、数学、字符串和格式化函数属于 SDK-owned，但仍需对照原版的语义还原测试。
 
 因此当前已知的函数型表面至少是 `253 + 101` 项，尚不包括对象成员、动态属性、内置变量、指令、语法事件和 Host ABI。这个数字只用于审计定位，不代表最终 API 数量，因为同名方法、别名和动态成员必须按来源和语义去重。
 

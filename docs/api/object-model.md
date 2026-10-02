@@ -10,7 +10,7 @@ Runtime 不把 AHK 的 C++ 对象、`IUnknown*`、`HMENU`、`HGLOBAL`、缓冲�
 
 | AHK 类型 | TS 方向 | 所属 lane | 关键问题 |
 |---|---|---|---|
-| Object/Array/Map/Func | 原生 TS 对象、数组、Map、函数 | JS | 兼容层需定义 AHK 的索引、ByRef、枚举和异常差异 |
+| Object/Array/Map/Func | 原生 TS 对象、数组、Map、函数 | JS | 还原保留时需逐项定义并测试 AHK 的索引、ByRef、枚举和异常差异 |
 | Buffer | `BufferRef` + `Uint8Array` 拷贝 | Worker/JS | 不暴露地址；跨线程只能传复制或受控共享快照 |
 | Gui/GuiCtrl | `GuiRef`/`ControlRef` | UI | HWND 只在 UI lane；事件回调回到 JS scheduler |
 | Menu/MenuBar | `MenuRef` | UI | HMENU 不出 native；显示是可取消的 UI action |

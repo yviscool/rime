@@ -2,7 +2,20 @@
 
 状态：设计基线（2026-10-01）
 
-本文以 `rime-research/AutoHotkey-alpha/source/lib/functions.h` 以及 `window.cpp`、`keyboard_mouse.cpp`、`clipboard.cpp`、`hotkey.cpp` 为行为参考，定义 Runtime 的 TypeScript 标准库。研究目录只用于兼容性核对，不作为 Runtime 依赖。目标是保留 AHK 的可表达能力，同时把资源所有权、线程、取消、权限和可诊断性变成显式契约。
+本文以 `rime-research/AutoHotkey-alpha/source/lib/functions.h` 以及 `window.cpp`、`keyboard_mouse.cpp`、`clipboard.cpp`、`hotkey.cpp` 为能力与语义参考，定义 Runtime 的 TypeScript 标准库。研究目录只用于还原核对（能力清单 + 对照原版的语义测试），不作为 Runtime 依赖。目标是把 AHK 的每一个 API **还原保留**为 TS 原生等价物——能力不缺项、语义可核对，同时把资源所有权、线程、取消、权限和可诊断性变成显式契约。
+
+## 0. 核心设计问题（2026-10-02 修订）
+
+设计权威是 TypeScript 与 Windows 本身的约束，不是 AHK 的形状。每个 API 落地前必须回答：
+
+1. **TS 应该如何表达它**——模块导出、类型、同步还是 `Promise`、结构化 `RuntimeError` 还是预览/批处理用的 `ActionPlan`；
+2. **底层实际上怎么实现**——走哪条 lane（UI / Worker / Automation MTA）、调用哪些 Win32/UIA/COM 原语、资源所有权归谁；
+3. **哪些 API 应该异步**——只有跨 lane 或等待外部状态才返回 `Promise`；纯计算、纯快照与解析保持同步（详见 §8）；
+4. **哪些东西不暴露给上层**——句柄、指针、线程 ID、消息泵一律不出 native，上层只见稳定 ID、快照、订阅与 Action 结果（详见 §9）；
+5. **如果重新发明 AHK，TS 标准库应该怎么设计**——一致性、可组合性、可检查性、生命周期安全优先，见 [`api/future-runtime.md`](./api/future-runtime.md)；
+6. **如果 TS 就是 Windows automation language，Windows 怎么建模**——sessions/desktops/monitors/processes/windows/controls 对象图；引用表示可重新验证的身份，快照是不可变观察（见 `future-runtime.md` §2）。
+
+**还原保留原则**：覆盖矩阵中的每个 AHK API 都要力求还原保留——能力不能缺项，语义用对照原版的测试守住；但命名、参数形状、模块归属、同步性与暴露边界按上述六个问题重新设计。不保留 AHK 的全局状态、伪线程与隐式行为，也**不存在 AHK 名称兼容层**（见 [`api/design-review.md`](./api/design-review.md) 与实施计划 §0）。"兼容"一词在本仓库只指与 AHK 原版语义的核对测试，不指公共 API 形状。
 
 ## 1. 总体模型
 
@@ -130,11 +143,11 @@ export const hooks: { keyboard(cb: (e: KeyboardEvent)=>void, o?: HookOptions): S
 
 不暴露裸句柄和指针、线程 ID、COM apartment、`AttachThreadInput`、窗口过程地址、Hook 模块句柄、临时 HWND、内部队列、SendInput 批次、UIA cache request、插件宿主 ABI 指针。上层只看到稳定 ID、快照、Action 结果、诊断 Trace 和显式权限错误。
 
-## 10. 权限、错误与兼容性
+## 10. 权限、错误与还原保留
 
 模块按 `windows.window.read/write`、`windows.input.inject`、`windows.hook.global`、`process.launch/terminate`、`windows.clipboard.read/write`、`screen.capture` 声明权限；高风险能力默认拒绝。错误码至少包括 `PermissionDenied`、`InvalidState`、`Timeout`、`Cancelled`、`ForegroundDenied`、`HungWindow`、`UiaUnavailable`、`QueueFull`、`Unsupported`。
 
-兼容性采用 `@rime/ahk-compat` 适配层：保留 AHK 名称的薄包装，但内部全部生成标准 Action IR；新代码使用 `windows`、`controls`、`keyboard`、`mouse`、`process`、`clipboard`、`screen` 模块。每个兼容函数的测试必须覆盖输入解析、Win32/UIA 执行、取消竞态、资源卸载和 Trace。
+不实现 AHK 名称兼容层（见 §0 与 `api/design-review.md`）：AHK 的每个 API 在覆盖矩阵中逐项追踪，以 TS 原生等价实现**还原保留**，内部统一生成标准 Action IR；公共 API 使用 `windows`、`controls`、`keyboard`、`mouse`、`process`、`clipboard`、`screen` 模块导出。每个还原保留的 API 的测试必须覆盖输入解析、Win32/UIA 执行、取消竞态、资源卸载和 Trace。
 
 ## 11. 与当前实现的垂直切片
 
@@ -183,11 +196,11 @@ export const hooks: { keyboard(cb: (e: KeyboardEvent)=>void, o?: HookOptions): S
 | 定时/调度/运行时 | SetTimer、Sleep、Critical、Persistent、ExitApp、Reload、Suspend、Pause、OnExit/OnError | 仅 `timers.every/after` 草案；生命周期契约在核心文档 | 未实现 JS API |
 | GUI/菜单/托盘/声音 | Gui*、Menu*、Tray*、ToolTip、MsgBox、InputBox、Sound*、LoadPicture、IL_* | 未覆盖 | 未实现 |
 | 注册表/COM/原生扩展 | Reg*、DllCall、ComCall、Obj*DataPtr、Callback* | 明确禁止裸能力；没有受权限插件 API 的签名 | 未实现（按设计应保持隔离） |
-| 纯语言/字符串 | RegEx*、StrSplit、StrReplace、DateAdd/DateDiff、IsLabel 等 | 应由 TS/标准库承担，未定义兼容层行为 | 不属于 Runtime binding |
+| 纯语言/字符串 | RegEx*、StrSplit、StrReplace、DateAdd/DateDiff、IsLabel 等 | 应由 TS/标准库直接承担，语义差异以还原测试守住 | 不属于 Runtime binding |
 
 ### 完备性结论与验收门槛
 
-在宣称 API 对齐前，必须为 `functions.h` 的每个函数建立兼容表（名称、参数、返回值、
+在宣称 API 对齐前，必须为 `functions.h` 的每个函数建立还原对照表（名称、参数、返回值、
 同步/异步、错误码、权限、取消点、Trace 字段和替代模块），并标记 `implemented /
 contract-only / unsupported-by-policy`。窗口、控件、输入、进程、剪贴板、屏幕、文件、
 注册表和 GUI 等域都需要至少一个可执行 contract 测试；测试应覆盖取消竞态、队列满载、

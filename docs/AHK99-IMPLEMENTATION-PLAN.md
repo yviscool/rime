@@ -4,7 +4,7 @@
 
 ## 0. 验收口径（已拍板）
 
-1. **能力对齐**：每个 AHK 函数、对象成员、内置变量、指令都有 TS 原生等价实现。Rime 只执行 TypeScript，**不实现 AHK 脚本语言本身**（解析器/表达式编译器不在范围内）。AHK 名称只用于覆盖矩阵追踪，公共命名以 `docs/api/future-runtime.md` 与各领域规范为准。
+1. **能力对齐（还原保留）**：每个 AHK 函数、对象成员、内置变量、指令都有 TS 原生等价实现——能力不缺项、语义以对照原版的测试守住；命名、参数形状、同步性与暴露边界按 `docs/AHK-TS-WINDOWS-API-DESIGN.md` §0 的核心设计问题重新设计，**不实现 AHK 名称兼容层**。Rime 只执行 TypeScript，**不实现 AHK 脚本语言本身**（解析器/表达式编译器不在范围内）。AHK 名称只用于覆盖矩阵追踪，公共命名以 `docs/api/future-runtime.md` 与各领域规范为准。
 2. **GUI 底座 = Win32 通用控件**：`GuiService` 在 UI Thread 拥有真实 HWND + common controls（Button/Edit/ListView/TreeView/…），行为与 AHK 对齐、可逐控件落到 Win32 消息。Rime UI Runtime 继续服务 Rim 自身 UI，两者不冲突；本计划不等待 UI Runtime。
 3. **维持策略裁剪**：DllCall、ComCall、CallbackCreate/Free、ObjPtr/AddRef/Release 系、NumGet/NumPut、StrPtr、ComObj*、Obj*PtrData 等裸互操作保持 `unsupported-by-policy`，补文档与"拒绝行为"测试，计为已决策项（分母中为终态）。调试器、AHK 脚本引擎同样排除。
 
@@ -93,10 +93,10 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 
 ### M3 纯 JS 快铺（可穿插，M）
 
-- runtime-language 39 项 + core-builtins 的数学/字符串/谓词/日期 ≈ **90+ 项**：`Abs/Ceil/Floor/Max/Min/Sqrt/…`、`Trim/LTrim/RTrim/StrLower/…/StrReplace/SplitPath`、`Is*` 谓词、`DateAdd/DateDiff/FormatTime`、`RegExMatch/RegExReplace`（JS RegExp + AHK 语义兼容壳：MatchPos/Name/Len 捕获对象）；
+- runtime-language 39 项 + core-builtins 的数学/字符串/谓词/日期 ≈ **90+ 项**：`Abs/Ceil/Floor/Max/Min/Sqrt/…`、`Trim/LTrim/RTrim/StrLower/…/StrReplace/SplitPath`、`Is*` 谓词、`DateAdd/DateDiff/FormatTime`、`RegExMatch/RegExReplace`（JS RegExp + AHK 语义还原壳：MatchPos/Name/Len 捕获对象）；
 - `Set*Delay/CoordMode/SetWorkingDir/OutputDebug/ListVars…` → Runtime/SchedulerPolicy 显式 API；
 - `Sleep/Exit*/Reload/Pause/Suspend/Persistent/Critical/Thread` → HostLifecycle/调度器映射；
-- 每项带 AHK 兼容测试（对照原版语义用例）。
+- 每项带语义还原测试（对照原版语义用例，见设计文档 §0 还原保留原则）。
 
 ### M4 Worker 簇：storage + registry + process（45 + 5 + 31 + 12，L）
 
@@ -127,7 +127,7 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 ### M8 完备性收尾与 99% 核算（M）
 
 - audit-gaps 12 条逐条销项（COM/VARIANT 边界文档化、ahklib.idl → 版本化 Host ABI contract、错误原型、globaldata 状态簇归属表、漂移检查 CI）；
-- 对象 213+ 成员兼容测试、builtins 全量测试补齐；
+- 对象 213+ 成员语义还原测试、builtins 全量测试补齐；
 - `unsupported-by-policy` 每项：拒绝行为测试 + 替代路径文档；
 - 生成**核算报告**（脚本输出终态计数/百分比）入 CI，`≥99%` 为硬门槛；
 - 生产 hosts 端到端：Rim bundle 经共享 bootstrap 跑通全模块。
