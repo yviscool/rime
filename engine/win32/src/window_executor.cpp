@@ -30,7 +30,7 @@ const std::unordered_set<std::string>& window_action_types() {
       "window.minimizeall", "window.minimizeall.undo",
       "window.set.title", "window.set.enabled", "window.set.alwaysontop",
       "window.set.style", "window.set.exstyle", "window.set.transparent",
-      "window.set.transcolor"};
+      "window.set.transcolor", "window.set.region"};
   return types;
 }
 
@@ -428,6 +428,17 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
                   "trans-color value must be 'off', '', 'RRGGBB'/'0xRRGGBB' "
                   "and an optional 0..255 alpha suffix");
     }
+  } else if (action.type == "window.set.region") {
+    if (const auto error = parse_set_string(payload.value->find("value"), "window.set.region");
+        !error.ok()) {
+      return fail(action, error.code, error.message);
+    }
+    RegionSpec region;
+    if (!parse_region_options(set_string_value, region)) {
+      return fail(action, Code::InvalidContract,
+                  "region value must be '<x>-<y>' coordinate pairs with optional E, "
+                  "R[<rrw>-<rrh>], W[<width>]/Wind and H[<height>] options");
+    }
   }
 
   std::uint64_t window_id = 0;
@@ -495,6 +506,8 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
     op_error = service_.set_transparent(window_id, set_number_value, timeout);
   } else if (action.type == "window.set.transcolor") {
     op_error = service_.set_trans_color(window_id, set_string_value, timeout);
+  } else if (action.type == "window.set.region") {
+    op_error = service_.set_region(window_id, set_string_value, timeout);
   } else {
     return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
   }

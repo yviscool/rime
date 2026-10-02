@@ -50,7 +50,8 @@
         "alwaysOnTop",
         "minMax",
         "transparent",
-        "transColor"
+        "transColor",
+        "region"
       ],
       "properties": {
         "id": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
@@ -70,7 +71,8 @@
         "alwaysOnTop": { "type": "boolean" },
         "minMax": { "enum": [-1, 0, 1] },
         "transparent": { "type": "integer", "minimum": -1, "maximum": 255 },
-        "transColor": { "type": "string", "pattern": "^$|^0x[0-9A-F]{6}$" }
+        "transColor": { "type": "string", "pattern": "^$|^0x[0-9A-F]{6}$" },
+        "region": { "type": "string", "description": "Region bounding box as \"left,top,right,bottom\" in window coordinates, or \"\" when the window has no region." }
       }
     },
     "placement": { "enum": ["left", "right", "top", "bottom", "full"] },
@@ -171,6 +173,14 @@
         "value": { "type": "string", "description": "WinSetTransColor: '' or 'off' clears the color key, 'RRGGBB'/'0xRRGGBB' sets it (hex only), a ' <0-255>' suffix adds the alpha alongside." }
       }
     },
+    "setRegionPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": { "type": "string", "description": "WinSetRegion options: '<x>-<y>' coordinate pairs (first pair anchors the shape) plus the letter options E (ellipse), R[<rrw>-<rrh>] (rounded rectangle, default 30x30), W[<width>]/Wind (width or winding fill) and H<height>; numbers are signed decimal and '' restores the normal window region." }
+      }
+    },
     "actionType": {
       "enum": [
         "window.move",
@@ -196,7 +206,8 @@
         "window.set.style",
         "window.set.exstyle",
         "window.set.transparent",
-        "window.set.transcolor"
+        "window.set.transcolor",
+        "window.set.region"
       ]
     }
   }

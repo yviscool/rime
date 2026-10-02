@@ -264,6 +264,22 @@ lane::Error build_info_impl(WindowRegistry& registry, HWND window, WindowInfo& o
       out.trans_color = hex;
     }
   }
+  // Region bounding box (extension beyond AHK, which has no getter):
+  // GetWindowRgn copies the region into our probe; ERROR or an empty box
+  // means the window has no region. Non-rectangular regions report the
+  // bounding box from GetRgnBox.
+  if (HRGN probe = CreateRectRgn(0, 0, 0, 0); probe) {
+    const int region_state = GetWindowRgn(window, probe);
+    RECT box{};
+    if (region_state != ERROR && GetRgnBox(probe, &box) != ERROR &&
+        (box.left != box.right || box.top != box.bottom)) {
+      char region_text[64];
+      std::snprintf(region_text, sizeof(region_text), "%ld,%ld,%ld,%ld", box.left, box.top,
+                    box.right, box.bottom);
+      out.region = region_text;
+    }
+    DeleteObject(probe);
+  }
   return lane::Error::none();
 }
 
@@ -645,6 +661,141 @@ bool parse_trans_color_change(const std::string_view text, TransColorChange& out
   return true;
 }
 
+namespace {
+// Leading signed decimal with at least one digit (AHK's ATOI prefix
+// convention, tightened: an empty number is an argument error). Consumes
+// the number from `text`; overflow beyond 32 bits fails like an argument
+// error rather than wrapping.
+bool parse_region_int(std::string_view& text, std::int32_t& out) {
+  if (text.empty()) return false;
+  const bool negative = text.front() == '-';
+  const bool positive = text.front() == '+';
+  if (negative || positive) text.remove_prefix(1);
+  if (text.empty() || text.front() < '0' || text.front() > '9') return false;
+  std::int64_t parsed = 0;
+  while (!text.empty() && text.front() >= '0' && text.front() <= '9') {
+    parsed = parsed * 10 + (text.front() - '0');
+    if (parsed > 2147483648LL) return false;
+    text.remove_prefix(1);
+  }
+  out = negative ? -static_cast<std::int32_t>(parsed) : static_cast<std::int32_t>(parsed);
+  return true;
+}
+
+char ascii_upper(const char character) {
+  if (character >= 'a' && character <= 'z') return static_cast<char>(character - 'a' + 'A');
+  return character;
+}
+}  // namespace
+
+bool parse_region_options(const std::string_view text, RegionSpec& out) {
+  out = RegionSpec{};
+  std::string_view cursor = text;
+  const auto skip_spaces = [&] {
+    while (!cursor.empty() && (cursor.front() == ' ' || cursor.front() == '\t')) {
+      cursor.remove_prefix(1);
+    }
+  };
+  skip_spaces();
+  if (cursor.empty()) {
+    // AHK: a blank option string restores the window's normal region.
+    out.kind = RegionKind::Restore;
+    return true;
+  }
+  bool has_width = false;
+  bool has_height = false;
+  bool has_round = false;
+  bool ellipse = false;
+  while (true) {
+    skip_spaces();
+    if (cursor.empty()) break;
+    const std::size_t token_length = cursor.find_first_of(" \t");
+    const std::string_view token = cursor.substr(0, token_length);
+    cursor.remove_prefix(token_length == std::string_view::npos ? cursor.size() : token_length);
+    const char first = token.front();
+    if ((first >= '0' && first <= '9') || first == '-' || first == '+') {
+      // A coordinate pair '<x>-<y>'; the first pair anchors rect, ellipse
+      // and rounded shapes, extra pairs are polygon vertices.
+      std::string_view part = token;
+      std::int32_t x = 0;
+      std::int32_t y = 0;
+      if (!parse_region_int(part, x) || part.empty() || part.front() != '-') return false;
+      part.remove_prefix(1);
+      if (!parse_region_int(part, y) || !part.empty()) return false;
+      // AHK caps regions at MAX_REGION_POINTS (2000) coordinate pairs.
+      if (out.coords.size() >= 4000) return false;
+      out.coords.push_back(x);
+      out.coords.push_back(y);
+      continue;
+    }
+    if (first < 'A' || (first > 'Z' && first < 'a') || first > 'z') return false;
+    std::string_view rest = token.substr(1);
+    switch (ascii_upper(first)) {
+      case 'E':
+        if (!rest.empty()) return false;
+        ellipse = true;
+        break;
+      case 'R':
+        if (rest.empty()) {
+          has_round = true;  // AHK default corner size 30x30
+          break;
+        }
+        if (!parse_region_int(rest, out.round_width) || rest.empty() || rest.front() != '-') {
+          return false;
+        }
+        rest.remove_prefix(1);
+        if (!parse_region_int(rest, out.round_height) || !rest.empty()) return false;
+        has_round = true;
+        break;
+      case 'W':
+        if (equals_ignore_case(rest, "ind")) {
+          out.winding = true;
+          break;
+        }
+        if (!parse_region_int(rest, out.width) || !rest.empty()) return false;
+        has_width = true;
+        break;
+      case 'H':
+        if (!parse_region_int(rest, out.height) || !rest.empty()) return false;
+        has_height = true;
+        break;
+      default:
+        return false;  // unknown letters reserve future options, like AHK
+    }
+  }
+  // AHK: at least one coordinate pair is required even for shaped regions.
+  if (out.coords.empty()) return false;
+  const bool both_dimensions = has_width && has_height;
+  // Width and height are relative sizes: AHK converts them to the right
+  // and bottom edges by adding the anchor point.
+  const std::int64_t right = static_cast<std::int64_t>(out.coords[0]) + out.width;
+  const std::int64_t bottom = static_cast<std::int64_t>(out.coords[1]) + out.height;
+  if (ellipse) {
+    // AHK lets a shape without both dimensions fail at CreateEllipticRgn
+    // (FR_E_WIN32); we refuse it at the contract layer instead.
+    if (!both_dimensions) return false;
+    if (right < -2147483648LL || right > 2147483647LL) return false;
+    if (bottom < -2147483648LL || bottom > 2147483647LL) return false;
+    out.kind = RegionKind::Ellipse;
+  } else if (has_round) {
+    if (!both_dimensions) return false;
+    if (right < -2147483648LL || right > 2147483647LL) return false;
+    if (bottom < -2147483648LL || bottom > 2147483647LL) return false;
+    out.kind = RegionKind::RoundRect;
+  } else if (both_dimensions) {
+    if (right < -2147483648LL || right > 2147483647LL) return false;
+    if (bottom < -2147483648LL || bottom > 2147483647LL) return false;
+    out.kind = RegionKind::Rect;
+  } else {
+    // A width or height alone is ignored and the points become a polygon
+    // (AHK); fewer than three points cannot form one, so refuse before the
+    // Win32 call.
+    if (out.coords.size() < 6) return false;
+    out.kind = RegionKind::Polygon;
+  }
+  return true;
+}
+
 WindowSettings WindowService::settings() const {
   WindowSettings current;
   current.title_match_mode = impl_->title_match_mode.load(std::memory_order_relaxed);
@@ -707,6 +858,7 @@ rime::core::json::Value window_info_json(const WindowInfo& info) {
   value.set("minMax", json::Value::number(info.min_max));
   value.set("transparent", json::Value::number(info.transparent));
   value.set("transColor", json::Value::string(info.trans_color));
+  value.set("region", json::Value::string(info.region));
   return value;
 }
 
@@ -2043,6 +2195,93 @@ rime::core::Error WindowService::set_trans_color(const std::uint64_t id,
           result = {rime::core::Error::Code::ExecutionFailed,
                     "SetLayeredWindowAttributes failed (win32 error " +
                         std::to_string(failure) + ")"};
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::set_region(const std::uint64_t id, const std::string_view value,
+                                             const std::chrono::milliseconds timeout) {
+  RegionSpec spec;
+  if (!parse_region_options(value, spec)) {
+    return {rime::core::Error::Code::InvalidContract,
+            "region value must be '<x>-<y>' coordinate pairs with optional E, "
+            "R[<rrw>-<rrh>], W[<width>]/Wind and H[<height>] options"};
+  }
+  if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  rime::core::Error result = rime::core::Error::none();
+  const auto call_error = impl_->ui.call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND window = impl_->registry.hwnd_for(id);
+        if (!window) {
+          result = {rime::core::Error::Code::TargetGone, "window no longer exists"};
+          return;
+        }
+        if (spec.kind == RegionKind::Restore) {
+          // AHK: setting the region to NULL restores the window's proper
+          // region (GetWindowRect-based hacks leave maximized windows
+          // clipped, per the AHK v1.0.31.07 note).
+          if (!SetWindowRgn(window, nullptr, TRUE)) {
+            const DWORD failure = GetLastError();
+            result = {rime::core::Error::Code::ExecutionFailed,
+                      "SetWindowRgn failed to clear the region (win32 error " +
+                          std::to_string(failure) + ")"};
+          }
+          return;
+        }
+        // Width and height are relative sizes; AHK converts them to the
+        // right and bottom edges by adding the anchor point.
+        const std::int64_t right =
+            static_cast<std::int64_t>(spec.coords[0]) + spec.width;
+        const std::int64_t bottom =
+            static_cast<std::int64_t>(spec.coords[1]) + spec.height;
+        HRGN region = nullptr;
+        switch (spec.kind) {
+          case RegionKind::Ellipse:
+            region = CreateEllipticRgn(spec.coords[0], spec.coords[1],
+                                       static_cast<int>(right), static_cast<int>(bottom));
+            break;
+          case RegionKind::RoundRect:
+            region = CreateRoundRectRgn(spec.coords[0], spec.coords[1],
+                                        static_cast<int>(right), static_cast<int>(bottom),
+                                        spec.round_width, spec.round_height);
+            break;
+          case RegionKind::Rect:
+            region = CreateRectRgn(spec.coords[0], spec.coords[1], static_cast<int>(right),
+                                   static_cast<int>(bottom));
+            break;
+          case RegionKind::Polygon: {
+            std::vector<POINT> points(spec.coords.size() / 2);
+            for (std::size_t index = 0; index < points.size(); ++index) {
+              points[index].x = spec.coords[index * 2];
+              points[index].y = spec.coords[index * 2 + 1];
+            }
+            region = CreatePolygonRgn(points.data(), static_cast<int>(points.size()),
+                                      spec.winding ? WINDING : ALTERNATE);
+            break;
+          }
+          case RegionKind::Restore:
+            return;  // handled above; keeps the switch exhaustive
+        }
+        if (!region) {
+          const DWORD failure = GetLastError();
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "region creation failed (win32 error " + std::to_string(failure) + ")"};
+          return;
+        }
+        // On success the OS owns the HRGN and frees the previous region;
+        // on failure we still own it and must release it (AHK same).
+        if (!SetWindowRgn(window, region, TRUE)) {
+          DeleteObject(region);
+          const DWORD failure = GetLastError();
+          result = {rime::core::Error::Code::ExecutionFailed,
+                    "SetWindowRgn failed (win32 error " + std::to_string(failure) + ")"};
         }
       },
       timeout);

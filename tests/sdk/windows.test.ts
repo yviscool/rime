@@ -73,6 +73,7 @@ const movedHandle: WindowHandle = {
   minMax: 0,
   transparent: -1,
   transColor: "",
+  region: "",
 };
 
 const calls: Array<{
@@ -262,6 +263,10 @@ mock.module("rime:window", () => ({
       calls.push({ method: "setTransColor", target, value, options });
       return Promise.resolve(movedHandle);
     },
+    setRegion: (target: WindowId | "active", value: string, options?: NativeActionOptions) => {
+      calls.push({ method: "setRegion", target, value, options });
+      return Promise.resolve(movedHandle);
+    },
   } satisfies WindowsBridge,
   groups: {
     add: async (name: string, query: WindowQueryFields, options?: NativeActionOptions) => {
@@ -377,6 +382,19 @@ test("setStyle, setExStyle, setTransparent and setTransColor route through the w
   await Window.setTransColor(7 as WindowId, "0xFF0000 128");
   expect(calls).toEqual([
     { method: "setTransColor", target: 7, value: "0xFF0000 128", options: undefined },
+  ]);
+});
+
+test("setRegion routes through the window bridge with the restore default", async () => {
+  calls.length = 0;
+  await Window.setRegion(7 as WindowId, "10-10 W100 H50");
+  expect(calls).toEqual([
+    { method: "setRegion", target: 7, value: "10-10 W100 H50", options: undefined },
+  ]);
+  calls.length = 0;
+  await Window.setRegion(7 as WindowId, undefined, { deadlineMs: 100 });
+  expect(calls).toEqual([
+    { method: "setRegion", target: 7, value: "", options: { deadlineMs: 100 } },
   ]);
 });
 

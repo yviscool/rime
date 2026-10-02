@@ -62,13 +62,14 @@ export const windows: {
   setExStyle(target: WindowRef | WindowQuery, change: string, o?: ActionOptions): Promise<void>;
   setTransparent(target: WindowRef | WindowQuery, alpha: number, o?: ActionOptions): Promise<void>;
   setTransColor(target: WindowRef | WindowQuery, color: string, o?: ActionOptions): Promise<void>;
+  setRegion(target: WindowRef | WindowQuery, value?: string, o?: ActionOptions): Promise<void>;
   controls(target: WindowRef | WindowQuery, o?: ActionOptions): Promise<ControlSnapshot[]>;
   on(event: "created"|"destroyed"|"activated"|"moved"|"titleChanged", cb: (e: WindowEvent)=>void): Subscription;
 };
 export interface WindowRef { readonly id: WindowId; snapshot(o?: ActionOptions): Promise<WindowSnapshot>; }
 ```
 
-AHK 的 `WinTitle` 参数统一转换成 `WindowQuery`；`"A"` 映射 `windows.active()`，`ahk_id` 映射 `WindowId`，`ahk_exe` 映射 `process`。`WinGetPos/ClientPos/List/Count/PID/ProcessName/ProcessPath/Class/Style/ExStyle/Text/Title/MinMax/Enabled/AlwaysOnTop/Transparent/TransColor` 均是 `snapshot` 或 `list` 的字段/派生方法。`WinActivateBottom` 经 `list`（保持 z 序）+ `focus` 最后一个匹配组合承载，`WinMoveTop/WinMoveBottom` 经 `windows.zorder(target, "top"|"bottom")` 承载，`WinKill/WinRedraw` 经 `windows.kill`/`windows.redraw` 承载，`WinMinimizeAll/WinMinimizeAllUndo` 经 `windows.minimizeAll()`/`windows.minimizeAllUndo()` 承载，`WinSetTitle/WinSetEnabled/WinSetAlwaysOnTop` 经 `windows.setTitle`/`windows.setEnabled`/`windows.setAlwaysOnTop` 承载，`WinSetStyle/WinSetExStyle/WinSetTransparent/WinSetTransColor` 经 `windows.setStyle`/`windows.setExStyle`/`windows.setTransparent`/`windows.setTransColor` 承载；`SetRegion` 作为 `region` 扩展保留。
+AHK 的 `WinTitle` 参数统一转换成 `WindowQuery`；`"A"` 映射 `windows.active()`，`ahk_id` 映射 `WindowId`，`ahk_exe` 映射 `process`。`WinGetPos/ClientPos/List/Count/PID/ProcessName/ProcessPath/Class/Style/ExStyle/Text/Title/MinMax/Enabled/AlwaysOnTop/Transparent/TransColor` 均是 `snapshot` 或 `list` 的字段/派生方法。`WinActivateBottom` 经 `list`（保持 z 序）+ `focus` 最后一个匹配组合承载，`WinMoveTop/WinMoveBottom` 经 `windows.zorder(target, "top"|"bottom")` 承载，`WinKill/WinRedraw` 经 `windows.kill`/`windows.redraw` 承载，`WinMinimizeAll/WinMinimizeAllUndo` 经 `windows.minimizeAll()`/`windows.minimizeAllUndo()` 承载，`WinSetTitle/WinSetEnabled/WinSetAlwaysOnTop` 经 `windows.setTitle`/`windows.setEnabled`/`windows.setAlwaysOnTop` 承载，`WinSetStyle/WinSetExStyle/WinSetTransparent/WinSetTransColor` 经 `windows.setStyle`/`windows.setExStyle`/`windows.setTransparent`/`windows.setTransColor` 承载，`WinSetRegion` 经 `windows.setRegion` 承载（附带 `region` 快照读回字段——AHK 无对应读取器）。
 
 实现：UI lane 调用 `EnumWindows`、`GetForegroundWindow`、`GetWindowTextW`、`GetWindowRect`、`GetClientRect`、`GetWindowThreadProcessId`、`IsWindowVisible/IsIconic/IsZoomed/IsWindowEnabled`、`SetWindowPos`、`ShowWindow`、`SetForegroundWindow`、`SetWindowLongPtr`、`SetLayeredWindowAttributes`。稳定 ID 由 UI lane registry 产生且不复用；窗口销毁后所有操作返回 `InvalidState`。激活沿用 AHK 的 restore → `SetForegroundWindow` → 必要时 `AttachThreadInput`/Alt-up 的策略，但必须在 Trace 记录每个尝试。
 
@@ -140,7 +141,7 @@ export const hooks: { keyboard(cb: (e: KeyboardEvent)=>void, o?: HookOptions): S
 现有 `WindowService` 已验证 UI-thread registry、UTF-8 快照、`active/list/info/move/focus`，以及 WinTitle 查询（`title`/`matchMode`/`ahkClass`/`ahkExe`/`ahkId`/`includeHidden`/`active`）和状态操作（`close/hide/show/minimize/maximize/restore`）。`rime:window` 提供对应 Promise binding：读路径校验 `windows.window.read`，写路径经 Action Kernel 校验 `windows.window.write` 并写入 Trace；读写接受 `deadlineMs`/`cancellationId`（SDK 侧 `AbortSignal` 自动绑定并释放 cancellation id），deadline 过期与 UI 排队超时返回 `timeout`。`window-v1` contract 见 `contracts/schema/window-v1.schema.json`。剩余步骤：
 
 1. 将 `WindowInfo` 映射为 `WindowSnapshot`，把 `uint64 id` 编码为 branded `WindowId`。
-2. 补齐 WinSet*/region 等窗口扩展项与等待订阅的关闭排空（WinWait* 已由 `windows.wait` 承载，zOrder 已由 `windows.zorder` 承载，redraw 已由 `windows.redraw` 承载）。
+2. 补齐等待订阅的关闭排空（WinSet*/region 已全部落地，WinWait* 已由 `windows.wait` 承载，zOrder 已由 `windows.zorder` 承载，redraw 已由 `windows.redraw` 承载）。
 3. 再扩展 Control/UIA、输入和进程模块；不把 AHK 全局状态复制到 Runtime。
 
 ## 12. 对齐审计（2026-10-01）
@@ -172,7 +173,7 @@ export const hooks: { keyboard(cb: (e: KeyboardEvent)=>void, o?: HookOptions): S
 
 | AHK 功能域 | functions.h 代表函数 | 文档状态 | Runtime 状态 |
 |---|---|---|---|
-| 窗口查询/操作 | WinActivate、WinClose、WinGet*、WinMove、WinSet*、WinWait*、WinGroup*、WinMoveTop/Bottom、WinActivateBottom、WinKill、WinRedraw、WinMinimizeAll/Undo（约 55） | 已定义目标接口及 WinTitle 映射；`region` 仍是扩展项 | `list`（含 WinTitle 查询）/`active/info/move/focus/close/kill/redraw/hide/show/minimize/maximize/restore/zorder/minimizeAll/minimizeAllUndo`/`setTitle/setEnabled/setAlwaysOnTop/setStyle/setExStyle/setTransparent/setTransColor`/`exists/isActive/wait`（WinWait 家族经 `until`）/`groups`（WinGroup 家族经 `window.group.*` 动作）已实现（WinActivateBottom 经 list+focus 组合承载）；`WinSetRegion` 为扩展项（唯一未实现的 WinSet*） |
+| 窗口查询/操作 | WinActivate、WinClose、WinGet*、WinMove、WinSet*、WinWait*、WinGroup*、WinMoveTop/Bottom、WinActivateBottom、WinKill、WinRedraw、WinMinimizeAll/Undo（约 55） | 已定义目标接口及 WinTitle 映射；`region` 已实现（含快照读回扩展） | `list`（含 WinTitle 查询）/`active/info/move/focus/close/kill/redraw/hide/show/minimize/maximize/restore/zorder/minimizeAll/minimizeAllUndo`/`setTitle/setEnabled/setAlwaysOnTop/setStyle/setExStyle/setTransparent/setTransColor/setRegion`/`exists/isActive/wait`（WinWait 家族经 `until`）/`groups`（WinGroup 家族经 `window.group.*` 动作）已实现（WinActivateBottom 经 list+focus 组合承载）；WinSet* 全部实现 |
 | 控件/UIA | Control* 全集、Edit*、ListViewGetContent、StatusBar*、Gui*（约 48） | 仅定义通用 `controls` 抽象，未逐函数列签名/返回值/失败语义 | 未实现 UIA/Win32 fallback |
 | 键鼠/热键/Hook | MouseClick*、Send*、Hotkey、Hotstring、KeyWait、Install*Hook、BlockInput、GetKey*、Set*KeyState | 定义基础 `keyboard`/`mouse`/`hooks`；AHK 解析细节尚未形成语法规范 | 仅低级输入事件订阅；注入和热键未实现 |
 | 剪贴板/消息 | ClipWait、OnClipboardChange、SendMessage、OnMessage | 仅概念提及 | `clipboard.read/write` binding 已实现（`windows.clipboard.read/write` capability）；`ClipWait`/`OnClipboardChange`/`OnMessage` 未实现 |

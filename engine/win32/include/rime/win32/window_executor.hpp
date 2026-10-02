@@ -11,7 +11,7 @@ namespace rime::win32 {
 // group.activate/group.deactivate/group.close, the desktop pair
 // minimizeall/minimizeall.undo, and the window set family set.title/
 // set.enabled/set.alwaysontop/set.style/set.exstyle/set.transparent/
-// set.transcolor. Payload contract:
+// set.transcolor/set.region. Payload contract:
 // `window.move` requires
 // {"position": "left|right|top|bottom|full"}; `window.zorder` requires
 // {"placement": "top|bottom"}; `window.set.title` requires {"title":
@@ -20,7 +20,9 @@ namespace rime::win32 {
 // means topmost); `window.set.style` and `window.set.exstyle` require
 // {"value": "+N|-N|^N|<decimal>"}; `window.set.transparent` requires
 // {"value": -1|0..255}; `window.set.transcolor` requires {"value":
-// ""|"off"|"RRGGBB"|"0xRRGGBB"[+" <0-255>"]}; the state actions take an
+// ""|"off"|"RRGGBB"|"0xRRGGBB"[+" <0-255>"]}; `window.set.region`
+// requires {"value": "<options string>"} (AHK WinSetRegion grammar, ''
+// restores); the state actions take an
 // empty
 // empty object. Target contract: {"kind": "window", "id": "<numeric id>" |
 // "active"} for the window actions, {"kind": "group", "id": "<group

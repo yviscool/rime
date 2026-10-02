@@ -26,5 +26,6 @@
   "alwaysOnTop": false,
   "minMax": 0,
   "transparent": -1,
-  "transColor": ""
+  "transColor": "",
+  "region": ""
 }

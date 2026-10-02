@@ -100,7 +100,7 @@ int main() {
                            "window.set.title", "window.set.enabled",
                            "window.set.alwaysontop", "window.set.style",
                            "window.set.exstyle", "window.set.transparent",
-                           "window.set.transcolor"}) {
+                           "window.set.transcolor", "window.set.region"}) {
     assert(kernel.register_executor(type, window_executor).ok());
   }
 
@@ -937,10 +937,11 @@ int main() {
 
   // window.set.* writes on a dedicated victim: topmost toggles, enabled
   // disables then toggles back, the title round-trips, style/exstyle bits
-  // add and clear, layered alpha and the color key set and clear. The
-  // finally block restores every value before the query check, and the
-  // synchronous argument TypeErrors dispatch nothing (so the trace asserts
-  // below stay at two actions per type).
+  // add and clear, layered alpha and the color key set and clear, and the
+  // region shape lands (observed through the info snapshot's region field)
+  // then clears again. The finally block restores every value before the
+  // query check, and the synchronous argument TypeErrors dispatch nothing
+  // (so the trace asserts below stay at two actions per type).
   HWND set_victim = nullptr;
   assert(service.ui()
              .call([&] {
@@ -978,6 +979,8 @@ int main() {
         "  catch (e) { if (e instanceof TypeError) typeErrors++; }\n"
         "  try { windows.setTransparent(victim.id, 300); }\n"
         "  catch (e) { if (e instanceof TypeError) typeErrors++; }\n"
+        "  try { windows.setRegion(victim.id, 7); }\n"
+        "  catch (e) { if (e instanceof TypeError) typeErrors++; }\n"
         "  const out = {};\n"
         "  try {\n"
         "    await windows.setTitle(victim.id, 'Rime SetSlice Renamed');\n"
@@ -997,6 +1000,8 @@ int main() {
         "    await windows.setTransColor(victim.id, '0xFF0000 100');\n"
         "    out.tcol = (await windows.info(victim.id)).transColor;\n"
         "    out.tcolAlpha = (await windows.info(victim.id)).transparent;\n"
+        "    await windows.setRegion(victim.id, '10-10 W100 H50');\n"
+        "    out.region = (await windows.info(victim.id)).region;\n"
         "  } finally {\n"
         "    await windows.setTitle(victim.id, 'Rime SetSlice Victim');\n"
         "    await windows.setAlwaysOnTop(victim.id, 0);\n"
@@ -1004,7 +1009,9 @@ int main() {
         "    await windows.setExStyle(victim.id, '0x' + before.exStyle.toString(16));\n"
         "    await windows.setTransparent(victim.id, before.transparent);\n"
         "    await windows.setTransColor(victim.id, before.transColor || 'off');\n"
+        "    await windows.setRegion(victim.id, '');\n"
         "  }\n"
+        "  out.regionCleared = (await windows.info(victim.id)).region === '';\n"
         "  return { beforeTopmost: before.alwaysOnTop, typeErrors, ...out };\n"
         "})().then(v => { globalThis.setOut.value = v; },\n"
         "         e => { globalThis.setOut.error = String(e); });",
@@ -1015,9 +1022,10 @@ int main() {
         "const v = globalThis.setOut.value;\n"
         "if (!v) throw new Error('set segment produced no value');\n"
         "if (v.beforeTopmost) throw new Error('set victim started topmost');\n"
-        "if (v.typeErrors !== 4 || !v.topmost || !v.disabled || !v.reenabled ||\n"
+        "if (v.typeErrors !== 5 || !v.topmost || !v.disabled || !v.reenabled ||\n"
         "    v.title !== 'Rime SetSlice Renamed' || !v.styleSet || !v.exSet ||\n"
-        "    v.alpha !== 128 || v.tcol !== '0xFF0000' || v.tcolAlpha !== 100)\n"
+        "    v.alpha !== 128 || v.tcol !== '0xFF0000' || v.tcolAlpha !== 100 ||\n"
+        "    v.region !== '10,10,110,60' || !v.regionCleared)\n"
         "  throw new Error('set segment failed: ' + JSON.stringify(v));",
         "slice-set-check.mjs");
   rime::win32::WindowQuery set_query;
@@ -1029,11 +1037,13 @@ int main() {
   assert(set_leftover.front().title == "Rime SetSlice Victim");
   assert(!set_leftover.front().always_on_top);
   // The finally block restored every set-stage write: style, exstyle,
-  // layered alpha and the color key all match the pre-script snapshot.
+  // layered alpha, the color key and the region all match the pre-script
+  // snapshot (the region restore leaves no region at all).
   assert(set_leftover.front().style == set_pre.style);
   assert(set_leftover.front().ex_style == set_pre.ex_style);
   assert(set_leftover.front().transparent == set_pre.transparent);
   assert(set_leftover.front().trans_color == set_pre.trans_color);
+  assert(set_leftover.front().region.empty());
   assert(service.ui().call([&] { DestroyWindow(set_victim); }).ok());
 
   // Segment 6: close destroys the window through the executor (the result
@@ -1136,9 +1146,9 @@ int main() {
   //   minimizeall segment (fire-and-forget shell tray post);
   // - window.set.title / window.set.enabled / window.set.alwaysontop /
   //   window.set.style / window.set.exstyle / window.set.transparent /
-  //   window.set.transcolor: two pairs each in the set segment (write plus
-  //   finally-restored write); the synchronous argument TypeErrors dispatch
-  //   nothing;
+  //   window.set.transcolor / window.set.region: two pairs each in the set
+  //   segment (write plus finally-restored write); the synchronous
+  //   argument TypeErrors dispatch nothing;
   // - window.move: segment 1 (move), segment 2 (bad placement), segment 2b
   //   (exhausted deadline), segment 6 (stale id), plus the optional active
   //   move. The deadline action always records Finished but records Started
@@ -1189,6 +1199,7 @@ int main() {
   assert(started_count["window.set.exstyle"] == 2);
   assert(started_count["window.set.transparent"] == 2);
   assert(started_count["window.set.transcolor"] == 2);
+  assert(started_count["window.set.region"] == 2);
   // The exhausted deadline left a Finished entry naming the timeout.
   bool saw_deadline_timeout = false;
   for (const auto& entry : trace->snapshot()) {

@@ -51,12 +51,16 @@ struct WindowInfo {
   // "0xRRGGBB" (RGB order, like AHK) or "" when absent.
   int transparent{-1};
   std::string trans_color;
+  // Region bounding box (extension beyond AHK, which has no getter) as
+  // "left,top,right,bottom" in window coordinates, or "" when the window
+  // has no region. Non-rectangular regions report their bounding box.
+  std::string region;
 };
 
 // Deterministic JSON shape shared by the executor, the JS module and tests:
 // {id,title,className,processName,processPath,rect,clientRect,visible,
 //  minimized,state,processId,style,exStyle,enabled,alwaysOnTop,minMax,
-//  transparent,transColor}
+//  transparent,transColor,region}
 rime::core::json::Value window_info_json(const WindowInfo& info);
 
 // AHK TitleMatchMode (SetTitleMatchMode / A_TitleMatchMode): 1 = leading
@@ -97,6 +101,28 @@ struct TransColorChange {
   int alpha{0};
 };
 [[nodiscard]] bool parse_trans_color_change(std::string_view text, TransColorChange& out);
+
+// AHK WinSetRegion options string: coordinate pairs '<x>-<y>' (first pair
+// anchors the shape; extra pairs are polygon vertices) plus the letter
+// options 'E' (ellipse), 'R'/'R<rrw>-<rrh>' (rounded rectangle, default
+// 30x30), 'W<width>'/'Wind' (width or winding fill) and 'H<height>'.
+// Numbers are signed decimal like AHK's ATOI. A blank string restores the
+// window region (SetWindowRgn NULL). Kind selection follows AHK: ellipse
+// beats rounded beats rectangle (width and height both present) beats
+// polygon; ellipse/rounded shapes without both dimensions and polygons
+// with fewer than three points are refused as contract errors (AHK lets
+// them fail at the Win32 layer).
+enum class RegionKind { Restore, Ellipse, RoundRect, Rect, Polygon };
+struct RegionSpec {
+  RegionKind kind{RegionKind::Restore};
+  std::vector<std::int32_t> coords;  // interleaved x0,y0,x1,y1,...
+  std::int32_t width{0};
+  std::int32_t height{0};
+  std::int32_t round_width{30};
+  std::int32_t round_height{30};
+  bool winding{false};
+};
+[[nodiscard]] bool parse_region_options(std::string_view text, RegionSpec& out);
 
 // Global window options (SetTitleMatchMode/DetectHiddenWindows/
 // DetectHiddenText). Stored as atomics on the service so JS reads/writes stay
@@ -304,6 +330,11 @@ class WindowService final {
   // clears WS_EX_LAYERED exactly like AHK's WinSetTrans with no flags.
   rime::core::Error set_trans_color(std::uint64_t id, std::string_view value,
                                     std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // WinSetRegion: builds the region from the AHK options string and hands
+  // it to SetWindowRgn (the OS owns the HRGN after a successful call); a
+  // blank string clears the region back to normal.
+  rime::core::Error set_region(std::uint64_t id, std::string_view value,
+                               std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // Window state mutations (WinClose/WinHide/WinShow/WinMinimize/WinMaximize/
   // WinRestore equivalents). `close` delivers WM_CLOSE and waits for the
   // target thread to process it within the timeout.

@@ -922,6 +922,77 @@ int main() {
          rime::core::Error::Code::InvalidContract);
   assert(service.set_trans_color(set_id, "0xFF0000 999").code ==
          rime::core::Error::Code::InvalidContract);
+  // set_region: the rect form (anchor + W/H) lands exactly, polygon,
+  // ellipse and rounded shapes report their box through info().region,
+  // a blank value restores (NULLREGION + empty box), and malformed
+  // options refuse before any Win32 call.
+  const auto region_box = [&](const HWND window) {
+    RECT box{};
+    const HRGN probe = CreateRectRgn(0, 0, 0, 0);
+    assert(probe != nullptr);
+    const int state = GetWindowRgn(window, probe);
+    if (state != ERROR) GetRgnBox(probe, &box);
+    DeleteObject(probe);
+    return std::pair<int, RECT>{state, box};
+  };
+  assert(service.set_region(set_id, "10-10 W100 H50").ok());
+  {
+    const auto [state, box] = region_box(set_victim);
+    assert(state != ERROR && state != NULLREGION);
+    assert(box.left == 10 && box.top == 10 && box.right == 110 && box.bottom == 60);
+  }
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.region == "10,10,110,60");
+  assert(service.set_region(set_id, "0-0 50-0 50-50").ok());
+  {
+    const auto [state, box] = region_box(set_victim);
+    assert(state != ERROR && state != NULLREGION);
+    assert(box.left == 0 && box.top == 0 && box.right == 50 && box.bottom == 50);
+  }
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.region == "0,0,50,50");
+  assert(service.set_region(set_id, "E 5-5 W40 H30").ok());
+  {
+    const auto [state, box] = region_box(set_victim);
+    assert(state != ERROR && state != NULLREGION);
+    // GDI's GetRgnBox rounds the ellipse's far edge inward by a pixel
+    // (5,5,44,34 for a 5,5,45,35 ellipse) - observed behavior, not ours.
+    assert(box.left == 5 && box.top == 5 && box.right == 44 && box.bottom == 34);
+  }
+  assert(service.set_region(set_id, "5-5 W40 H30 R10-10").ok());
+  {
+    const auto [state, box] = region_box(set_victim);
+    assert(state != ERROR && state != NULLREGION);
+    assert(box.left == 5 && box.top == 5 && box.right == 44 && box.bottom == 34);
+  }
+  assert(service.set_region(set_id, "0-0 60-0 60-40 Wind").ok());
+  assert(service.set_region(set_id, "").ok());
+  {
+    // A window without a region: GetWindowRgn reports ERROR on this
+    // platform (NULLREGION would mean the same thing), box stays zero.
+    const auto [state, box] = region_box(set_victim);
+    assert(state == ERROR || state == NULLREGION);
+    assert(box.left == 0 && box.top == 0 && box.right == 0 && box.bottom == 0);
+  }
+  assert(service.info(set_id, set_snapshot).ok());
+  assert(set_snapshot.region.empty());
+  assert(service.set_region(set_id, "junk").code ==
+         rime::core::Error::Code::InvalidContract);
+  assert(service.set_region(set_id, "10 10").code ==
+         rime::core::Error::Code::InvalidContract);
+  assert(service.set_region(set_id, "10-10").code ==
+         rime::core::Error::Code::InvalidContract);  // one-point polygon
+  assert(service.set_region(set_id, "E 10-10").code ==
+         rime::core::Error::Code::InvalidContract);  // ellipse needs W and H
+  assert(service.set_region(set_id, "10-10 X1").code ==
+         rime::core::Error::Code::InvalidContract);  // unknown letter
+  {
+    // AHK's MAX_REGION_POINTS bound: the 2001st pair is an argument error.
+    std::string flood;
+    for (int pair = 0; pair < 2001; ++pair) flood += "1-1 ";
+    assert(service.set_region(set_id, flood).code ==
+           rime::core::Error::Code::InvalidContract);
+  }
   assert(service.ui().call([&] { DestroyWindow(set_victim); }).ok());
 
   // WindowExecutor: a contract-valid window.move reaches the service and
@@ -942,7 +1013,8 @@ int main() {
                             "window.minimizeall.undo", "window.set.title",
                             "window.set.enabled", "window.set.alwaysontop",
                             "window.set.style", "window.set.exstyle",
-                            "window.set.transparent", "window.set.transcolor"}) {
+                            "window.set.transparent", "window.set.transcolor",
+                            "window.set.region"}) {
     assert(kernel.register_executor(type, window_executor).ok());
   }
 
@@ -1060,7 +1132,7 @@ int main() {
                                            "window.set.title", "window.set.enabled",
                                            "window.set.alwaysontop", "window.set.style",
                                            "window.set.exstyle", "window.set.transparent",
-                                           "window.set.transcolor"};
+                                           "window.set.transcolor", "window.set.region"};
   for (const char* type : kDeniedTypes) {
     const auto registered = denied.register_executor(type, window_executor);
     assert(registered.ok());
@@ -1523,6 +1595,35 @@ int main() {
   const auto missing_key = kernel.execute(set_action);
   assert(!missing_key.succeeded);
   assert(missing_key.error.code == rime::core::Error::Code::InvalidContract);
+  // set.region through the wire: the rect form round-trips into the result
+  // snapshot, bad grammar and wrong payload types refuse before the window
+  // is touched, and the blank value restores.
+  set_action.id = 73;
+  set_action.type = "window.set.region";
+  set_action.payload = R"({"value":"10-10 W100 H50"})";
+  const auto region_result = kernel.execute(set_action);
+  assert(region_result.succeeded);
+  assert(region_result.value.find("region")->as_string() == "10,10,110,60");
+  set_action.id = 74;
+  set_action.payload = R"({"value":"junk"})";
+  const auto bad_region = kernel.execute(set_action);
+  assert(!bad_region.succeeded);
+  assert(bad_region.error.code == rime::core::Error::Code::InvalidContract);
+  set_action.id = 75;
+  set_action.payload = R"({"value":7})";
+  const auto nonstring_region = kernel.execute(set_action);
+  assert(!nonstring_region.succeeded);
+  assert(nonstring_region.error.code == rime::core::Error::Code::InvalidContract);
+  set_action.id = 76;
+  set_action.payload = "{}";
+  const auto missing_region = kernel.execute(set_action);
+  assert(!missing_region.succeeded);
+  assert(missing_region.error.code == rime::core::Error::Code::InvalidContract);
+  set_action.id = 77;
+  set_action.payload = R"({"value":""})";
+  const auto region_restore = kernel.execute(set_action);
+  assert(region_restore.succeeded);
+  assert(region_restore.value.find("region")->as_string().empty());
   assert(service.ui().call([&] { DestroyWindow(set_exec_victim); }).ok());
 
   // The executor dispatches window.close: the pre-close snapshot is the

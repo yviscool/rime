@@ -756,11 +756,12 @@ JSValue run_window_mutation(JSContext* context, int argc, JSValueConst* argv,
 
 // Shared body for the window.set.* family (WinSetTitle / WinSetEnabled /
 // WinSetAlwaysOnTop / WinSetStyle / WinSetExStyle / WinSetTransparent /
-// WinSetTransColor): target, then the per-type value, then optional
-// ActionOptions. The payload shape mirrors the window-v1 schema; every
-// value is fully validated here so a contract mistake throws a synchronous
-// TypeError before anything is enqueued (the executor re-validates).
-enum class SetKind { Number, Title, Style, Alpha, TransColor };
+// WinSetTransColor / WinSetRegion): target, then the per-type value, then
+// optional ActionOptions. The payload shape mirrors the window-v1 schema;
+// every value is fully validated here so a contract mistake throws a
+// synchronous TypeError before anything is enqueued (the executor
+// re-validates).
+enum class SetKind { Number, Title, Style, Alpha, TransColor, Region };
 
 JSValue run_window_set(JSContext* context, int argc, JSValueConst* argv,
                        const char* function_name, const char* action_type, const SetKind kind,
@@ -870,6 +871,22 @@ JSValue run_window_set(JSContext* context, int argc, JSValueConst* argv,
         has_value = true;
         break;
       }
+      case SetKind::Region: {
+        const auto value = take_text("a region options string");
+        if (!value) return JS_EXCEPTION;
+        text_value = *value;
+        RegionSpec parsed;
+        if (!parse_region_options(text_value, parsed)) {
+          return JS_ThrowTypeError(
+              context,
+              "%s(target, value[, options?]): value must be '<x>-<y>' coordinate pairs with "
+              "optional E, R[<rrw>-<rrh>], W[<width>]/Wind and H[<height>] options "
+              "(use '' to restore the region)",
+              function_name);
+        }
+        has_value = true;
+        break;
+      }
     }
     cursor = 2;
   }
@@ -934,6 +951,12 @@ JSValue windows_set_trans_color(JSContext* context, JSValueConst, int argc, JSVa
                                 int, void*) {
   return run_window_set(context, argc, argv, "setTransColor", "window.set.transcolor",
                         SetKind::TransColor, true);
+}
+
+JSValue windows_set_region(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                           void*) {
+  return run_window_set(context, argc, argv, "setRegion", "window.set.region", SetKind::Region,
+                        true);
 }
 
 JSValue windows_move(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
@@ -1452,7 +1475,8 @@ int window_module_init(JSContext* context, JSModuleDef* module) {
       !add(windows, "setStyle", windows_set_style, 2, 0) ||
       !add(windows, "setExStyle", windows_set_ex_style, 2, 0) ||
       !add(windows, "setTransparent", windows_set_transparent, 2, 0) ||
-      !add(windows, "setTransColor", windows_set_trans_color, 2, 0)) {
+      !add(windows, "setTransColor", windows_set_trans_color, 2, 0) ||
+      !add(windows, "setRegion", windows_set_region, 2, 0)) {
     JS_FreeValue(context, windows);
     return -1;
   }

@@ -50,6 +50,10 @@ export interface WindowHandle {
   transparent: number;
   /** Layered color key as "0xRRGGBB", or "" when absent (WinGetTransColor). */
   transColor: string;
+  /** Region bounding box as "left,top,right,bottom" in window coordinates,
+   * or "" when the window has no region (extension beyond AHK's getters;
+   * non-rectangular regions report their bounding box). */
+  region: string;
 }
 
 /** A child control from `windows.controls` (WinGetControls/WinGetControlsHwnd). */
@@ -260,6 +264,15 @@ export interface WindowsBridge {
    * sets it (hex only), an optional ' <0-255>' suffix adds alpha alongside.
    */
   setTransColor(
+    target: WindowId | "active",
+    value: string,
+    options?: NativeActionOptions,
+  ): Promise<WindowHandle>;
+  /**
+   * WinSetRegion: the AHK options string ('<x>-<y>' pairs plus E, R, W/Wind
+   * and H letter options); '' restores the normal region.
+   */
+  setRegion(
     target: WindowId | "active",
     value: string,
     options?: NativeActionOptions,
@@ -552,6 +565,17 @@ export const Window = {
   setTransColor(windowId: WindowId, value: string, options?: ActionOptions): Promise<WindowHandle> {
     return runAction(options, (native) =>
       windowBridge().then((windows) => windows.setTransColor(windowId, value, native)),
+    );
+  },
+  /**
+   * WinSetRegion: the AHK options string ('<x>-<y>' coordinate pairs plus
+   * E / R[<rrw>-<rrh>] / W[<width>]/Wind / H[<height>] letter options);
+   * '' restores the normal window region.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  setRegion(windowId: WindowId, value = "", options?: ActionOptions): Promise<WindowHandle> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.setRegion(windowId, value, native)),
     );
   },
   /**
