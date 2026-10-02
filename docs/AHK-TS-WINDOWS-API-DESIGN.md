@@ -26,7 +26,7 @@ TS intent → Action IR → Action Kernel → Host adapter
                          └─ Worker/IO lane (file, regex, image, wait)
 ```
 
-JS 线程只持有不可变快照、稳定 ID 和取消令牌。`HWND`、`HANDLE`、`HMONITOR`、COM interface、Hook pointer 不进入 JS；所有对象以带生命周期的 opaque ID 表达。Action 必须可追踪、可取消、可设 deadline，结果采用 `Result<T>`（成功值或带 code/detail/traceId 的错误）。
+JS 线程只持有不可变快照、稳定 ID 和取消令牌。`HWND`、`HANDLE`、`HMONITOR`、COM interface、Hook pointer 不进入 JS；所有对象以带生命周期的 opaque ID 表达。Action 必须可追踪、可取消、可设 deadline；**失败一律抛出**（2026-10-02 修正，以现有实现与 future-runtime 的 throw 模型为准）：同步契约错误抛 `TypeError`，异步失败经 Promise reject 抛结构化错误（设计名 `RuntimeError`，携带 code/message/traceId 等；当前 SDK 实现为 `ActionError { code }`，见 `sdk/src/action.ts`）——不采用 `Result<T>` 返回包装。
 
 ## 2. TS 运行时原语
 
@@ -37,7 +37,9 @@ export type SubscriptionId = string & { readonly __brand: "SubscriptionId" };
 export type CancellationToken = { readonly id: string; cancel(): void; readonly signal: AbortSignal };
 export interface ActionOptions { signal?: AbortSignal; deadlineMs?: number; idempotencyKey?: string; parent?: string }
 export interface Rect { left: number; top: number; right: number; bottom: number }
-export interface Result<T> { ok: true; value: T; traceId: string } | { ok: false; error: RuntimeError; traceId: string }
+// 失败抛出而非返回（2026-10-02 修正）：同步契约错误 → TypeError；
+// 异步失败 → reject 结构化错误（设计目标 RuntimeError；当前实现为
+// sdk/src/action.ts 的 ActionError { code }）。不定义 Result<T> 包装。
 ```
 
 公共 API 以模块导出，不挂全局函数。`Promise` 只表示跨 lane 或等待外部状态；纯快照/解析函数保持同步。每个异步方法均接受 `AbortSignal`，底层在可中断点检查取消。
@@ -208,10 +210,21 @@ contract-only / unsupported-by-policy`。窗口、控件、输入、进程、剪
 注册表和 GUI 等域都需要至少一个可执行 contract 测试；测试应覆盖取消竞态、队列满载、
 资源卸载和权限拒绝。当前仓库尚未满足这些门槛，文档仍属于设计基线，不能视为完备实现。
 
-### 文档与现有 SDK 的已知偏差
+### 文档与现有 SDK 的已知偏差（2026-10-02 复查更新）
 
-设计稿中的 branded `WindowId`、`WindowSnapshot`、`WindowRef` 和 `ActionOptions` 尚未同步到
-`sdk/src/window.ts`：现有 SDK 仍导出数值型 `WindowHandle`，且 `Window.move/info/list/active`
-没有 `AbortSignal`、查询对象或统一 `Result<T>`。`sdk/src/input.ts` 的事件订阅也仍返回裸
-number 与同步回调。该偏差会导致示例按设计稿编译失败，必须在实现每个垂直切片时同步更新
-TypeScript 声明、Native binding 和 contract fixtures。
+- **已对齐**：branded `WindowId`（实现为 `Brand<number, "WindowId">`——数值品牌承载
+  `[generation:32][sequence:32]`，与 §2 草案的字符串形式不同，属形态差异而非缺失）、
+  `ActionOptions`（`deadlineMs`/`cancellationId`/`signal`/`parentActionId`/`idempotencyKey`）、
+  AbortSignal 取消（结构型 `CancellationSignal`，真实 `AbortSignal` 结构兼容）与错误模型
+  （§1/§2 已改为 throw，不再使用 `Result<T>`）。
+- **命名待统一**：设计稿 `WindowSnapshot`/`WindowQuery` ↔ 实现 `WindowHandle`/
+  `WindowQueryFields`；改名必须同步 TS 声明、Native binding 与 contract fixtures。
+- **仍属设计领先、未实现**：`WindowRef` 对象句柄（实现直接接收 `WindowId`）、`windows.find`/
+  `windows.on` 事件订阅、查询字段 `excludeTitle`/`excludeText`/`lastMatch`/`text`、`title`
+  的 RegExp 对象形式（实现只收字符串，正则按 AHK 字符串正则语义走 `matchMode: "regex"`）、
+  `process`/`className` 命名（实现用 AHK 原生 `ahkExe`/`ahkClass`）。
+- **仍为已知偏差**：`sdk/src/input.ts` 的事件订阅返回裸 number 并使用同步回调，尚未提供
+  Subscription 对象。
+
+该偏差清单在实现每个垂直切片时复查；示例引用未实现项时必须先按设计稿标注状态，声明、
+Native binding 与 contract fixtures 同步更新。
