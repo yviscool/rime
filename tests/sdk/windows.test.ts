@@ -4,11 +4,11 @@ import type {
   GroupFocusOptions,
   TitleMatchMode,
   TitleMatchModeSpeed,
-  WindowHandle,
+  WindowSnapshot,
   WindowId,
   WindowMoveRect,
   WindowPlacement,
-  WindowQueryFields,
+  WindowQuery,
   WindowsBridge,
   WindowsGroupsBridge,
   WindowsListOptions,
@@ -56,7 +56,7 @@ class FakeSignal {
   }
 }
 
-const movedHandle: WindowHandle = {
+const movedHandle: WindowSnapshot = {
   id: 7 as WindowId,
   title: "Slice Window",
   className: "Static",
@@ -271,7 +271,7 @@ mock.module("rime:window", () => ({
     },
   } satisfies WindowsBridge,
   groups: {
-    add: async (name: string, query: WindowQueryFields, options?: NativeActionOptions) => {
+    add: async (name: string, query: WindowQuery, options?: NativeActionOptions) => {
       calls.push({ method: "group.add", target: name, options: { ...query, ...options } });
       return { count: 3 };
     },
