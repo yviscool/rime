@@ -1,6 +1,6 @@
 # Keyboard and Mouse API
 
-状态：`Send` 字符串语言（`Send`/`SendInput`/`SendEvent`/`SendPlay`/`SendText`，`SendMode` 经每调用 `mode` 选项承载，均映射到 `keyboard.send*` 族）、结构化注入 `input.send`、鼠标族 `mouse.move/click/drag/getPos`、修饰键快照 `input.modifiers()` 均已实现并通过 contract。`KeyWait`、`GetKeyState`、`BlockInput`、`KeyHistory` 已实现为 `input.keyWait`/`input.getKeyState`/`input.blockInput`/`input.keyHistory`（见"键状态与输入控制"）。`SendMessage`、`SendLevel`、`GetKeyName`、`Set*KeyState` 仍未实现。全局 Hook 之上的声明式事件（`Hotkey`/`Hotstring`/`HotIf*`/`Install*Hook`/`SetTimer`/`OnMessage`/`OnClipboardChange`/`OnError`/`OnExit`）已实现，契约与偏差见 [`hotkey-events.md`](./hotkey-events.md)。
+状态：`Send` 字符串语言（`Send`/`SendInput`/`SendEvent`/`SendPlay`/`SendText`，`SendMode` 经每调用 `mode` 选项承载，均映射到 `keyboard.send*` 族）、结构化注入 `input.send`、鼠标族 `mouse.move/click/drag/getPos`、修饰键快照 `input.modifiers()` 均已实现并通过 contract。`KeyWait`、`GetKeyState`、`BlockInput`、`KeyHistory` 已实现为 `input.keyWait`/`input.getKeyState`/`input.blockInput`/`input.keyHistory`（见"键状态与输入控制"）。`SendMessage`、`SendLevel`、`GetKeyName`、`Set*KeyState` 仍未实现。全局 Hook 之上的声明式事件（`Hotkey`/`Hotstring`/`HotIf*`/`Install*Hook`/`SetTimer`/`OnMessage`/`OnClipboardChange`/`OnError`/`OnExit`）与捕获/调度控制（`input.createInputHook` 的 `InputHook` 23 成员、`input.suspend`、`input.policy`）已实现，契约与偏差见 [`hotkey-events.md`](./hotkey-events.md)。
 
 源码证据：`functions.h` 的 `Send*`/`Mouse*`/`KeyWait`；`rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp`（SendKeys ~460-830、SendKey 1035-1265、MouseClickDrag 2035-2106、MouseClick 2116、MouseMove 2355、BlockInput 4512/4520）；`script2.cpp:1308`（MouseGetPos）、`script2.cpp:2264`（GetKeyState 模式首字符）、`script2.cpp:870`（KeyHistory）、`lib/wait.cpp:111`（KeyWait 默认等释放/physical）、`hook.cpp:263-266`（hook 吞噬 return 1 先例）、`hook.h:255`+`globaldata.cpp:97`（`KeyHistoryItem` 与 `g_MaxHistoryKeys=40`）；`source/window.cpp:1136`（GetNonChildParent）；`lib/win.cpp:762`（ControlGetClassNN）。
 
@@ -110,7 +110,24 @@ input.keyHistory({ maxEvents: 40 });             // { capacity, count, events[] 
 - 自注入输入绕过 block（见上）；AHK hook 模式下自身发送的交互未逐条等价验证，此处以"本进程注入管线可用"为显式选择。
 - `keyHistory` 无 GUI 历史窗口（AHK 无参调用打开窗口）、无目标窗口列；`maxEvents` 上限 500 为本仓库扩展（AHK 无参数化容量）。
 - 四个面都是**读/控制路径而非 Action**：`getKeyState`/`keyHistory`/`blockInput` 同步、`keyWait` 轮询异步，均不经 `Context → Intent → Action IR → Action Kernel`（与 `windows.wait`、`mouseGetPos` 同构）；能力门禁、取消、超时、诊断仍齐备，只是不进 Action Trace。
-- TS 声明（`sdk/src/input.ts`、`modules.d.ts`）本阶段未更新（`sdk/src` 由并行改动持有），列为跟进项。
+- TS 声明已随 M2-B 落地：`sdk/src/input.ts` 的 `InputBridge` 四方法与配套类型（`KeyStateMode`/`KeyWaitOptions`/`BlockInputOptions`/`KeyHistoryOptions`/`KeyHistoryRow`/`KeyHistoryReport`）。
+
+## 捕获与调度控制 — createInputHook / suspend / policy（M2-D）
+
+```js
+import { input } from "rime:input";
+
+const ih = input.createInputHook("C L8", "{Esc}", "ok,xy"); // InputHook 对象（23 成员）
+ih.Start();                            // 门禁 windows.hook.global；捕获与 LL Hook 同路
+input.suspend("on");                   // 只关 hotkey/hotstring 匹配，返回生效状态
+input.policy({ maxConcurrency: 4 });   // 读/写中心调度策略，fail-closed
+input.hotkey("f16", fn, { suspendExempt: true, inputLevel: 1, on: true }); // 注册选项
+```
+
+- `createInputHook(options?, endKeys?, matchList?)` 按 AHK `InputHook(...)` 三参构造：全部参数**先校验后提交**（未知选项/未知 EndKey/坏 MatchList → 同步 `TypeError`）；构造与属性读写免 capability，`Start()` 需要 `windows.hook.global`。成员表、`EndReason`、`KeyOpt`、`Wait`/`Timeout` 与 `On*` 契约见 [`hotkey-events.md`](./hotkey-events.md)。
+- `suspend(on?)`：布尔或 `"on"|"off"|"toggle"`，无参（`undefined`/`null`）= toggle，其他类型 `TypeError`；返回**生效后的挂起状态**——没有只读入口，归一/恢复用 `input.suspend(false)`。只过滤 hotkey/hotstring 匹配（`suspendExempt` 豁免）；Timer、`onMessage`、InputHook 捕获、key history 不受影响，不产生丢弃计数。
+- `policy(snapshot?)`：中心调度策略唯一读写面，默认 `{ maxConcurrency: 0, maxConcurrencyPerHotkey: 1, inputLevel: 0, hotIfTimeout: 1000, overflow: "coalesce" }`；传入快照则先整体校验后提交——未知字段、负数/非整数、`overflow` 越界、非对象均 `TypeError` 且不改任何现值；省略字段保持原值。实现落在 `engine/core/include/rime/core/scheduler_policy.hpp`，Hook/Timer/模块共享同一判定。
+- 注册选项 `{ on, suspendExempt, inputLevel }`（`input.hotkey`/`input.hotstring` 第三参）：未知键、`inputLevel < 0`、`on` 非布尔 → 同步 `TypeError`，校验先于注册提交（被拒调用不产生注册）。
 
 ## 执行与错误契约总表
 
@@ -124,6 +141,9 @@ input.keyHistory({ maxEvents: 40 });             // { capacity, count, events[] 
 | `input.keyWait` | 同步校验、异步轮询 | `windows.input.read` | `TypeError` / 异步 `{ code: "timeout"\|"cancelled"\|"capability_denied" }` |
 | `input.blockInput` | 同步 | `windows.input.inject` | `TypeError`（mode/options）/ `Error`（capability）；服务未运行返回 `false` |
 | `input.keyHistory` | 同步（resize 在门禁后） | `windows.input.read` | `TypeError`（maxEvents/arity）/ `Error`（capability） |
+| `input.createInputHook` | 同步（先校验后提交） | 构造免；`Start()` 需 `windows.hook.global` | `TypeError`（参数）/ `Error`（capability） |
+| `input.suspend` | 同步 | 无 | `TypeError`（非布尔/非 `"on"`/`"off"`/`"toggle"`） |
+| `input.policy` | 同步（整体校验后提交） | 无 | `TypeError`（未知字段/负数/非整数/`overflow` 越界/非对象） |
 
 自注入观测：订阅回调中 `selfInjected === true` 表示本进程批次（键与鼠标均标记；WH_MOUSE_LL 实测只回报 `dwExtraInfo` 低 32 位，native 层以低半字比较，注释见 `input.cpp`）。chord 匹配跳过这类事件，外来注入照常参与。
 
@@ -145,4 +165,4 @@ input.keyHistory({ maxEvents: 40 });             // { capacity, count, events[] 
 
 ## 订阅与 chord
 
-见 [`hotkey-events.md`](./hotkey-events.md)：`input.subscribe`/`input.bind`/`input.unbind` 与 `input.hotkey`/`input.hotstring`/`input.hotIf*`/`input.setTimer`/`input.onMessage`/`input.onClipboardChange`/`input.onError`/`input.onExit` 共用同一订阅与取消契约（`{ id, kind, close() }`、关闭态、回调计数、teardown 顺序）。
+见 [`hotkey-events.md`](./hotkey-events.md)：`input.subscribe`/`input.bind`/`input.unbind` 与 `input.hotkey`/`input.hotstring`/`input.hotIf*`/`input.setTimer`/`input.onMessage`/`input.onClipboardChange`/`input.onError`/`input.onExit` 共用同一订阅与取消契约（`{ id, kind, close() }`、关闭态、回调计数、teardown 顺序）；M2-D 的 `input.createInputHook`/`input.suspend`/`input.policy` 与注册选项 `{ on, suspendExempt, inputLevel }` 同文承载。

@@ -382,22 +382,22 @@
     {
       "name": "windows.window.read",
       "status": "implemented",
-      "declared": "engine/win32/js/src/window_module.cpp:22",
-      "checked": ["engine/win32/js/src/window_module.cpp:172", "engine/win32/js/src/window_module.cpp:231", "engine/win32/js/src/window_module.cpp:265"],
+      "declared": "engine/win32/js/src/window_module.cpp:26",
+      "checked": ["engine/win32/js/src/window_module.cpp:238", "engine/win32/js/src/window_module.cpp:295", "engine/win32/js/src/window_module.cpp:357", "engine/win32/js/src/window_module.cpp:438", "engine/win32/js/src/window_module.cpp:549", "engine/win32/js/src/window_module.cpp:584", "engine/win32/js/src/window_module.cpp:626", "engine/win32/js/src/window_module.cpp:1370"],
       "actions": []
     },
     {
       "name": "windows.window.write",
       "status": "implemented",
-      "declared": "engine/win32/js/src/window_module.cpp:23",
-      "checked": ["engine/action/src/kernel.cpp:97"],
+      "declared": "engine/win32/js/src/window_module.cpp:27",
+      "checked": ["engine/action/src/kernel.cpp:97", "engine/win32/js/src/window_module.cpp:1324"],
       "actions": ["window.move", "window.focus", "window.close", "window.hide", "window.show", "window.minimize", "window.maximize", "window.restore", "window.zorder", "window.kill", "window.redraw", "window.group.add", "window.group.activate", "window.group.deactivate", "window.group.close", "window.minimizeall", "window.minimizeall.undo", "window.set.title", "window.set.enabled", "window.set.alwaysontop", "window.set.style", "window.set.exstyle", "window.set.transparent", "window.set.transcolor", "window.set.region"]
     },
     {
       "name": "windows.clipboard.read",
       "status": "implemented",
       "declared": "engine/win32/js/src/clipboard_module.cpp:24",
-      "checked": ["engine/win32/js/src/clipboard_module.cpp:41"],
+      "checked": ["engine/win32/js/src/clipboard_module.cpp:41", "engine/win32/js/src/events_module.cpp:2938"],
       "actions": []
     },
     {
@@ -410,22 +410,22 @@
     {
       "name": "windows.input.inject",
       "status": "implemented",
-      "declared": "engine/win32/js/src/input_module.cpp:728",
-      "checked": ["engine/action/src/kernel.cpp:97", "engine/win32/js/src/input_module.cpp:1297"],
+      "declared": "engine/win32/js/src/input_module.cpp:352",
+      "checked": ["engine/action/src/kernel.cpp:97", "engine/win32/js/src/input_module.cpp:352", "engine/win32/js/src/input_module.cpp:402", "engine/win32/js/src/input_module.cpp:439", "engine/win32/js/src/input_module.cpp:919", "engine/win32/js/src/events_module.cpp:2492"],
       "actions": ["input.send", "input.mouse"]
     },
     {
       "name": "windows.input.read",
       "status": "implemented",
-      "declared": "engine/win32/js/src/input_module.cpp:912",
-      "checked": ["engine/win32/js/src/input_module.cpp:912", "engine/win32/js/src/input_module.cpp:1073", "engine/win32/js/src/input_module.cpp:1111", "engine/win32/js/src/input_module.cpp:1357"],
+      "declared": "engine/win32/js/src/input_module.cpp:536",
+      "checked": ["engine/win32/js/src/input_module.cpp:536", "engine/win32/js/src/input_module.cpp:695", "engine/win32/js/src/input_module.cpp:733", "engine/win32/js/src/input_module.cpp:979"],
       "actions": []
     },
     {
       "name": "windows.hook.global",
       "status": "implemented",
-      "declared": "engine/win32/js/src/input_module.cpp:362",
-      "checked": ["engine/win32/js/src/input_module.cpp:499"],
+      "declared": "engine/win32/js/src/input_module.cpp:151",
+      "checked": ["engine/win32/js/src/input_module.cpp:151", "engine/win32/js/src/input_module.cpp:266", "engine/win32/js/src/events_module.cpp:2269", "engine/win32/js/src/events_module.cpp:2445", "engine/win32/js/src/events_module.cpp:2700", "engine/win32/js/src/events_module.cpp:3295"],
       "actions": []
     },
     {
@@ -492,7 +492,7 @@
       "name": "probe.chord",
       "status": "test-only",
       "declared": "tests/js/input_slice.cpp:138",
-      "checked": ["tests/js/input_slice.cpp:142"],
+      "checked": ["tests/js/input_slice.cpp:171"],
       "actions": []
     }
   ],
@@ -500,37 +500,37 @@
     {
       "api": "windows.list()",
       "capability": "windows.window.read",
-      "site": "engine/win32/js/src/window_module.cpp:172"
+      "site": "engine/win32/js/src/window_module.cpp:238"
     },
     {
       "api": "windows.active()",
       "capability": "windows.window.read",
-      "site": "engine/win32/js/src/window_module.cpp:231"
+      "site": "engine/win32/js/src/window_module.cpp:357"
     },
     {
       "api": "windows.info(hwnd)",
       "capability": "windows.window.read",
-      "site": "engine/win32/js/src/window_module.cpp:265"
+      "site": "engine/win32/js/src/window_module.cpp:549"
     },
     {
       "api": "input.mouseGetPos()",
       "capability": "windows.input.read",
-      "site": "engine/win32/js/src/input_module.cpp:912"
+      "site": "engine/win32/js/src/input_module.cpp:536"
     },
     {
       "api": "input.getKeyState(keyName, mode)",
       "capability": "windows.input.read",
-      "site": "engine/win32/js/src/input_module.cpp:1073"
+      "site": "engine/win32/js/src/input_module.cpp:695"
     },
     {
       "api": "input.keyWait(keyName, options)",
       "capability": "windows.input.read",
-      "site": "engine/win32/js/src/input_module.cpp:1111"
+      "site": "engine/win32/js/src/input_module.cpp:733"
     },
     {
       "api": "input.keyHistory(options)",
       "capability": "windows.input.read",
-      "site": "engine/win32/js/src/input_module.cpp:1357"
+      "site": "engine/win32/js/src/input_module.cpp:979"
     },
     {
       "api": "clipboard.read()",

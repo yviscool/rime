@@ -1,12 +1,14 @@
 #pragma once
 
 #include "rime/action/kernel.hpp"
+#include "rime/core/scheduler_policy.hpp"
 #include "rime/core/types.hpp"
 #include "rime/win32/context_watcher.hpp"
 #include "rime/win32/input.hpp"
 
 #include "quickjs.h"
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -108,6 +110,19 @@ struct EventsState {
   std::uint64_t dispatch_subscription{0}; // InputService subscription
   std::uint64_t dispatch_users{0};        // open hotkey + hotstring registrations
 
+  // ---- M2-D dispatch policy (the one place scheduling rules live) ----
+  // Consulted by hotkey/hotstring admission, the timer tick merge, onMessage
+  // instance caps, HotIf evaluation and input.suspend(); never re-invented
+  // inside a callback implementation (docs/api/directives-and-syntax.md).
+  rime::core::SchedulerPolicy policy{rime::core::SchedulerPolicy::events()};
+  // input.suspend(): hotkey and hotstring delivery is skipped unless the
+  // registration set suspendExempt. Timers, onMessage and InputHook capture
+  // are unaffected (AHK's Suspend only disables hotkey recognition).
+  bool suspended{false};
+  // Registrations currently running a callback on this thread; the policy
+  // caps re-entrant delivery (#MaxThreads / #MaxThreadsPerHotkey).
+  std::uint32_t running_deliveries{0};
+
   // ---- hotkeys (registration order = first-match order) ----
   struct Hotkey {
     std::uint64_t sub{0};
@@ -115,6 +130,12 @@ struct EventsState {
     std::uint8_t mask{0};
     std::uint64_t criterion{0};  // 0 = unconditional
     bool enabled{true};
+    // #SuspendExempt: keeps delivering while input.suspend() is on.
+    bool suspend_exempt{false};
+    // Registration-time #InputLevel: events below this level never match.
+    std::uint32_t input_level{0};
+    // In-flight callbacks for this registration (re-entrancy guard).
+    std::uint32_t running{0};
     bool via_action{false};
     std::uint64_t observer{0};  // host callback when !via_action
     EventAction action;
@@ -129,6 +150,12 @@ struct EventsState {
     std::string replacement;
     std::uint64_t criterion{0};
     bool enabled{true};
+    // #SuspendExempt: keeps firing while input.suspend() is on.
+    bool suspend_exempt{false};
+    // Registration-time #InputLevel: events below this level never match.
+    std::uint32_t input_level{0};
+    // In-flight callbacks for this registration (re-entrancy guard).
+    std::uint32_t running{0};
     // Options (Hotstring::ParseOptions letters, see docs/api/hotkey-events.md):
     bool wildcard{false};       // *: fire without an end char
     bool inside_word{false};    // ?: fire when the trigger is a word suffix
@@ -153,6 +180,74 @@ struct EventsState {
   bool mouse_reset{true};
   // Options-only registrations (:*: ...) feed these defaults.
   Hotstring option_defaults;  // only the option flags are read
+
+  // ---- InputHook (M2-D) ----
+  // One runtime-owned InputHook object (`input.createInputHook`). The ref
+  // lives here for the host's lifetime - QuickJS may collect the JS object
+  // at any time, so the owning state must not depend on a finalizer - and
+  // every member call resolves its ref through the object's `id`. While in
+  // progress the hook holds a host subscription, so HostAbi::unload refuses
+  // to tear it down; teardown stops every hook before the JS context dies.
+  struct InputHook {
+    enum KeyFlag : std::uint8_t {
+      kEndKey = 1u << 0,       // KeyOpt "E": this key can end the input
+      kIgnoreText = 1u << 1,   // KeyOpt "I": do not collect its text
+      kNotify = 1u << 2,       // KeyOpt "N": notify OnKeyDown/OnKeyUp
+      // End-key shift state (single non-alpha end keys only; AHK's
+      // END_KEY_WITH_SHIFT/OUT pair). Neither set = end either way.
+      kEndKeyShift = 1u << 3,
+      kEndKeyNoShift = 1u << 4,
+      // Transient: the key-down produced text (AHK INPUT_KEY_IS_TEXT),
+      // tracked only while NotifyNonText is on, exactly like the hook does.
+      kHadText = 1u << 5,
+      kKeyOptionMask = kEndKey | kIgnoreText | kNotify,  // KeyOpt "Z" resets these
+    };
+    std::uint64_t id{0};   // stable object id (the JS object's `id` property)
+    std::uint64_t sub{0};  // host subscription while in progress, 0 otherwise
+    bool in_progress{false};
+
+    // Options (__New plus the settable properties).
+    bool backspace_undo{true};
+    bool case_sensitive{false};
+    bool find_anywhere{false};
+    bool notify_non_text{false};
+    bool visible_non_text{true};
+    bool visible_text{false};
+    std::uint32_t min_send_level{0};
+    std::int64_t timeout_ms{0};
+    std::int64_t buffer_max{1023};  // AHK INPUTHOOK_BUFFER_SIZE - 1
+
+    // Collection state (JS thread only).
+    std::string buffer;
+    std::vector<std::string> match_list;
+    std::array<std::uint8_t, 256> key_flags{};
+    std::string end_key;
+    std::string end_mods;
+    std::string end_reason{"Stopped"};
+    std::string match;
+
+    // Callbacks: the JS values are owned for the object's lifetime; the host
+    // callback ids exist only while input is in progress, so an idle hook
+    // holds no host reference and never blocks unload on its own.
+    JSValue on_char{JS_UNDEFINED};
+    JSValue on_end{JS_UNDEFINED};
+    JSValue on_key_down{JS_UNDEFINED};
+    JSValue on_key_up{JS_UNDEFINED};
+    std::uint64_t on_char_cb{0};
+    std::uint64_t on_end_cb{0};
+    std::uint64_t on_key_down_cb{0};
+    std::uint64_t on_key_up_cb{0};
+
+    // Wait() waiters: promise tokens plus the deadline timers that resolve
+    // them when the wait budget runs out before the input ends.
+    std::vector<std::uint64_t> wait_tokens;
+    std::vector<std::uint64_t> wait_timers;
+    // Armed while input is in progress and Timeout > 0 (AHK's input timer).
+    std::uint64_t timeout_timer{0};
+  };
+  std::vector<InputHook> input_hooks;
+  std::uint64_t next_input_hook_id{1};      // monotonic object ids (JS thread)
+  std::uint64_t hook_channel_callback{0};   // lazy timeout/wait relay channel
 
   // ---- HotIf criteria ----
   struct Criterion {
@@ -221,6 +316,9 @@ struct EventsState {
   [[nodiscard]] bool dispatch_live() const { return dispatch_subscription != 0; }
   // Events the shared dispatch has seen (tests assert > 0 then reset).
   std::atomic<std::uint64_t> dispatched{0};
+  // Deliveries the central policy rejected (suspend, per-registration cap,
+  // global cap, onMessage instance cap; tests assert on this counter).
+  std::atomic<std::uint64_t> dropped{0};
 };
 
 // Registers `rime:input` (exports `input`). `input.subscribe(handler)`

@@ -288,6 +288,65 @@ export interface EventSubscription {
 }
 
 /**
+ * Registration options accepted by `hotkey()` and `hotstring()` besides the
+ * plain `"on"|"off"|"toggle"` control word (M2-D): `on` toggles the
+ * registration, `suspendExempt` keeps it firing while `input.suspend()` is
+ * on (`#SuspendExempt`), `inputLevel` sets the registration's `#InputLevel`
+ * (events below it never match; defaults to `input.policy().inputLevel`).
+ */
+export interface RegistrationOptions {
+  on?: boolean;
+  suspendExempt?: boolean;
+  inputLevel?: number;
+}
+
+/** The central dispatch policy (`input.policy()`), M2-D directive knobs. */
+export interface DispatchPolicy {
+  /** `#MaxThreads`: deliveries in flight across the scheduler; 0 = unlimited. */
+  maxConcurrency: number;
+  /** `#MaxThreadsPerHotkey`: in-flight deliveries per registration; 0 = unlimited. */
+  maxConcurrencyPerHotkey: number;
+  /** `#InputLevel`: level new registrations start at. */
+  inputLevel: number;
+  /** `#HotIfTimeout`: budget in ms for one HotIf evaluation; 0 = none. */
+  hotIfTimeout: number;
+  /** Queue overflow under load (`#MaxThreadsBuffer` behavior). */
+  overflow: "reject" | "dropOldest" | "coalesce";
+}
+
+/** Payload handed to `InputHook.OnChar`. */
+export interface InputHookCharEvent {
+  /** The collected character (a single BMP code unit). */
+  char: string;
+  vk: number;
+  scan: number;
+  down: boolean;
+}
+
+/** Payload handed to `InputHook.OnKeyDown` / `InputHook.OnKeyUp`. */
+export interface InputHookKeyEvent {
+  vk: number;
+  scan: number;
+  down: boolean;
+}
+
+/** EndReason values an `InputHook` reports (AHK `EndReason`). */
+export type InputHookEndReason = "" | "Timeout" | "Match" | "EndKey" | "Max" | "Stopped";
+
+/** Payload handed to `InputHook.OnEnd`. */
+export interface InputHookEndEvent {
+  reason: InputHookEndReason;
+  /** The collected buffer at the moment the input ended. */
+  input: string;
+  /** Lowercase key name that ended the input (`EndKey`), empty otherwise. */
+  endKey: string;
+  /** Left-side modifier glyphs held at the end: `<^`, `<!`, `<+`, `<#`. */
+  endMods: string;
+  /** The MatchList phrase that matched, empty unless reason is `Match`. */
+  match: string;
+}
+
+/**
  * Bridge of the `rime:input` module. Handlers run on the JS thread.
  */
 export interface InputBridge {
@@ -395,13 +454,13 @@ export interface InputBridge {
    * `action` is an observer function (`{ name }` payload), an action
    * template queued like `bind()`, or a control word — the control word
    * form requires the chord to be registered already (AHK's nonexistent
-   * hotkey error). `options` is a second control word that wins over the
-   * action's own.
+   * hotkey error). `options` is either a second control word that wins over
+   * the action's own, or an object `{ on, suspendExempt, inputLevel }`.
    *
    * Requires `windows.hook.global`. Throws TypeError for a malformed chord,
-   * action, or control word.
+   * action, control word or options object.
    */
-  hotkey(name: string, action: HotkeyAction, options?: EventControlWord): EventSubscription;
+  hotkey(name: string, action: HotkeyAction, options?: EventControlWord | RegistrationOptions): EventSubscription;
   /**
    * Registers a word that expands as it is typed (`Hotstring`). Specs are
    * `:options:trigger::replacement` (the omission form injects the
@@ -425,8 +484,12 @@ export interface InputBridge {
   hotstring(spec: "MouseReset"): boolean;
   hotstring(spec: "MouseReset", value: boolean): boolean;
   hotstring(spec: "Reset"): null;
-  hotstring(spec: string, action: HotstringAction, onOff?: EventControlWord): EventSubscription;
-  hotstring(spec: string, onOff: EventControlWord): EventSubscription;
+  hotstring(
+    spec: string,
+    action: HotstringAction,
+    onOff?: EventControlWord | RegistrationOptions,
+  ): EventSubscription;
+  hotstring(spec: string, onOff: EventControlWord | RegistrationOptions): EventSubscription;
   hotstring(spec: string): EventSubscription | string | boolean | null;
   /**
    * Sets the current HotIf criterion to a predicate and returns the
@@ -502,6 +565,34 @@ export interface InputBridge {
    * counted as busy subscriptions — a waiting handler never blocks unload.
    */
   onExit(fn: (event: ExitEvent) => void): EventSubscription;
+
+  /**
+   * Builds one runtime-owned `InputHook` (AHK's `InputHook()` constructor;
+   * `options`/`endKeys`/`matchList` map to `__New`). Construction needs no
+   * capability — `InputHook.Start()` gates on `windows.hook.global`.
+   *
+   * `options` are the AHK option letters `B C H I L M T V * E` (H/M/E are
+   * accepted no-ops), `endKeys` is a comma/space or `{Brace}` key list,
+   * `matchList` is comma separated with `,,` for a literal comma. Throws
+   * TypeError (the AHK ValueError surface) for invalid input; the hook is
+   * discarded when construction fails.
+   */
+  createInputHook(options?: string, endKeys?: string, matchList?: string): InputHook;
+  /**
+   * `Suspend` (`input.suspend`): pauses or resumes hotkey and hotstring
+   * matching; timers, `onMessage` and `InputHook` capture keep running.
+   * No argument (or `"toggle"`) flips the flag. Returns the resulting state.
+   * Registrations with `suspendExempt` keep firing. Synchronous; throws
+   * TypeError for a non-boolean / non-control-word argument.
+   */
+  suspend(on?: boolean | "on" | "off" | "toggle"): boolean;
+  /**
+   * Reads or replaces the central dispatch policy (`#MaxThreads`,
+   * `#MaxThreadsPerHotkey`, `#InputLevel`, `#HotIfTimeout`, overflow).
+   * Every provided field is validated first — an unknown field is a
+   * TypeError and nothing is applied. Returns the active policy.
+   */
+  policy(snapshot?: Partial<DispatchPolicy>): DispatchPolicy;
 }
 
 /**
@@ -721,5 +812,70 @@ export const mouse = {
     return runAction(options, (native) => input.mouseGetPos(native));
   },
 };
+
+/**
+ * One runtime-owned input capture (AHK `InputHook`). `new InputHook(...)`
+ * delegates to the native `createInputHook` and returns that object — the
+ * interface below supplies the member types, the native object supplies the
+ * 23 enumerable members of `objects.json`'s InputHook table.
+ *
+ * Construction validates first (`options` / `endKeys` / `matchList`) and
+ * needs no capability; only `Start()` gates on `windows.hook.global`.
+ */
+export class InputHook {
+  constructor(options?: string, endKeys?: string, matchList?: string) {
+    return input.createInputHook(options, endKeys, matchList) as unknown as InputHook;
+  }
+}
+
+export interface InputHook {
+  /** Key-level options (`+A-SEnv`-style): letters `+ - E I N S V Z`, `{All}`. */
+  KeyOpt(keys: string, keyOptions: string): void;
+  /** Starts (or restarts) capture; idempotent — an in-progress input just clears its buffer. */
+  Start(): void;
+  /** Ends an active capture with EndReason `"Stopped"`; no-op when idle. */
+  Stop(): void;
+  /**
+   * Resolves with the EndReason once the input ends. Resolves immediately
+   * with the last reason when idle; `maxTime` (seconds, negative clamps to
+   * 0) also ends a running input with `"Timeout"` — capture keeps running
+   * past a `Wait` deadline of its own.
+   */
+  Wait(maxTime?: number): Promise<InputHookEndReason>;
+  /** Backspace undoes the previous character (default on). */
+  BackspaceIsUndo: boolean;
+  /** MatchList comparison honors case (default off). */
+  CaseSensitive: boolean;
+  /** Matches may appear anywhere in the buffer, not just at its start. */
+  FindAnywhere: boolean;
+  /** OnKeyDown / OnKeyUp fire for non-text keys too. */
+  NotifyNonText: boolean;
+  /** Mirrors non-text keys into the buffer (show them as `{U+...}` etc.). */
+  VisibleNonText: boolean;
+  /** Mirrors text keys into the buffer. */
+  VisibleText: boolean;
+  /** Key name that ended the input, lowercase chord tokens; "" otherwise. */
+  readonly EndKey: string;
+  /** Left-side modifier glyphs held at the end (`<^ <! <+ <#`, control/alt/shift/super). */
+  readonly EndMods: string;
+  /** `"Timeout" | "Match" | "EndKey" | "Max" | "Stopped" | ""`. */
+  readonly EndReason: InputHookEndReason;
+  /** Whether capture is running. */
+  readonly InProgress: boolean;
+  /** The collected buffer (snapshot). */
+  readonly Input: string;
+  /** The MatchList phrase that matched; "" unless reason is `"Match"`. */
+  readonly Match: string;
+  /** Send level that determines whether generated input is visible here (negative clamps to 0). */
+  MinSendLevel: number;
+  /** Capture timeout in seconds; re-arms only while capture is running. */
+  Timeout: number;
+  /** Fires for each collected character — never for the terminating one. */
+  OnChar: ((event: InputHookCharEvent) => void) | undefined | null;
+  /** Fires once when capture ends; never followed by further OnChar/OnKeyUp. */
+  OnEnd: ((event: InputHookEndEvent) => void) | undefined | null;
+  OnKeyDown: ((event: InputHookKeyEvent) => void) | undefined | null;
+  OnKeyUp: ((event: InputHookKeyEvent) => void) | undefined | null;
+}
 
 export { input };

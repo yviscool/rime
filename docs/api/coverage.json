@@ -3270,20 +3270,20 @@
     },
     {
       "ahkName": "Suspend",
-      "domain": "runtime-language",
+      "domain": "hotkey-events",
       "sourceFiles": [
         "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
         "rime-research/AutoHotkey-alpha/source/script.cpp",
         "rime-research/AutoHotkey-alpha/source/script_menu.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/runtime-language",
-      "status": "contract-only",
-      "async": "async",
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "tests/js/events_slice.cpp",
       "lane": "js",
-      "cancellation": "deadline+AbortSignal"
+      "cancellation": "none"
     },
     {
       "ahkName": "SysGet",

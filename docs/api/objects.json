@@ -1974,7 +1974,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "ValueError on invalid options, end keys or match list; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "KeyOpt",
@@ -1986,7 +1986,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "ValueError on invalid keys or key options; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "Start",
@@ -1998,7 +1998,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - Start is idempotent while input is in progress",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "Stop",
@@ -2010,7 +2010,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - Stop is a no-op when input is not in progress",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "Wait",
@@ -2022,7 +2022,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - returns the EndReason string",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "BackspaceIsUndo",
@@ -2034,7 +2034,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not boolean-like; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "CaseSensitive",
@@ -2046,7 +2046,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not boolean-like; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "FindAnywhere",
@@ -2058,7 +2058,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not boolean-like; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "NotifyNonText",
@@ -2070,7 +2070,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not boolean-like; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "VisibleNonText",
@@ -2082,7 +2082,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not boolean-like; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "VisibleText",
@@ -2094,7 +2094,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not boolean-like; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "EndKey",
@@ -2106,7 +2106,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - snapshot getter",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "EndMods",
@@ -2118,7 +2118,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - snapshot getter",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "EndReason",
@@ -2130,7 +2130,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - snapshot getter",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "InProgress",
@@ -2142,7 +2142,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - snapshot getter",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "Input",
@@ -2154,7 +2154,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - snapshot getter",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "Match",
@@ -2166,7 +2166,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - snapshot getter",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "MinSendLevel",
@@ -2178,7 +2178,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not numeric; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "OnChar",
@@ -2190,7 +2190,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not a callable object; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "OnEnd",
@@ -2202,7 +2202,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not a callable object; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "OnKeyDown",
@@ -2214,7 +2214,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not a callable object; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "OnKeyUp",
@@ -2226,7 +2226,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not a callable object; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
           "name": "Timeout",
@@ -2238,7 +2238,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not numeric; RangeError when the value is negative; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/js/events_slice.cpp"
         }
       ]
     },

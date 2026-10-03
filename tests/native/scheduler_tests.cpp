@@ -19,9 +19,11 @@
 
 namespace {
 
+using rime::core::Delivery;
 using rime::core::Event;
 using rime::core::EventKind;
 using rime::core::EventQueue;
+using rime::core::OverflowPolicy;
 using rime::core::QueueStatus;
 using rime::core::SchedulerPolicy;
 
@@ -92,6 +94,72 @@ int main() {
     assert(dedupe_queue.push({2, EventKind::Input, "n", "b", "key"}) == QueueStatus::Deduped);
     assert(dedupe_queue.push({3, EventKind::Input, "n", "b", "other"}) == QueueStatus::Accepted);
     assert(dedupe_queue.size() == 2);
+  }
+
+  // --- M2-D dispatch decisions ------------------------------------------
+  // The instruction-level knobs (#MaxThreads, #MaxThreadsPerHotkey,
+  // #Suspend, #InputLevel, #HotIfTimeout, #MaxThreadsBuffer) resolve to
+  // these pure decisions; module code must consult them instead of
+  // inventing its own load rules.
+  {
+    // #MaxThreads: 0 = unlimited, otherwise a hard cap on in-flight work.
+    SchedulerPolicy policy = SchedulerPolicy::events();
+    assert(policy.admits_total(0));
+    assert(policy.admits_total(99999));
+    policy.max_concurrency = 3;
+    assert(policy.admits_total(0));
+    assert(policy.admits_total(2));
+    assert(!policy.admits_total(3));
+    assert(!policy.admits_total(4));
+
+    // #MaxThreadsPerHotkey: cap 0 = unlimited, cap n refuses delivery n+1.
+    assert(policy.admit_subscription(0, 0) == Delivery::Deliver);
+    assert(policy.admit_subscription(7, 0) == Delivery::Deliver);
+    assert(policy.admit_subscription(0, 1) == Delivery::Deliver);
+    assert(policy.admit_subscription(1, 1) == Delivery::Drop);
+    assert(policy.admit_subscription(3, 4) == Delivery::Deliver);
+    assert(policy.admit_subscription(4, 4) == Delivery::Drop);
+
+    // Repeat while in flight: coalescing policies buffer (#MaxThreadsBuffer
+    // keeps one pending item), rejecting policies drop it.
+    assert(policy.admit_repeat(false) == Delivery::Deliver);
+    assert(policy.admit_repeat(true) == Delivery::Buffer);
+    SchedulerPolicy rejecting;
+    assert(rejecting.overflow == OverflowPolicy::Reject);
+    assert(rejecting.admit_repeat(true) == Delivery::Drop);
+    assert(rejecting.admit_repeat(false) == Delivery::Deliver);
+
+    // #Suspend: only exempt registrations still match.
+    assert(SchedulerPolicy::dispatch_allowed(false, false));
+    assert(SchedulerPolicy::dispatch_allowed(false, true));
+    assert(!SchedulerPolicy::dispatch_allowed(true, false));
+    assert(SchedulerPolicy::dispatch_allowed(true, true));
+
+    // #InputLevel: the event's injection level must reach the registration.
+    assert(SchedulerPolicy::level_allowed(0, 0));
+    assert(SchedulerPolicy::level_allowed(1, 1));
+    assert(SchedulerPolicy::level_allowed(2, 3));
+    assert(!SchedulerPolicy::level_allowed(1, 0));
+    assert(!SchedulerPolicy::level_allowed(2, 1));
+
+    // #HotIfTimeout: within budget is met, over budget fails closed, 0 off.
+    SchedulerPolicy timed;
+    assert(timed.hot_if_met(0));
+    assert(timed.hot_if_met(1000000000000ULL));
+    timed.hot_if_timeout_ms = 1000;
+    assert(timed.hot_if_met(0));
+    assert(timed.hot_if_met(999));
+    assert(timed.hot_if_met(1000));
+    assert(!timed.hot_if_met(1001));
+
+    // events() defaults mirror the instruction defaults (AHK semantics).
+    SchedulerPolicy defaults = SchedulerPolicy::events();
+    assert(defaults.capacity == 64);
+    assert(defaults.overflow == OverflowPolicy::CoalesceByKey);
+    assert(defaults.max_concurrency == 0);
+    assert(defaults.max_concurrency_per_subscription == 1);
+    assert(defaults.input_level == 0);
+    assert(defaults.hot_if_timeout_ms == 1000);
   }
 
   // --- Nested pump keeps one scheduler and FIFO order --------------------

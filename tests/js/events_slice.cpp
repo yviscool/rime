@@ -140,20 +140,39 @@ void pump(rime::js::Runtime& runtime, const std::chrono::milliseconds duration,
 }
 
 // Arms a waitFor on `condition` and reports the condition text when it never
-// became true, so a failed wait names what was being waited for.
+// became true, so a failed wait names what was being waited for. The waitFor
+// marks through rime:testprobe on success, so the C++ side settles in short
+// slices and exits as soon as the mark lands instead of always burning the
+// full window (labels are unique - a stale mark would short-circuit).
+bool mark_seen(const std::string& text);
+
 void wait_js(rime::js::Runtime& runtime, const std::string& condition,
              const std::string& label) {
   run(runtime,
       "globalThis.waitedFor = 'pending';\n"
       "waitFor(() => " +
           condition +
-          ", 4000).then(v => { globalThis.waitedFor = v; });",
+          ", 4000).then(v => { globalThis.waitedFor = v;\n"
+          "  if (v === true) mark('waited:" +
+          label + "'); });",
       label + ".mjs");
-  settle_pumping(runtime, 7000ms);
+  const auto deadline = std::chrono::steady_clock::now() + 7000ms;
+  while (!mark_seen("waited:" + label) && std::chrono::steady_clock::now() < deadline) {
+    settle_pumping(runtime, 50ms);
+    pump_window_messages();
+  }
+  // The condition is quoted into the check script, so escape it for a JS
+  // double-quoted string (conditions may contain single quotes).
+  std::string escaped;
+  escaped.reserve(condition.size());
+  for (const char character : condition) {
+    if (character == '\\' || character == '"') escaped += '\\';
+    escaped += character;
+  }
   run(runtime,
       "if (globalThis.waitedFor !== true)\n"
-      "  throw new Error('condition never became true: " +
-          condition + "');",
+      "  throw new Error(\"condition never became true: " +
+          escaped + "\");",
       label + "-check.mjs");
 }
 
@@ -577,7 +596,7 @@ int main() {
       "globalThis.expected = ['hotkey','hotstring','hotIf','hotIfWinActive','hotIfWinExist',\n"
       "                       'hotIfWinNotActive','hotIfWinNotExist','installKeybdHook',\n"
       "                       'installMouseHook','setTimer','onMessage','onClipboardChange',\n"
-      "                       'onError','onExit'];\n"
+      "                       'onError','onExit','createInputHook','suspend','policy'];\n"
       "globalThis.missing = globalThis.expected.filter(n => typeof input[n] !== 'function');\n"
       "input.onExit(ev => { mark('exit:' + ev.reason); });\n",
       "events-boot.mjs");
@@ -1312,6 +1331,350 @@ int main() {
       "                  globalThis.throwCount);\n",
       "events-error-check2.mjs");
 
+  // ---- M2-D: InputHook shape --------------------------------------------
+  // The factory builds the 23 enumerable members objects.json pins; every
+  // argument is validated before anything is committed.
+  run(runtime,
+      "globalThis.ihErrors = {};\n"
+      "expectT(globalThis.ihErrors, 'badOptions', () => input.createInputHook('Q'));\n"
+      "expectT(globalThis.ihErrors, 'badOptionsType', () => input.createInputHook(42));\n"
+      "expectT(globalThis.ihErrors, 'badEndKeys', () => input.createInputHook('', 'f99'));\n"
+      "expectT(globalThis.ihErrors, 'badMatch', () => input.createInputHook('', '', ','));\n"
+      "globalThis.ih = input.createInputHook('C L8', '{Esc}', 'ok,xy');\n"
+      "globalThis.ihKeys = Object.keys(globalThis.ih).sort();\n"
+      "globalThis.ihIdDesc = Object.getOwnPropertyDescriptor(globalThis.ih, 'id');\n"
+      "globalThis.ihInit = {\n"
+      "  endKey: ih.EndKey, endMods: ih.EndMods, endReason: ih.EndReason,\n"
+      "  inProgress: ih.InProgress, input: ih.Input, match: ih.Match,\n"
+      "  timeout: ih.Timeout, level: ih.MinSendLevel,\n"
+      "  backspace: ih.BackspaceIsUndo, caseSensitive: ih.CaseSensitive,\n"
+      "  findAnywhere: ih.FindAnywhere, notify: ih.NotifyNonText,\n"
+      "  visNonText: ih.VisibleNonText, visText: ih.VisibleText\n"
+      "};\n",
+      "inputhook-shape.mjs");
+  run(runtime,
+      "const errors = globalThis.ihErrors;\n"
+      "for (const name of ['badOptions','badOptionsType','badEndKeys','badMatch']) {\n"
+      "  checkT(errors, name);\n"
+      "}\n"
+      "const want = ['BackspaceIsUndo','CaseSensitive','EndKey','EndMods','EndReason',\n"
+      "              'FindAnywhere','InProgress','Input','KeyOpt','Match','MinSendLevel',\n"
+      "              'NotifyNonText','OnChar','OnEnd','OnKeyDown','OnKeyUp','Start','Stop',\n"
+      "              'Timeout','VisibleNonText','VisibleText','Wait','__New'];\n"
+      "const got = globalThis.ihKeys;\n"
+      "if (JSON.stringify(got) !== JSON.stringify(want))\n"
+      "  throw new Error('InputHook member list mismatch:\\ngot  ' + JSON.stringify(got) +\n"
+      "                  '\\nwant ' + JSON.stringify(want));\n"
+      "const idDesc = globalThis.ihIdDesc;\n"
+      "if (!idDesc || idDesc.enumerable)\n"
+      "  throw new Error('id must exist and stay non-enumerable');\n"
+      "const init = globalThis.ihInit;\n"
+      "if (init.endKey !== '' || init.endMods !== '' || init.input !== '' || init.match !== '')\n"
+      "  throw new Error('fresh hook snapshot must be empty: ' + JSON.stringify(init));\n"
+      "if (init.endReason !== 'Stopped' || init.inProgress !== false)\n"
+      "  throw new Error('fresh hook must be idle with EndReason Stopped');\n"
+      "if (init.timeout !== 0 || init.level !== 0)\n"
+      "  throw new Error('fresh hook defaults: timeout 0, MinSendLevel 0');\n"
+      "if (!init.backspace || !init.caseSensitive || init.findAnywhere || init.notify ||\n"
+      "    !init.visNonText || init.visText)\n"
+      "  throw new Error('C L8 options must commit onto scratch defaults: ' +\n"
+      "                  JSON.stringify(init));\n",
+      "inputhook-shape-check.mjs");
+
+  // ---- M2-D: InputHook capture ------------------------------------------
+  run(runtime,
+      "globalThis.ihChars = [];\n"
+      "globalThis.ihEnds = [];\n"
+      "ih.OnChar = ev => { globalThis.ihChars.push(ev); };\n"
+      "ih.OnEnd = ev => { globalThis.ihEnds.push(ev); };\n"
+      "ih.Start();\n"
+      "if (!ih.InProgress) throw new Error('Start must begin capture');\n"
+      "ih.Start();  // idempotent while in progress\n"
+      "if (!ih.InProgress) throw new Error('second Start must stay in progress');\n"
+      "if (ih.Input !== '' || ih.EndReason !== '')\n"
+      "  throw new Error('Start must begin with an empty buffer and no end reason');\n",
+      "inputhook-start.mjs");
+  send_vk('A');
+  send_vk('A');
+  pump(runtime, 500ms, "inputhook-capture-pump");
+  run(runtime,
+      "if (ih.Input !== 'aa') {\n"
+      "  const history = input.keyHistory({ maxEvents: 16 });\n"
+      "  const parts = history.events.map(e =>\n"
+      "      (e.down ? 'D' : 'U') + e.vk + (e.injected ? 'i' : '') +\n"
+      "      (e.selfInjected ? 'S' : ''));\n"
+      "  throw new Error('buffer must collect a,a: ' + JSON.stringify(ih.Input) +\n"
+      "                  ' keys: ' + parts.join(' ') +\n"
+      "                  ' chars: ' + JSON.stringify(globalThis.ihChars));\n"
+      "}\n"
+      "if (ihChars.length !== 2)\n"
+      "  throw new Error('OnChar must fire per collected char: ' + ihChars.length);\n"
+      "const ev = globalThis.ihChars[0];\n"
+      "if (ev.char !== 'a' || ev.vk !== 65 || ev.down !== true || typeof ev.scan !== 'number')\n"
+      "  throw new Error('OnChar payload mismatch: ' + JSON.stringify(ev));\n"
+      "if (ihEnds.length !== 0) throw new Error('no OnEnd before the input ends');\n"
+      "if (!ih.InProgress || ih.EndReason !== '')\n"
+      "  throw new Error('in-progress snapshot mismatch');\n",
+      "inputhook-capture-check.mjs");
+  send_vk(VK_ESCAPE);
+  wait_js(runtime, "globalThis.ihEnds.length >= 1", "inputhook-endkey-wait");
+  run(runtime,
+      "const end = globalThis.ihEnds[0];\n"
+      "if (ih.InProgress) throw new Error('EndKey must end the input');\n"
+      "if (ih.EndReason !== 'EndKey' || end.reason !== 'EndKey')\n"
+      "  throw new Error('EndReason must be EndKey: ' + JSON.stringify(ih.EndReason));\n"
+      "if (ih.EndKey !== 'escape' || end.endKey !== 'escape')\n"
+      "  throw new Error('EndKey name mismatch: ' + JSON.stringify(ih.EndKey));\n"
+      "if (ih.Input !== 'aa' || end.input !== 'aa')\n"
+      "  throw new Error('terminating key must not be collected: ' + JSON.stringify(ih.Input));\n"
+      "if (end.endMods !== '' || end.match !== '')\n"
+      "  throw new Error('end payload extras must stay empty: ' + JSON.stringify(end));\n"
+      "if (ihChars.length !== 2) throw new Error('no OnChar for the end key');\n",
+      "inputhook-endkey-check.mjs");
+
+  // ---- M2-D: InputHook Wait + Match -------------------------------------
+  run(runtime,
+      "globalThis.ihWaitIdle = null;\n"
+      "ih.Wait().then(r => { globalThis.ihWaitIdle = r; });\n"
+      "globalThis.ih2 = input.createInputHook('', '', 'xy');\n"
+      "globalThis.ih2End = null;\n"
+      "ih2.OnEnd = ev => { globalThis.ih2End = ev; };\n"
+      "ih2.Start();\n",
+      "inputhook-wait-idle.mjs");
+  pump(runtime, 250ms, "inputhook-wait-idle-pump");
+  run(runtime,
+      "if (globalThis.ihWaitIdle !== 'EndKey')\n"
+      "  throw new Error('idle Wait must resolve with the last EndReason: ' +\n"
+      "                  JSON.stringify(globalThis.ihWaitIdle));\n",
+      "inputhook-wait-idle-check.mjs");
+  send_vk('X');
+  send_vk('Y');
+  wait_js(runtime, "globalThis.ih2End !== null", "inputhook-match-wait");
+  run(runtime,
+      "const end = globalThis.ih2End;\n"
+      "if (ih2.EndReason !== 'Match' || end.reason !== 'Match')\n"
+      "  throw new Error('match must end the input: ' + JSON.stringify(ih2.EndReason));\n"
+      "if (ih2.Match !== 'xy' || end.match !== 'xy')\n"
+      "  throw new Error('Match must carry the phrase: ' + JSON.stringify(ih2.Match));\n"
+      "if (ih2.Input !== 'xy')\n"
+      "  throw new Error('match buffer: ' + JSON.stringify(ih2.Input));\n",
+      "inputhook-match-check.mjs");
+
+  // ---- M2-D: InputHook Timeout property ---------------------------------
+  run(runtime,
+      "globalThis.ih3 = input.createInputHook('T0.3');\n"
+      "globalThis.ih3End = null;\n"
+      "ih3.OnEnd = ev => { globalThis.ih3End = ev; };\n"
+      "ih3.Start();\n",
+      "inputhook-timeout-start.mjs");
+  wait_js(runtime, "globalThis.ih3End !== null", "inputhook-timeout-wait");
+  run(runtime,
+      "if (ih3.EndReason !== 'Timeout' || globalThis.ih3End.reason !== 'Timeout')\n"
+      "  throw new Error('Timeout property must end the input: ' +\n"
+      "                  JSON.stringify(ih3.EndReason));\n"
+      "ih3.Stop();  // no-op while idle\n",
+      "inputhook-timeout-check.mjs");
+
+  // ---- M2-D: InputHook Wait deadline ------------------------------------
+  run(runtime,
+      "globalThis.ih4 = input.createInputHook('', '{Esc}');\n"
+      "globalThis.ih4Wait = null;\n"
+      "ih4.Start();\n"
+      "ih4.Wait(0.3).then(r => { globalThis.ih4Wait = r; });\n",
+      "inputhook-wait-deadline.mjs");
+  wait_js(runtime, "globalThis.ih4Wait === 'Timeout'", "inputhook-wait-deadline-wait");
+  run(runtime,
+      "if (!ih4.InProgress)\n"
+      "  throw new Error('a Wait deadline must not stop the capture');\n"
+      "if (ih4.EndReason !== '')\n"
+      "  throw new Error('capture must still be running after a Wait deadline');\n"
+      "ih4.Stop();\n"
+      "if (ih4.InProgress || ih4.EndReason !== 'Stopped')\n"
+      "  throw new Error('Stop must end with Stopped');\n",
+      "inputhook-wait-deadline-check.mjs");
+
+  // ---- M2-D: KeyOpt + property contract + re-entrant Stop ---------------
+  run(runtime,
+      "globalThis.ih5 = input.createInputHook();\n"
+      "globalThis.ih5Errors = {};\n"
+      "expectT(globalThis.ih5Errors, 'keyOptArity', () => ih5.KeyOpt('a'));\n"
+      "expectT(globalThis.ih5Errors, 'keyOptOption', () => ih5.KeyOpt('a', 'Q'));\n"
+      "expectT(globalThis.ih5Errors, 'keyOptKeys', () => ih5.KeyOpt('{F99}', '+E'));\n"
+      "expectT(globalThis.ih5Errors, 'minLevel', () => { ih5.MinSendLevel = 'x'; });\n"
+      "expectT(globalThis.ih5Errors, 'timeoutType', () => { ih5.Timeout = 'x'; });\n"
+      "expectT(globalThis.ih5Errors, 'onCharNumber', () => { ih5.OnChar = 42; });\n"
+      "expectT(globalThis.ih5Errors, 'onEndNumber', () => { ih5.OnEnd = 42; });\n"
+      "expectT(globalThis.ih5Errors, 'readOnly', () => { ih5.EndKey = 'a'; });\n"
+      "expectT(globalThis.ih5Errors, 'boolFlags', () => { ih5.CaseSensitive = 1; });\n"
+      "let range = false;\n"
+      "try { ih5.Timeout = -1; } catch (e) { range = (e instanceof RangeError); }\n"
+      "globalThis.ih5Range = range;\n"
+      "ih5.MinSendLevel = -5;\n"
+      "globalThis.ih5Level = ih5.MinSendLevel;\n"
+      "ih5.Timeout = 1.5;\n"
+      "globalThis.ih5Timeout = ih5.Timeout;\n"
+      "ih5.OnChar = null;\n"
+      "if (ih5.OnChar !== null) throw new Error('OnChar must accept null');\n"
+      "globalThis.ih5End = null;\n"
+      "ih5.OnEnd = ev => { globalThis.ih5End = ev; };\n"
+      "ih5.OnChar = () => { ih5.Stop(); };  // re-entrant Stop inside the feed\n"
+      "ih5.Start();\n",
+      "inputhook-keyopt.mjs");
+  send_vk('B');
+  wait_js(runtime, "globalThis.ih5End !== null", "inputhook-reentrant-wait");
+  run(runtime,
+      "const errors = globalThis.ih5Errors;\n"
+      "for (const name of ['keyOptArity','keyOptOption','keyOptKeys','minLevel',\n"
+      "                    'timeoutType','onCharNumber','onEndNumber','readOnly','boolFlags']) {\n"
+      "  checkT(errors, name);\n"
+      "}\n"
+      "if (!globalThis.ih5Range) throw new Error('negative Timeout must be a RangeError');\n"
+      "if (globalThis.ih5Level !== 0) throw new Error('negative MinSendLevel clamps to 0');\n"
+      "if (Math.abs(globalThis.ih5Timeout - 1.5) > 1e-9)\n"
+      "  throw new Error('Timeout round-trips in seconds: ' + globalThis.ih5Timeout);\n"
+      "if (ih5.Input !== 'b' || ih5.EndReason !== 'Stopped')\n"
+      "  throw new Error('re-entrant Stop must end after the first char: ' +\n"
+      "                  JSON.stringify({ input: ih5.Input, reason: ih5.EndReason }));\n"
+      "if (globalThis.ih5End.reason !== 'Stopped' || globalThis.ih5End.input !== 'b')\n"
+      "  throw new Error('OnEnd payload from the re-entrant stop: ' +\n"
+      "                  JSON.stringify(globalThis.ih5End));\n",
+      "inputhook-keyopt-check.mjs");
+
+  // ---- M2-D: input.suspend + #SuspendExempt + #InputLevel ---------------
+  // Level and exempt registrations are matching rules: a level-1 hotkey
+  // never sees this stage's level-0 events, an exempt hotkey keeps firing
+  // while suspended, everything else goes quiet until Suspend comes back.
+  run(runtime,
+      "globalThis.suspLog = [];\n"
+      "globalThis.suspErrors = {};\n"
+      "expectT(globalThis.suspErrors, 'suspendNumber', () => input.suspend(1));\n"
+      "expectT(globalThis.suspErrors, 'suspendWord', () => input.suspend('maybe'));\n"
+      "expectT(globalThis.suspErrors, 'regOptionUnknown',\n"
+      "        () => input.hotkey('f14', () => {}, { nope: 1 }));\n"
+      "expectT(globalThis.suspErrors, 'regLevelNegative',\n"
+      "        () => input.hotkey('f14', () => {}, { inputLevel: -1 }));\n"
+      "expectT(globalThis.suspErrors, 'regOnNumber',\n"
+      "        () => input.hotkey('f14', () => {}, { on: 1 }));\n"
+      "input.hotkey('f17', () => globalThis.suspLog.push('plain'));\n"
+      "input.hotkey('f16', () => globalThis.suspLog.push('exempt'),\n"
+      "             { suspendExempt: true });\n"
+      "input.hotkey('f15', () => globalThis.suspLog.push('level'), { inputLevel: 1 });\n"
+      "if (input.suspend(false) !== false)\n"
+      "  throw new Error('suspend must report off after suspend(false)');\n",
+      "m2d-suspend-register.mjs");
+  send_vk(VK_F15);
+  pump(runtime, 400ms, "m2d-level-pump");
+  run(runtime,
+      "if (globalThis.suspLog.length !== 0)\n"
+      "  throw new Error('inputLevel 1 must not match a level-0 event: ' +\n"
+      "                  JSON.stringify(globalThis.suspLog));\n"
+      "const errors = globalThis.suspErrors;\n"
+      "for (const name of ['suspendNumber','suspendWord','regOptionUnknown',\n"
+      "                    'regLevelNegative','regOnNumber']) {\n"
+      "  checkT(errors, name);\n"
+      "}\n"
+      "if (input.suspend('on') !== true) throw new Error(\"suspend('on') must report true\");\n",
+      "m2d-level-check.mjs");
+  send_vk(VK_F17);
+  pump(runtime, 400ms, "m2d-suspended-plain-pump");
+  run(runtime,
+      "if (globalThis.suspLog.length !== 0)\n"
+      "  throw new Error('a suspended hotkey must stay silent: ' +\n"
+      "                  JSON.stringify(globalThis.suspLog));\n",
+      "m2d-suspended-plain-check.mjs");
+  send_vk(VK_F16);
+  wait_js(runtime, "globalThis.suspLog.length >= 1", "m2d-exempt-wait");
+  run(runtime,
+      "if (globalThis.suspLog[0] !== 'exempt')\n"
+      "  throw new Error('a suspendExempt hotkey must fire while suspended: ' +\n"
+      "                  JSON.stringify(globalThis.suspLog));\n"
+      "if (input.suspend('toggle') !== false)\n"
+      "  throw new Error(\"suspend('toggle') must turn back off\");\n",
+      "m2d-exempt-check.mjs");
+  send_vk(VK_F17);
+  wait_js(runtime, "globalThis.suspLog.length >= 2", "m2d-resume-wait");
+  run(runtime,
+      "if (globalThis.suspLog[1] !== 'plain')\n"
+      "  throw new Error('resume must deliver again: ' + JSON.stringify(globalThis.suspLog));\n",
+      "m2d-resume-check.mjs");
+
+  // ---- M2-D: input.policy ------------------------------------------------
+  run(runtime,
+      "globalThis.polErrors = {};\n"
+      "expectT(globalThis.polErrors, 'unknownField', () => input.policy({ nope: 1 }));\n"
+      "expectT(globalThis.polErrors, 'badOverflow', () => input.policy({ overflow: 'burst' }));\n"
+      "expectT(globalThis.polErrors, 'negative', () => input.policy({ maxConcurrency: -1 }));\n"
+      "expectT(globalThis.polErrors, 'fraction', () => input.policy({ hotIfTimeout: 1.5 }));\n"
+      "expectT(globalThis.polErrors, 'notObject', () => input.policy(3));\n"
+      "const errors = globalThis.polErrors;\n"
+      "for (const name of ['unknownField','badOverflow','negative','fraction','notObject']) {\n"
+      "  checkT(errors, name);\n"
+      "}\n"
+      "const p0 = input.policy();  // validation is fail-closed: the calls above changed nothing\n"
+      "if (p0.maxConcurrency !== 0 || p0.maxConcurrencyPerHotkey !== 1 ||\n"
+      "    p0.inputLevel !== 0 || p0.hotIfTimeout !== 1000 || p0.overflow !== 'coalesce')\n"
+      "  throw new Error('policy defaults: ' + JSON.stringify(p0));\n"
+      "const p1 = input.policy({ maxConcurrency: 4, overflow: 'reject' });\n"
+      "if (p1.maxConcurrency !== 4 || p1.overflow !== 'reject')\n"
+      "  throw new Error('partial snapshot commit: ' + JSON.stringify(p1));\n"
+      "const p2 = input.policy();\n"
+      "if (p2.maxConcurrencyPerHotkey !== 1 || p2.hotIfTimeout !== 1000)\n"
+      "  throw new Error('unspecified policy fields must keep their values: ' +\n"
+      "                  JSON.stringify(p2));\n"
+      "input.policy({ maxConcurrency: 0, overflow: 'coalesce' });  // restore\n"
+      "const restored = input.policy();\n"
+      "if (JSON.stringify(restored) !== JSON.stringify(p0))\n"
+      "  throw new Error('policy round trip: ' + JSON.stringify(restored));\n",
+      "m2d-policy.mjs");
+
+  // ---- M2-D: queue-load burst -------------------------------------------
+  // Eight rapid presses must all be delivered (the input queue has room and
+  // deliveries are serial), and the registration must still work afterwards -
+  // a full-load run may reject work, never wedge it. The native side pins
+  // that the service queue dropped nothing across the burst either.
+  const std::uint64_t dropped_before_burst = service.dropped_events();
+  run(runtime,
+      "globalThis.burstLog = [];\n"
+      "input.hotkey('f14', () => { globalThis.burstLog.push(1); });\n",
+      "m2d-burst-register.mjs");
+  for (int press = 0; press < 8; ++press) send_vk(VK_F14);
+  wait_js(runtime, "globalThis.burstLog.length >= 8", "m2d-burst-wait");
+  run(runtime,
+      "if (globalThis.burstLog.length !== 8)\n"
+      "  throw new Error('every press in a burst must deliver: ' +\n"
+      "                  globalThis.burstLog.length);\n",
+      "m2d-burst-check.mjs");
+  assert(service.dropped_events() == dropped_before_burst);
+  send_vk(VK_F14);
+  wait_js(runtime, "globalThis.burstLog.length >= 9", "m2d-recover-wait");
+  run(runtime,
+      "if (globalThis.burstLog.length !== 9)\n"
+      "  throw new Error('one press after the burst must deliver exactly once: ' +\n"
+      "                  globalThis.burstLog.length);\n",
+      "m2d-recover-check.mjs");
+
+  // ---- M2-D: re-entrant subscription close ------------------------------
+  // An observer that closes its own registration while it runs: the close
+  // must take effect without corrupting the dispatch loop.
+  run(runtime,
+      "globalThis.reLog = [];\n"
+      "globalThis.reSub = input.hotkey('f13', () => {\n"
+      "  globalThis.reLog.push('fire');\n"
+      "  globalThis.reSub.close();\n"
+      "});\n",
+      "m2d-reenter-register.mjs");
+  send_vk(VK_F13);
+  wait_js(runtime, "globalThis.reLog.length >= 1", "m2d-reenter-first");
+  send_vk(VK_F13);
+  pump(runtime, 400ms, "m2d-reenter-pump");
+  run(runtime,
+      "if (globalThis.reLog.length !== 1 || globalThis.reLog[0] !== 'fire')\n"
+      "  throw new Error('a self-closed hotkey must fire exactly once: ' +\n"
+      "                  JSON.stringify(globalThis.reLog));\n"
+      "if (globalThis.reSub.close())\n"
+      "  throw new Error('closing an already-closed subscription must return false');\n",
+      "m2d-reenter-check.mjs");
+
   // Lifetime: stop runs the onExit handlers on the JS thread, then the host
   // teardown closes every registration the slice left open.
   assert(runtime.stop().ok());
@@ -1355,7 +1718,12 @@ int main() {
         "deny('hotstring', () => input.hotstring('::btw::x'), 'windows.hook.global');\n"
         "deny('installHook', () => input.installKeybdHook(), 'windows.hook.global');\n"
         "deny('clipboard', () => input.onClipboardChange(() => {}), 'windows.clipboard.read');\n"
+        "deny('inputHookStart', () => input.createInputHook().Start(), 'windows.hook.global');\n"
         "globalThis.allowed.settings = (input.hotstring('EndChars') !== undefined);\n"
+        "globalThis.allowed.createHook =\n"
+        "    (typeof input.createInputHook().Stop === 'function');\n"
+        "globalThis.allowed.suspend = (input.suspend(false) === false);\n"
+        "globalThis.allowed.policy = (input.policy().overflow === 'coalesce');\n"
         "globalThis.allowed.timer =\n"
         "    (typeof input.setTimer(() => {}, 60000).close === 'function');\n"
         "globalThis.allowed.message =\n"
@@ -1371,7 +1739,7 @@ int main() {
         "events-deny.mjs");
     assert(denied_runtime.settle(5000ms).ok());
     run(denied_runtime,
-        "for (const name of ['hotkey','hotstring','installHook','clipboard']) {\n"
+        "for (const name of ['hotkey','hotstring','installHook','clipboard','inputHookStart']) {\n"
         "  if (!globalThis.denied[name])\n"
         "    throw new Error('expected a capability denial for ' + name);\n"
         "}\n"
@@ -1409,9 +1777,18 @@ int main() {
     assert(busy.message.find("subscription") != std::string::npos);
     assert(abi.state() == rime::js::HostAbiState::Executed);
     assert(abi.execute("import { input } from 'rime:input';\n"
-                       "globalThis.abiClosed = globalThis.abiSub.close();",
+                       "globalThis.abiClosed = globalThis.abiSub.close();\n"
+                       "globalThis.abiHook = input.createInputHook();\n"
+                       "globalThis.abiHook.Start();",
                        "abi-close.mjs")
                .ok());
+    // An in-progress InputHook holds a host subscription, so unload must
+    // refuse it the same way a live hotkey does - then Stop releases it.
+    const auto hook_busy = abi.unload();
+    assert(!hook_busy.ok());
+    assert(hook_busy.code == rime::core::Error::Code::InvalidState);
+    assert(hook_busy.message.find("subscription") != std::string::npos);
+    assert(abi.execute("globalThis.abiHook.Stop();", "abi-hook-stop.mjs").ok());
     assert(abi.unload().ok());
     assert(abi.state() == rime::js::HostAbiState::Unloaded);
     assert(abi_binding.events != nullptr);

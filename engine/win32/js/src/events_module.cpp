@@ -15,8 +15,11 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -132,6 +135,99 @@ bool parse_onoff_options(JSContext* context, JSValueConst value, bool& have, boo
       return false;
     }
   }
+  return true;
+}
+
+// ---- M2-D registration options ---------------------------------------------
+
+// Options accepted by hotkey(name, action, options) and
+// hotstring(spec, action, onOff): the existing string forms, or an object
+// { on?, suspendExempt?, inputLevel? }. Validation happens before any
+// capability check and before a registration is touched.
+struct RegOptions {
+  int control{-1};  // -1 absent, 0 off, 1 on, 2 toggle (string form only)
+  bool have_exempt{false};
+  bool suspend_exempt{false};
+  bool have_level{false};
+  std::uint32_t input_level{0};
+};
+
+bool parse_reg_options(JSContext* context, JSValueConst value, const char* label,
+                       const bool allow_toggle, RegOptions& out) {
+  out = RegOptions{};
+  if (JS_IsUndefined(value) || JS_IsNull(value)) return true;
+  if (JS_IsString(value)) {
+    if (allow_toggle) {
+      out.control = parse_ctrl_word(context, value, label);
+      return out.control >= 0;
+    }
+    bool have = false;
+    bool enabled = true;
+    if (!parse_onoff_options(context, value, have, enabled)) return false;
+    if (have) out.control = enabled ? 1 : 0;
+    return true;
+  }
+  if (!JS_IsObject(value)) {
+    JS_ThrowTypeError(context, "%s: options must be 'on'|'off'|'toggle' or an object", label);
+    return false;
+  }
+  JSPropertyEnum* names = nullptr;
+  std::uint32_t count = 0;
+  if (JS_GetOwnPropertyNames(context, &names, &count, value, JS_GPN_STRING_MASK) < 0) return false;
+  for (std::uint32_t index = 0; index < count; ++index) {
+    const char* key = JS_AtomToCString(context, names[index].atom);
+    if (!key) {
+      JS_FreePropertyEnum(context, names, count);
+      return false;
+    }
+    const std::string name(key);
+    JS_FreeCString(context, key);
+    if (name != "on" && name != "suspendExempt" && name != "inputLevel") {
+      JS_FreePropertyEnum(context, names, count);
+      JS_ThrowTypeError(context, "%s: unsupported option '%s' (expected on, suspendExempt or "
+                                 "inputLevel)",
+                        label, name.c_str());
+      return false;
+    }
+  }
+  JS_FreePropertyEnum(context, names, count);
+  JSValue entry = JS_GetPropertyStr(context, value, "on");
+  if (JS_IsException(entry)) return false;
+  if (!JS_IsUndefined(entry)) {
+    if (!JS_IsBool(entry)) {
+      JS_FreeValue(context, entry);
+      JS_ThrowTypeError(context, "%s: options.on must be a boolean", label);
+      return false;
+    }
+    out.control = JS_ToBool(context, entry) > 0 ? 1 : 0;
+  }
+  JS_FreeValue(context, entry);
+  entry = JS_GetPropertyStr(context, value, "suspendExempt");
+  if (JS_IsException(entry)) return false;
+  if (!JS_IsUndefined(entry)) {
+    if (!JS_IsBool(entry)) {
+      JS_FreeValue(context, entry);
+      JS_ThrowTypeError(context, "%s: options.suspendExempt must be a boolean", label);
+      return false;
+    }
+    out.have_exempt = true;
+    out.suspend_exempt = JS_ToBool(context, entry) > 0;
+  }
+  JS_FreeValue(context, entry);
+  entry = JS_GetPropertyStr(context, value, "inputLevel");
+  if (JS_IsException(entry)) return false;
+  if (!JS_IsUndefined(entry)) {
+    double number = 0;
+    if (!JS_IsNumber(entry) || JS_ToFloat64(context, &number, entry) != 0 || number < 0 ||
+        number > 4294967295.0 || number != static_cast<double>(static_cast<std::uint64_t>(number))) {
+      JS_FreeValue(context, entry);
+      JS_ThrowTypeError(context, "%s: options.inputLevel must be a non-negative integer", label);
+      return false;
+    }
+    out.have_level = true;
+    out.input_level = static_cast<std::uint32_t>(number);
+  }
+  JS_FreeValue(context, entry);
   return true;
 }
 
@@ -399,6 +495,811 @@ void free_owned(JSContext* context, JSValue& value) {
   value = JS_UNDEFINED;
 }
 
+// ---- M2-D shared key mapping ---------------------------------------------
+
+// Maps one key press to the character it produces for text collection. Both
+// the hotstring stream and InputHook's buffer use this US-layout table; keys
+// outside it (navigation, function keys, non-US layouts) produce nothing.
+bool key_char(const std::uint32_t vk, const bool shift, char& out) {
+  if (vk >= 'A' && vk <= 'Z') {
+    out = shift ? static_cast<char>(vk) : static_cast<char>(vk - 'A' + 'a');
+    return true;
+  }
+  if (vk >= '0' && vk <= '9') {
+    static constexpr char kShiftDigits[] = ")!@#$%^&*(";
+    out = shift ? kShiftDigits[vk - '0'] : static_cast<char>(vk);
+    return true;
+  }
+  if (vk == 0x20) {
+    out = ' ';
+    return true;
+  }
+  if (vk == 0x09) {
+    out = '\t';
+    return true;
+  }
+  if (vk == 0x0D) {
+    out = '\n';
+    return true;
+  }
+  static constexpr struct {
+    int vk;
+    char plain;
+    char shifted;
+  } kOemKeys[] = {
+      {0xBA, ';', ':'}, {0xBB, '=', '+'}, {0xBC, ',', '<'}, {0xBD, '-', '_'},
+      {0xBE, '.', '>'}, {0xBF, '/', '?'}, {0xC0, '`', '~'}, {0xDB, '[', '{'},
+      {0xDC, '\\', '|'}, {0xDD, ']', '}'}, {0xDE, '\'', '"'},
+  };
+  for (const auto& entry : kOemKeys) {
+    if (entry.vk == static_cast<int>(vk)) {
+      out = shift ? entry.shifted : entry.plain;
+      return true;
+    }
+  }
+  return false;
+}
+
+// Printable text only: Enter/Tab stay non-text keys (they can still end the
+// input through EndKeys), matching the stage's collection rule.
+bool is_text_char(const char c) { return c >= 0x20 && c < 0x7F; }
+
+// EndMods: the held modifiers rendered with AHK's MODLR_STRING tokens. This
+// stage's event feed carries one flag per side, so held modifiers use the
+// left-side glyph of each pair, in AHK's control/alt/shift/super order.
+std::string end_mods_text(const bool control, const bool alt, const bool shift, const bool super) {
+  std::string mods;
+  if (control) mods += "<^";
+  if (alt) mods += "<!";
+  if (shift) mods += "<+";
+  if (super) mods += "<#";
+  return mods;
+}
+
+// Reverse of chord_key(): the canonical token spelling for one vk, used for
+// the EndKey snapshot ("escape", "f24", "a"; "#NN" for keys the grammar
+// does not name).
+std::string chord_key_name(const std::uint32_t vk) {
+  if (vk >= 'A' && vk <= 'Z') return std::string(1, static_cast<char>(vk - 'A' + 'a'));
+  if (vk >= '0' && vk <= '9') return std::string(1, static_cast<char>(vk));
+  if (vk >= 0x70 && vk <= 0x87) return "f" + std::to_string(vk - 0x6Fu);
+  struct NamedKey {
+    const char* name;
+    std::uint32_t vk;
+  };
+  static constexpr NamedKey kNamedKeys[] = {
+      {"space", 0x20},   {"tab", 0x09},      {"enter", 0x0D},   {"escape", 0x1B},
+      {"backspace", 0x08},{"delete", 0x2E},  {"insert", 0x2D},  {"home", 0x24},
+      {"end", 0x23},     {"pageup", 0x21},   {"pagedown", 0x22}, {"left", 0x25},
+      {"up", 0x26},      {"right", 0x27},    {"down", 0x28},    {"pause", 0x13},
+      {"capslock", 0x14},{"numlock", 0x90},  {"scrolllock", 0x91},
+  };
+  for (const auto& named : kNamedKeys) {
+    if (named.vk == vk) return named.name;
+  }
+  static constexpr char kHex[] = "0123456789ABCDEF";
+  std::string text = "#";
+  text += kHex[(vk >> 4) & 0xF];
+  text += kHex[vk & 0xF];
+  return text;
+}
+
+// Single-character key token -> vk, used for end keys the chord grammar has
+// no name for ("," "." "!" ...). Shifted forms map to their base key with
+// `shift` set so the caller can require the shift state (AHK's
+// END_KEY_WITH_SHIFT/OUT distinction for non-alpha characters).
+bool char_key_vk(const std::string& token, std::uint32_t& vk, bool& shift, std::string& error) {
+  if (token.size() != 1) {
+    error = "unknown chord token: " + token;
+    return false;
+  }
+  const char c = token[0];
+  if (c >= 'a' && c <= 'z') {
+    vk = static_cast<std::uint32_t>(c - 'a' + 'A');
+    shift = false;
+    return true;
+  }
+  if (c >= 'A' && c <= 'Z') {
+    vk = static_cast<std::uint32_t>(c - 'A' + 'A');
+    shift = false;
+    return true;
+  }
+  if (c >= '0' && c <= '9') {
+    vk = static_cast<std::uint32_t>(c);
+    shift = false;
+    return true;
+  }
+  struct CharKey {
+    char plain;
+    char shifted;
+    std::uint32_t vk;
+  };
+  static constexpr CharKey kCharKeys[] = {
+      {';', ':', 0xBA}, {'=', '+', 0xBB}, {',', '<', 0xBC}, {'-', '_', 0xBD},
+      {'.', '>', 0xBE}, {'/', '?', 0xBF}, {'`', '~', 0xC0}, {'[', '{', 0xDB},
+      {'\\', '|', 0xDC}, {']', '}', 0xDD}, {'\'', '"', 0xDE}, {'1', '!', 0x31},
+      {'2', '@', 0x32}, {'3', '#', 0x33}, {'4', '$', 0x34}, {'5', '%', 0x35},
+      {'6', '^', 0x36}, {'7', '&', 0x37}, {'8', '*', 0x38}, {'9', '(', 0x39},
+      {'0', ')', 0x30}, {' ', ' ', 0x20},
+  };
+  for (const auto& entry : kCharKeys) {
+    if (entry.plain == c) {
+      vk = entry.vk;
+      shift = false;
+      return true;
+    }
+    if (entry.shifted == c && c != entry.plain) {
+      vk = entry.vk;
+      shift = true;
+      return true;
+    }
+  }
+  error = "unknown chord token: " + token;
+  return false;
+}
+
+// Splits an EndKeys/KeyOpt key list into key names. Accepts the AHK brace
+// form ("{Escape}{Enter}") and the comma/space separated form ("escape,
+// enter"); every token resolves through the chord key grammar without
+// modifiers.
+bool split_key_tokens(const std::string& text, std::vector<std::string>& out, std::string& error) {
+  out.clear();
+  error.clear();
+  std::size_t index = 0;
+  while (index < text.size()) {
+    const char c = text[index];
+    if (c == ',' || c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+      ++index;
+      continue;
+    }
+    std::string token;
+    if (c == '{') {
+      const auto close = text.find('}', index + 1);
+      if (close == std::string::npos) {
+        error = "unterminated '{' in key list";
+        return false;
+      }
+      token = text.substr(index + 1, close - index - 1);
+      index = close + 1;
+    } else {
+      const auto next = text.find_first_of("{, \t\n\r", index);
+      token = text.substr(index, next == std::string::npos ? next : next - index);
+      index = next == std::string::npos ? text.size() : next;
+    }
+    if (token.empty()) continue;
+    out.push_back(token);
+  }
+  return true;
+}
+
+// How a key list treats single-character tokens: EndKeys distinguishes the
+// shift state of non-alpha characters (AHK's END_KEY_WITH_SHIFT/OUT pair),
+// KeyOpt flags every key without a shift requirement.
+enum class KeyListMode { EndKeys, KeyOpt };
+
+// One key resolved from an EndKeys/KeyOpt key list.
+struct KeyListEntry {
+  std::uint8_t vk{0};
+  bool require_shift{false};
+  bool require_no_shift{false};
+};
+
+// Resolves an EndKeys/KeyOpt key list to virtual-key entries. Key lists are
+// comma/space separated tokens ("escape,enter,f1") or brace names
+// ("{Escape}{Enter}"); ValueError for unknown names, modifier chords or a
+// text that yields no keys. The caller decides which flags to apply - the
+// EndKeys path marks end keys, KeyOpt applies its E/I/N/Z options.
+bool resolve_key_list(JSContext* context, const std::string& text, const KeyListMode mode,
+                      std::vector<KeyListEntry>& out, const char* label) {
+  out.clear();
+  if (text.empty()) return true;
+  std::vector<std::string> tokens;
+  std::string error;
+  if (!split_key_tokens(text, tokens, error)) {
+    JS_ThrowTypeError(context, "%s: %s", label, error.c_str());
+    return false;
+  }
+  if (tokens.empty()) {
+    JS_ThrowTypeError(context, "%s: no keys were parsed", label);
+    return false;
+  }
+  for (const std::string& token : tokens) {
+    std::uint32_t vk = 0;
+    std::uint8_t mask = 0;
+    std::string chord_error;
+    bool require_shift = false;
+    bool require_no_shift = false;
+    if (parse_chord(token, vk, mask, chord_error)) {
+      if (mask != 0) {
+        JS_ThrowTypeError(context, "%s: modifier chords are not supported (%s)", label,
+                           token.c_str());
+        return false;
+      }
+      const bool alpha = (token[0] >= 'a' && token[0] <= 'z') ||
+                         (token[0] >= 'A' && token[0] <= 'Z');
+      // Bare single non-alpha tokens (digits above all) end only in their
+      // natural shift state, mirroring AHK's non-alpha end-key rule.
+      if (mode == KeyListMode::EndKeys && token.size() == 1 && !alpha) require_no_shift = true;
+    } else if (std::string char_error; char_key_vk(token, vk, require_shift, char_error)) {
+      if (mode != KeyListMode::EndKeys) {
+        require_shift = false;  // KeyOpt flags the key regardless of shift
+      } else if (!require_shift) {
+        require_no_shift = true;  // unshifted punctuation ends only unshifted
+      }
+    } else {
+      JS_ThrowTypeError(context, "%s: %s", label, char_error.c_str());
+      return false;
+    }
+    if (vk >= 256) {
+      JS_ThrowTypeError(context, "%s: key out of range (%s)", label, token.c_str());
+      return false;
+    }
+    out.push_back({static_cast<std::uint8_t>(vk), require_shift, require_no_shift});
+  }
+  return true;
+}
+
+// Marks every resolved key as an end key (the __New/endKeys path).
+void apply_end_keys(const std::vector<KeyListEntry>& entries,
+                    std::array<std::uint8_t, 256>& flags) {
+  for (const KeyListEntry& entry : entries) {
+    auto& slot = flags[entry.vk];
+    slot = static_cast<std::uint8_t>(slot | EventsState::InputHook::kEndKey);
+    if (entry.require_shift)
+      slot = static_cast<std::uint8_t>(slot | EventsState::InputHook::kEndKeyShift);
+    if (entry.require_no_shift)
+      slot = static_cast<std::uint8_t>(slot | EventsState::InputHook::kEndKeyNoShift);
+  }
+}
+
+// Comma separated MatchList with AHK's ",," escape for a literal comma;
+// blank entries are dropped, an entry list that stays empty is a ValueError.
+bool parse_match_list(JSContext* context, const std::string& text,
+                      std::vector<std::string>& out) {
+  out.clear();
+  if (text.empty()) return true;
+  std::string current;
+  bool have_entry = false;
+  for (std::size_t index = 0; index < text.size(); ++index) {
+    if (text[index] != ',') {
+      current += text[index];
+      continue;
+    }
+    if (index + 1 < text.size() && text[index + 1] == ',') {
+      current += ',';
+      ++index;
+      continue;
+    }
+    if (!current.empty()) {
+      out.push_back(current);
+      have_entry = true;
+    }
+    current.clear();
+  }
+  if (!current.empty()) {
+    out.push_back(current);
+    have_entry = true;
+  }
+  if (!have_entry) {
+    JS_ThrowTypeError(context, "matchList: no match phrases were parsed");
+    return false;
+  }
+  return true;
+}
+
+// InputHook option letters (input_type::ParseOptions): B C I L T V * are
+// honored, H/M/E are accepted as no-ops (they need hook-side behavior this
+// stage does not implement), anything else is a ValueError. Never throws;
+// the caller raises the error with `error`.
+bool parse_hook_options(const std::string& options, EventsState::InputHook& out,
+                        std::string& error) {
+  error.clear();
+  for (std::size_t index = 0; index < options.size(); ++index) {
+    const char letter = options[index];
+    switch (letter) {
+      case ' ':
+      case '\t':
+      case '\n':
+      case '\r':
+        break;
+      case 'B':
+        out.backspace_undo = false;
+        break;
+      case 'C':
+        out.case_sensitive = true;
+        break;
+      case 'H':
+      case 'M':
+      case 'E':
+        break;  // accepted, not implemented (documented deviation)
+      case 'I': {
+        const bool has_digits = index + 1 < options.size() && options[index + 1] >= '0' &&
+                                options[index + 1] <= '9';
+        std::int64_t level = has_digits ? 0 : 1;
+        while (has_digits && index + 1 < options.size() && options[index + 1] >= '0' &&
+               options[index + 1] <= '9') {
+          level = level * 10 + (options[++index] - '0');
+        }
+        if (level < 0 || level > 101) {
+          error = "option I: MinSendLevel must be 0..101";
+          return false;
+        }
+        out.min_send_level = static_cast<std::uint32_t>(level);
+        break;
+      }
+      case 'L': {
+        const bool negative = index + 1 < options.size() && options[index + 1] == '-';
+        const std::size_t digit_start = negative ? index + 2 : index + 1;
+        if (digit_start >= options.size() || options[digit_start] < '0' ||
+            options[digit_start] > '9') {
+          error = "option L: expected a buffer length";
+          return false;
+        }
+        std::int64_t length = 0;
+        index = digit_start - 1;
+        while (index + 1 < options.size() && options[index + 1] >= '0' &&
+               options[index + 1] <= '9') {
+          length = length * 10 + (options[++index] - '0');
+        }
+        // AHK clamps a negative length to zero (collect nothing).
+        out.buffer_max = negative ? 0 : length;
+        break;
+      }
+      case 'T': {
+        if (index + 1 >= options.size() ||
+            !(std::isdigit(static_cast<unsigned char>(options[index + 1])) ||
+              options[index + 1] == '-' || options[index + 1] == '.')) {
+          error = "option T: expected a timeout in seconds";
+          return false;
+        }
+        const char* start = options.c_str() + index + 1;
+        char* end = nullptr;
+        const double seconds = std::strtod(start, &end);
+        if (end == start) {
+          error = "option T: expected a timeout in seconds";
+          return false;
+        }
+        // A negative timeout simply never fires (AHK only runs the timer
+        // when Timeout > 0).
+        out.timeout_ms = static_cast<std::int64_t>(seconds * 1000.0);
+        index = static_cast<std::size_t>(end - options.c_str()) - 1;
+        break;
+      }
+      case 'V':
+        out.visible_text = true;
+        out.visible_non_text = true;
+        break;
+      case '*':
+        out.find_anywhere = true;
+        break;
+      default:
+        error = std::string("unsupported option letter: ") + letter;
+        return false;
+    }
+  }
+  return true;
+}
+
+// ---- InputHook bookkeeping ------------------------------------------------
+
+// Defined further down with the shared dispatch; declared here because the
+// hook activation path runs before those definitions.
+bool ensure_dispatch(JSContext* context, InputModuleBinding* binding, EventsState* state);
+void release_dispatch_if_idle(EventsState* state);
+JSValue events_hook_channel(JSContext* context, JSValueConst this_val, int argc,
+                            JSValueConst* argv, int magic, void* opaque);
+
+EventsState::InputHook* find_input_hook(EventsState* state, const std::uint64_t id) {
+  for (auto& hook : state->input_hooks) {
+    if (hook.id == id) return &hook;
+  }
+  return nullptr;
+}
+
+// Resolves `this_val.id` to a live hook ref. objects.json: InvalidState when
+// the runtime (and with it every hook) is closed.
+EventsState::InputHook* hook_of(JSContext* context, JSValueConst this_val, EventsState* state) {
+  JSValue id_value = JS_GetPropertyStr(context, this_val, "id");
+  if (JS_IsException(id_value)) return nullptr;
+  std::int64_t id = 0;
+  const bool ok = JS_IsNumber(id_value) && JS_ToInt64(context, &id, id_value) == 0;
+  JS_FreeValue(context, id_value);
+  if (!ok) {
+    JS_ThrowInternalError(context, "InputHook: missing object id");
+    return nullptr;
+  }
+  if (state->closed) {
+    JS_ThrowInternalError(context, "InputHook is closed");
+    return nullptr;
+  }
+  EventsState::InputHook* hook = find_input_hook(state, static_cast<std::uint64_t>(id));
+  if (!hook) JS_ThrowInternalError(context, "InputHook is closed");
+  return hook;
+}
+
+void invoke_hook_callback(rime::js::Host* host, const std::uint64_t callback,
+                          const std::string& where, const std::string& payload) {
+  if (callback == 0) return;
+  if (const auto error = host->invoke_callback(callback, payload); !error.ok()) {
+    record_failure(host, where.c_str(), error);
+  }
+}
+
+// Settle every pending Wait() with the final EndReason (a JSON string) and
+// disarm the deadline timers so nothing keeps the host busy afterwards.
+void settle_hook_waiters(EventsState* state, EventsState::InputHook& hook,
+                         const std::string& end_reason) {
+  rime::js::Host* host = state->host;
+  const std::string value = json::stringify(json::Value::string(end_reason));
+  for (const auto& waiter : hook.wait_tokens) host->complete_async(waiter, true, value);
+  for (const auto& timer : hook.wait_timers)
+    if (timer != 0) (void)host->timers().cancel(timer);
+  hook.wait_tokens.clear();
+  hook.wait_timers.clear();
+}
+
+void cancel_hook_timeout(EventsState* state, EventsState::InputHook& hook) {
+  if (hook.timeout_timer != 0) {
+    (void)state->host->timers().cancel(hook.timeout_timer);
+    hook.timeout_timer = 0;
+  }
+}
+
+// Releases the resources a hook holds only while input is in progress: the
+// host subscription, the On* callback ids (captured first so a handler that
+// restarts the input keeps its fresh registrations) and the shared dispatch
+// user slot. `keep_callback` stays registered - the end path invokes OnEnd
+// after this release and removes it then.
+void release_hook_active(EventsState* state, EventsState::InputHook& hook,
+                         const std::uint64_t keep_callback = 0) {
+  rime::js::Host* host = state->host;
+  const std::uint64_t on_char = hook.on_char_cb;
+  const std::uint64_t on_end = hook.on_end_cb;
+  const std::uint64_t on_down = hook.on_key_down_cb;
+  const std::uint64_t on_up = hook.on_key_up_cb;
+  hook.on_char_cb = 0;
+  hook.on_end_cb = 0;
+  hook.on_key_down_cb = 0;
+  hook.on_key_up_cb = 0;
+  if (hook.sub != 0) {
+    (void)host->subscriptions().remove(hook.sub);
+    hook.sub = 0;
+    if (state->dispatch_users > 0) state->dispatch_users -= 1;
+    release_dispatch_if_idle(state);
+  }
+  cancel_hook_timeout(state, hook);
+  if (on_char != 0) (void)host->remove_callback(on_char);
+  if (on_end != 0 && on_end != keep_callback) (void)host->remove_callback(on_end);
+  if (on_down != 0) (void)host->remove_callback(on_down);
+  if (on_up != 0) (void)host->remove_callback(on_up);
+  // The lazy timeout/wait relay is a host callback too: drop it once no hook
+  // needs it, so an idle InputHook keeps the host unloadable (the next
+  // Start() recreates it).
+  bool any_active = false;
+  for (const auto& candidate : state->input_hooks) {
+    if (candidate.in_progress) {
+      any_active = true;
+      break;
+    }
+  }
+  if (!any_active && state->hook_channel_callback != 0) {
+    (void)host->remove_callback(state->hook_channel_callback);
+    state->hook_channel_callback = 0;
+  }
+}
+
+// Ends an in-progress input: state first (so handlers and Wait() observe the
+// final snapshot), then waiters, then OnEnd (the callback is kept registered
+// through the release below and removed right after the invoke), then the
+// active resources are gone.
+void end_input_hook(JSContext* context, EventsState* state, EventsState::InputHook& hook,
+                    const std::string& reason, const std::string& end_key = {},
+                    const std::string& match = {}) {
+  if (!hook.in_progress) return;
+  hook.in_progress = false;
+  hook.end_reason = reason;
+  hook.end_key = end_key;
+  hook.match = match;
+  settle_hook_waiters(state, hook, reason);
+  const std::uint64_t on_end = hook.on_end_cb;
+  release_hook_active(state, hook, on_end);
+  if (on_end != 0) {
+    json::Value payload = json::Value::object();
+    payload.set("reason", json::Value::string(reason));
+    payload.set("input", json::Value::string(hook.buffer));
+    payload.set("endKey", json::Value::string(hook.end_key));
+    payload.set("endMods", json::Value::string(hook.end_mods));
+    payload.set("match", json::Value::string(hook.match));
+    invoke_hook_callback(state->host, on_end, "rime:input.inputHook",
+                         json::stringify(payload));
+    (void)state->host->remove_callback(on_end);
+  }
+  (void)context;
+}
+
+// Arms the Timeout property timer through the shared relay so the firing
+// lands on the JS thread; a re-arm cancels the previous timer first (AHK's
+// set_Timeout re-arms while input is in progress).
+void arm_hook_timeout(EventsState* state, EventsState::InputHook& hook) {
+  cancel_hook_timeout(state, hook);
+  if (!hook.in_progress || hook.timeout_ms <= 0 || state->hook_channel_callback == 0) return;
+  const auto queue = state->host->event_queue();
+  const std::uint64_t channel = state->hook_channel_callback;
+  const std::uint64_t id = hook.id;
+  hook.timeout_timer = state->host->timers().schedule(
+      std::chrono::milliseconds(hook.timeout_ms), [queue, channel, id] {
+        (void)queue->push(channel, "{\"hook\":" + std::to_string(id) + ",\"timeout\":1}");
+      });
+}
+
+// Registers the On* callbacks and the shared dispatch slot an in-progress
+// hook needs; rollback on failure leaves the hook idle.
+bool activate_input_hook(JSContext* context, InputModuleBinding* binding, EventsState* state,
+                         EventsState::InputHook& hook) {
+  rime::js::Host* host = state->host;
+  const auto add_owned = [host, context](JSValue& owned, std::uint64_t& out) {
+    if (JS_IsUndefined(owned) || JS_IsNull(owned)) return true;
+    const auto error = host->add_callback(JS_DupValue(context, owned), out);
+    if (!error.ok()) {
+      JS_ThrowInternalError(context, "%s", error.message.c_str());
+      return false;
+    }
+    return true;
+  };
+  if (!ensure_dispatch(context, binding, state)) return false;
+  if (state->hook_channel_callback == 0) {
+    JSValue closure = JS_NewCClosure(context, events_hook_channel, "inputHookChannel", nullptr, 1,
+                                     0, binding);
+    if (JS_IsException(closure)) return false;
+    std::uint64_t channel = 0;
+    if (const auto error = host->add_callback(closure, channel); !error.ok()) {
+      JS_ThrowInternalError(context, "%s", error.message.c_str());
+      return false;
+    }
+    state->hook_channel_callback = channel;
+  }
+  if (!add_owned(hook.on_char, hook.on_char_cb) || !add_owned(hook.on_end, hook.on_end_cb) ||
+      !add_owned(hook.on_key_down, hook.on_key_down_cb) ||
+      !add_owned(hook.on_key_up, hook.on_key_up_cb)) {
+    release_hook_active(state, hook);
+    return false;
+  }
+  const std::uint64_t sub = host->allocate_subscription_id();
+  hook.sub = sub;
+  if (const auto error = host->subscriptions().add("inputHook", sub); !error.ok()) {
+    hook.sub = 0;
+    release_hook_active(state, hook);
+    JS_ThrowInternalError(context, "%s", error.message.c_str());
+    return false;
+  }
+  state->dispatch_users += 1;
+  hook.in_progress = true;
+  hook.buffer.clear();
+  hook.end_key.clear();
+  hook.end_mods.clear();
+  hook.match.clear();
+  hook.end_reason = "";  // in progress (AHK GetEndReason default)
+  arm_hook_timeout(state, hook);
+  return true;
+}
+
+// ---- InputHook capture -----------------------------------------------------
+
+// The event's injection level for this stage: physical input and this
+// runtime's own injections all carry level 0 (AHK's default), so a hook
+// with MinSendLevel > 0 never collects anything yet.
+constexpr std::uint32_t kEventLevel = 0;
+
+// MatchList check: exact (default) or substring (FindAnywhere) against each
+// phrase, case per CaseSensitive. Returns the phrase that matched.
+bool hook_match(const EventsState::InputHook& hook, std::string& matched) {
+  if (hook.match_list.empty()) return false;
+  const std::string buffer = hook.case_sensitive ? hook.buffer : ascii_lower(hook.buffer);
+  for (const std::string& phrase : hook.match_list) {
+    const std::string needle = hook.case_sensitive ? phrase : ascii_lower(phrase);
+    if (needle.empty()) continue;
+    const bool ok = hook.find_anywhere ? buffer.find(needle) != std::string::npos
+                                       : buffer == needle;
+    if (ok) {
+      matched = phrase;
+      return true;
+    }
+  }
+  return false;
+}
+
+// Mirrors AHK input_type::CollectChar: append while there is room, check the
+// match list, then the buffer limit (reaching the limit ends the input as
+// "Max"). For L0 nothing is collected and nothing ends. Returns true when
+// the input ended - in that case OnEnd already fired and the caller must not
+// deliver OnChar/OnKeyDown for this event (AHK drops those messages too,
+// because the end message precedes them in the queue).
+bool collect_input_char(JSContext* context, EventsState* state, EventsState::InputHook& hook,
+                        const char character) {
+  const std::int64_t limit = hook.buffer_max;
+  if (static_cast<std::int64_t>(hook.buffer.size()) == limit) {
+    if (limit <= 0) return false;  // L0: collect nothing, allow OnChar
+  } else {
+    hook.buffer.push_back(character);
+  }
+  std::string matched;
+  if (hook_match(hook, matched)) {
+    end_input_hook(context, state, hook, "Match", {}, matched);
+    return true;
+  }
+  if (static_cast<std::int64_t>(hook.buffer.size()) >= limit) {
+    end_input_hook(context, state, hook, "Max");
+    return true;
+  }
+  return false;
+}
+
+std::string hook_key_payload(const std::uint32_t vk, const std::uint32_t scan, const bool down,
+                             const int has_char, const char character) {
+  json::Value payload = json::Value::object();
+  payload.set("vk", json::Value::number(static_cast<double>(vk)));
+  payload.set("scan", json::Value::number(static_cast<double>(scan)));
+  payload.set("down", json::Value::boolean(down));
+  if (has_char) payload.set("char", json::Value::string(std::string(1, character)));
+  return json::stringify(payload);
+}
+
+// Feeds one key event (down or up, own injections included, level 0) into
+// every in-progress InputHook, in AHK's CollectInputHook order: end keys
+// first, then collection, backspace undo, notify flags, OnKeyDown and
+// OnChar. Hook ids are snapshotted and re-resolved per hook because an
+// On* handler may Stop()/Start() hooks (the vector may even reallocate).
+void feed_input_hooks(JSContext* context, EventsState* state, JSValueConst event) {
+  if (state->input_hooks.empty()) return;
+  std::vector<std::uint64_t> active;
+  active.reserve(state->input_hooks.size());
+  for (const auto& hook : state->input_hooks) {
+    if (hook.in_progress && hook.sub != 0) active.push_back(hook.id);
+  }
+  if (active.empty()) return;
+
+  const auto read_number = [context, event](const char* name, double& out) {
+    JSValue value = event_field(context, event, name);
+    const bool ok = JS_IsNumber(value) && JS_ToFloat64(context, &out, value) == 0;
+    JS_FreeValue(context, value);
+    return ok;
+  };
+  const auto read_flag = [context, event](const char* name) {
+    JSValue value = event_field(context, event, name);
+    const bool flag = JS_IsBool(value) && JS_ToBool(context, value) > 0;
+    JS_FreeValue(context, value);
+    return flag;
+  };
+  double vk_number = 0;
+  double scan_number = 0;
+  if (!read_number("vk", vk_number)) return;
+  (void)read_number("scan", scan_number);
+  const std::uint32_t vk = static_cast<std::uint32_t>(vk_number);
+  const std::uint32_t scan = static_cast<std::uint32_t>(scan_number);
+  if (vk >= 256) return;
+  const bool pressed = read_flag("down");
+  const bool shift = read_flag("shift");
+  const bool alt = read_flag("alt");
+  const bool control = read_flag("control");
+  const bool super = read_flag("super");
+
+  for (const std::uint64_t id : active) {
+    EventsState::InputHook* hook = find_input_hook(state, id);
+    if (!hook || !hook->in_progress || hook->sub == 0) continue;
+    if (!rime::core::SchedulerPolicy::level_allowed(hook->min_send_level, kEventLevel)) continue;
+    std::uint8_t flags = hook->key_flags[vk];
+    if (pressed) {
+      // 1. End keys terminate on the key-down (before any collection).
+      if (flags & EventsState::InputHook::kEndKey) {
+        const bool require_shift = (flags & EventsState::InputHook::kEndKeyShift) != 0;
+        const bool require_no_shift = (flags & EventsState::InputHook::kEndKeyNoShift) != 0;
+        bool shift_ok = true;
+        if (require_shift) shift_ok = shift;
+        else if (require_no_shift) shift_ok = !shift;
+        if (shift_ok) {
+          hook->end_mods = end_mods_text(control, alt, shift, super);
+          end_input_hook(context, state, *hook, "EndKey", chord_key_name(vk));
+          continue;
+        }
+      }
+      // 2. Classify and collect (may end the input).
+      char character = 0;
+      const bool mapped = key_char(vk, shift, character);
+      const bool text = mapped && is_text_char(character);
+      const bool treat_as_text = text && (flags & EventsState::InputHook::kIgnoreText) == 0;
+      bool ended = false;
+      if (treat_as_text) ended = collect_input_char(context, state, *hook, character);
+      if (ended) continue;
+      // 3. Backspace undo: only an unmodified Backspace erases (shift is
+      //    allowed; ctrl/alt/super keep their native word-delete meaning).
+      if (vk == 0x08 && hook->backspace_undo && !alt && !control && !super) {
+        if (!hook->buffer.empty()) hook->buffer.pop_back();
+      }
+      // 4. Text/non-text classification for the matching key-up.
+      if (hook->notify_non_text) {
+        if (treat_as_text) {
+          flags = static_cast<std::uint8_t>(flags | EventsState::InputHook::kHadText);
+        } else {
+          flags = static_cast<std::uint8_t>(flags & ~EventsState::InputHook::kHadText);
+        }
+        hook->key_flags[vk] = flags;
+      }
+      // 5. OnKeyDown, then OnChar - never for the terminating event
+      //    (the early `continue` above took care of that).
+      if ((flags & EventsState::InputHook::kNotify) ||
+          (hook->notify_non_text && !treat_as_text)) {
+        const std::uint64_t callback = hook->on_key_down_cb;
+        invoke_hook_callback(state->host, callback, "rime:input.inputHook",
+                             hook_key_payload(vk, scan, true, 0, 0));
+        hook = find_input_hook(state, id);
+        if (!hook || !hook->in_progress) continue;
+      }
+      if (treat_as_text) {
+        const std::uint64_t callback = hook->on_char_cb;
+        invoke_hook_callback(state->host, callback, "rime:input.inputHook",
+                             hook_key_payload(vk, scan, true, 1, character));
+      }
+    } else {
+      // Key-up: OnKeyUp only, and only while the input is still running
+      // (a key released after the end was dropped by AHK the same way).
+      const bool was_text = (flags & EventsState::InputHook::kHadText) != 0;
+      if ((flags & EventsState::InputHook::kNotify) ||
+          (hook->notify_non_text && !was_text)) {
+        const std::uint64_t callback = hook->on_key_up_cb;
+        invoke_hook_callback(state->host, callback, "rime:input.inputHook",
+                             hook_key_payload(vk, scan, false, 0, 0));
+      }
+    }
+  }
+}
+
+// ---- InputHook timeout/wait relay -----------------------------------------
+
+// The timer thread posts {"hook":id,"timeout":1} when the Timeout property
+// expires and {"hook":id,"wait":token} when a Wait() deadline runs out;
+// both land here on the JS thread.
+JSValue events_hook_channel(JSContext* context, JSValueConst, int argc, JSValueConst* argv,
+                            int, void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->events || argc < 1 || !JS_IsObject(argv[0])) return JS_UNDEFINED;
+  EventsState* state = binding->events.get();
+  if (!state || state->closed) return JS_UNDEFINED;
+  const auto read_integer = [context, argv](const char* name, std::int64_t& out) {
+    JSValue value = event_field(context, argv[0], name);
+    const bool ok = JS_IsNumber(value) && JS_ToInt64(context, &out, value) == 0;
+    JS_FreeValue(context, value);
+    return ok;
+  };
+  std::int64_t id_number = 0;
+  if (!read_integer("hook", id_number)) return JS_UNDEFINED;
+  EventsState::InputHook* hook = find_input_hook(state, static_cast<std::uint64_t>(id_number));
+  if (!hook) return JS_UNDEFINED;
+  std::int64_t flag = 0;
+  if (read_integer("timeout", flag) && flag != 0) {
+    // The Timeout property fired: the input ends as "Timeout".
+    if (hook->in_progress) end_input_hook(context, state, *hook, "Timeout");
+    return JS_UNDEFINED;
+  }
+  std::int64_t token = 0;
+  if (read_integer("wait", token) && token > 0) {
+    // A Wait() deadline: resolve that waiter with "Timeout"; the input
+    // itself keeps running (the Timeout property decides that separately).
+    for (std::size_t index = 0; index < hook->wait_tokens.size(); ++index) {
+      if (hook->wait_tokens[index] != static_cast<std::uint64_t>(token)) continue;
+      const bool have_timer = index < hook->wait_timers.size();
+      if (have_timer && hook->wait_timers[index] != 0)
+        (void)state->host->timers().cancel(hook->wait_timers[index]);
+      hook->wait_tokens.erase(hook->wait_tokens.begin() + static_cast<std::ptrdiff_t>(index));
+      if (have_timer)
+        hook->wait_timers.erase(hook->wait_timers.begin() + static_cast<std::ptrdiff_t>(index));
+      (void)state->host->complete_async(static_cast<std::uint64_t>(token), true,
+                                        json::stringify(json::Value::string("Timeout")));
+      break;
+    }
+  }
+  return JS_UNDEFINED;
+}
+
 JSValue build_window_object(JSContext* context, const WindowInfo& info) {
   JSValue object = JS_NewObject(context);
   if (JS_IsException(object)) return JS_EXCEPTION;
@@ -489,16 +1390,25 @@ void sync_criteria(JSContext* context, EventsState* state) {
 
 // Evaluates one HotIf criterion against the snapshot captured for this
 // event; window kinds were resolved on the UI lane by the watcher, Function
-// kinds are invoked here with { active, seq }. Any failure fails closed.
+// kinds are invoked here with { active, seq }. Any failure fails closed, and
+// so does an evaluation that used up the #HotIfTimeout budget (the policy's
+// rule - the criterion itself cannot be preempted mid-call).
 bool criterion_met(JSContext* context, EventsState* state, std::uint64_t id,
                    const std::shared_ptr<const ContextSnapshot>& snapshot) {
   if (id == 0) return true;
+  const auto eval_start = std::chrono::steady_clock::now();
+  const auto within_budget = [state, eval_start] {
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - eval_start)
+                             .count();
+    return state->policy.hot_if_met(static_cast<std::uint64_t>(elapsed < 0 ? 0 : elapsed));
+  };
   const EventsState::Criterion* criterion = find_criterion(state, id);
   if (!criterion) return false;
   if (criterion->spec.kind != CriterionKind::Function) {
     if (!snapshot) return false;
     for (const auto& entry : snapshot->results) {
-      if (entry.first == id) return entry.second;
+      if (entry.first == id) return entry.second && within_budget();
     }
     return false;
   }
@@ -535,6 +1445,12 @@ bool criterion_met(JSContext* context, EventsState* state, std::uint64_t id,
     record_failure(state->host, "rime:input.hotIf",
                    {rime::core::Error::Code::InvalidContract,
                     "hotIf function must return a boolean"});
+    return false;
+  }
+  if (!within_budget()) {
+    record_failure(state->host, "rime:input.hotIf",
+                   {rime::core::Error::Code::Timeout,
+                    "hotIf criterion exceeded its evaluation budget"});
     return false;
   }
   return met;
@@ -625,12 +1541,76 @@ void release_dispatch_if_idle(EventsState* state) {
 
 // ---- hotkey matching -------------------------------------------------------
 
-void fire_hotkey(JSContext* context, EventsState* state, const EventsState::Hotkey& hotkey) {
+// Keeps the in-flight delivery counters exact across re-entrant pumps: a
+// handler that pumps messages can nest another delivery of the same
+// registration, and both the global (#MaxThreads) and per-registration
+// (#MaxThreadsPerHotkey) caps read these counters.
+// Tracks one in-flight delivery across the JS invoke. The registration may
+// be closed from inside its own callback (erase/realloc of the storage), so
+// the guard never holds a reference into the vector: it keys on the stable
+// subscription id and re-finds the entry. A registration closed mid-delivery
+// is gone - its counter died with it - while the global in-flight count stays
+// exact.
+struct DeliveryGuard {
+  enum class Kind : std::uint8_t { Hotkey, Hotstring };
+  EventsState* state;
+  Kind kind;
+  std::uint64_t sub;
+
+  DeliveryGuard(EventsState& state_ref, const Kind kind_ref, const std::uint64_t sub_ref)
+      : state(&state_ref), kind(kind_ref), sub(sub_ref) {
+    state->running_deliveries += 1;
+    if (std::uint32_t* running = find_running()) *running += 1;
+  }
+  DeliveryGuard(const DeliveryGuard&) = delete;
+  DeliveryGuard& operator=(const DeliveryGuard&) = delete;
+  ~DeliveryGuard() {
+    if (std::uint32_t* running = find_running()) {
+      if (*running > 0) *running -= 1;
+    }
+    state->running_deliveries -= 1;
+  }
+
+  [[nodiscard]] std::uint32_t* find_running() const {
+    if (kind == Kind::Hotkey) {
+      for (auto& hotkey : state->hotkeys) {
+        if (hotkey.sub == sub) return &hotkey.running;
+      }
+    } else {
+      for (auto& hotstring : state->hotstrings) {
+        if (hotstring.sub == sub) return &hotstring.running;
+      }
+    }
+    return nullptr;
+  }
+};
+
+// Capacity half of the central policy: false when #MaxThreads or
+// #MaxThreadsPerHotkey refuses the delivery; the rejection is counted so
+// tests can observe drops without parsing logs. (Suspend and #InputLevel
+// are matching rules handled in the matchers, not load rejections.)
+bool admit_observer_delivery(EventsState* state, const std::uint32_t running) {
+  if (!state->policy.admits_total(state->running_deliveries)) {
+    state->dropped.fetch_add(1, std::memory_order_relaxed);
+    return false;
+  }
+  if (state->policy.admit_subscription(running,
+                                       state->policy.max_concurrency_per_subscription) !=
+      rime::core::Delivery::Deliver) {
+    state->dropped.fetch_add(1, std::memory_order_relaxed);
+    return false;
+  }
+  return true;
+}
+
+void fire_hotkey(JSContext* context, EventsState* state, EventsState::Hotkey& hotkey) {
   if (hotkey.via_action) {
     (void)submit_event_action(context, state, hotkey.action, "hotkey");
     return;
   }
   if (hotkey.observer == 0) return;
+  if (!admit_observer_delivery(state, hotkey.running)) return;
+  DeliveryGuard guard(*state, DeliveryGuard::Kind::Hotkey, hotkey.sub);
   json::Value payload = json::Value::object();
   payload.set("name", json::Value::string(hotkey.name));
   const std::string text = json::stringify(payload);
@@ -641,18 +1621,28 @@ void fire_hotkey(JSContext* context, EventsState* state, const EventsState::Hotk
 
 // First-match-wins: registrations are scanned in order, a failing HotIf
 // criterion falls through to the next candidate. Rows are snapshotted first
-// so a HotIf function can add/remove hotkeys mid-evaluation.
+// so a HotIf function can add/remove hotkeys mid-evaluation. Suspend and
+// #InputLevel filter the scan (they are matching rules), the capacity caps
+// apply at delivery time.
 bool hotkey_try_match(JSContext* context, EventsState* state, JSValueConst event) {
   struct Row {
     std::uint64_t sub;
     std::uint32_t vk;
     std::uint8_t mask;
     std::uint64_t criterion;
+    bool suspend_exempt;
+    std::uint32_t input_level;
   };
   std::vector<Row> rows;
   rows.reserve(state->hotkeys.size());
   for (const auto& hotkey : state->hotkeys) {
-    if (hotkey.enabled) rows.push_back({hotkey.sub, hotkey.vk, hotkey.mask, hotkey.criterion});
+    if (!hotkey.enabled) continue;
+    if (!rime::core::SchedulerPolicy::dispatch_allowed(state->suspended, hotkey.suspend_exempt)) {
+      continue;
+    }
+    if (!rime::core::SchedulerPolicy::level_allowed(hotkey.input_level, kEventLevel)) continue;
+    rows.push_back({hotkey.sub, hotkey.vk, hotkey.mask, hotkey.criterion, hotkey.suspend_exempt,
+                    hotkey.input_level});
   }
   if (rows.empty()) return false;
   const auto snapshot = state->watcher ? state->watcher->current() : nullptr;
@@ -670,6 +1660,11 @@ bool hotkey_try_match(JSContext* context, EventsState* state, JSValueConst event
       }
     }
     if (!hotkey || !hotkey->enabled) continue;
+    // The HotIf evaluation ran script; suspend/level may have changed.
+    if (!rime::core::SchedulerPolicy::dispatch_allowed(state->suspended, hotkey->suspend_exempt)) {
+      continue;
+    }
+    if (!rime::core::SchedulerPolicy::level_allowed(hotkey->input_level, kEventLevel)) continue;
     fire_hotkey(context, state, *hotkey);
     return true;
   }
@@ -709,6 +1704,13 @@ void finish_hotstring(JSContext* context, InputModuleBinding*, EventsState* stat
   EventAction action = hotstring->action;
 
   if (has_observer) {
+    if (!admit_observer_delivery(state, hotstring->running)) {
+      // The trigger was still consumed (the end char matched); only the
+      // delivery is refused, exactly like a cap refusal in AHK.
+      if (do_reset) state->typed.clear();
+      return;
+    }
+    DeliveryGuard guard(*state, DeliveryGuard::Kind::Hotstring, hotstring->sub);
     if (const auto error = state->host->invoke_callback(hotstring->observer, "{}"); !error.ok()) {
       record_failure(state->host, "rime:input.hotstring", error);
     }
@@ -821,6 +1823,10 @@ void hotstring_on_key(JSContext* context, InputModuleBinding* binding, EventsSta
     std::uint64_t matched = 0;
     for (const auto& hotstring : state->hotstrings) {
       if (!hotstring.enabled || !hotstring.wildcard) continue;
+      if (!rime::core::SchedulerPolicy::dispatch_allowed(state->suspended, hotstring.suspend_exempt)) {
+        continue;
+      }
+      if (!rime::core::SchedulerPolicy::level_allowed(hotstring.input_level, kEventLevel)) continue;
       if (!hotstring_match(hotstring, state->typed, true)) continue;
       matched = hotstring.sub;
       break;
@@ -835,6 +1841,10 @@ void hotstring_on_key(JSContext* context, InputModuleBinding* binding, EventsSta
   std::uint64_t matched = 0;
   for (const auto& hotstring : state->hotstrings) {
     if (!hotstring.enabled || hotstring.wildcard) continue;
+    if (!rime::core::SchedulerPolicy::dispatch_allowed(state->suspended, hotstring.suspend_exempt)) {
+      continue;
+    }
+    if (!rime::core::SchedulerPolicy::level_allowed(hotstring.input_level, kEventLevel)) continue;
     if (!hotstring_match(hotstring, state->typed, hotstring.inside_word)) continue;
     matched = hotstring.sub;
     break;
@@ -878,6 +1888,11 @@ JSValue events_dispatch(JSContext* context, JSValueConst, int argc, JSValueConst
     return JS_UNDEFINED;
   }
 
+  // M2-D: InputHook capture sees every key event first - including input
+  // this process injected (AHK's hook collects own injections too), and key
+  // ups (OnKeyUp). Only the matching paths below filter self-injected input.
+  feed_input_hooks(context, state, event);
+
   // Input this process injected through input.send never feeds matching -
   // the same loop-prevention rule input.bind uses.
   JSValue self_value = event_field(context, event, "selfInjected");
@@ -914,11 +1929,17 @@ void arm_scheduler(EventsState* state) {
   const auto queue = host->event_queue();
   const std::uint64_t channel = state->scheduler_callback;
   const auto pending = state->tick_pending;
+  // Captured by value: the timer thread must never read state->policy.
+  const rime::core::SchedulerPolicy policy = state->policy;
   state->scheduler_timer = host->timers().schedule(
-      std::chrono::milliseconds(delay), [queue, channel, pending] {
-        // Coalescing: while a tick is queued or running, later firings do
-        // not pile up - the JS thread re-arms after it catches up.
-        if (!pending->exchange(true, std::memory_order_acq_rel)) {
+      std::chrono::milliseconds(delay), [queue, channel, pending, policy] {
+        // Coalescing (#MaxThreadsBuffer): while a tick is queued or
+        // running, later firings do not pile up - the JS thread re-arms
+        // after it catches up. The central policy decides the repeat;
+        // the pending flag is the exact in-flight state.
+        const bool in_flight = pending->load(std::memory_order_acquire);
+        if (policy.admit_repeat(in_flight) == rime::core::Delivery::Deliver &&
+            !pending->exchange(true, std::memory_order_acq_rel)) {
           (void)queue->push(channel, "{\"tick\":1}");
         }
       });
@@ -1024,9 +2045,15 @@ JSValue events_message_channel(JSContext* context, JSValueConst, int argc, JSVal
       }
     }
     if (!monitor || monitor->msg != message) continue;
-    // AHK's instance cap: while max_instances deliveries are in flight the
-    // next message for this monitor is dropped, not queued.
-    if (monitor->running >= monitor->max_instances) continue;
+    // AHK's instance cap via the central policy: while max_instances (its
+    // MaxThreads bound for this monitor) deliveries are in flight the next
+    // message is dropped, not queued.
+    if (state->policy.admit_subscription(static_cast<std::uint32_t>(monitor->running),
+                                         static_cast<std::uint32_t>(monitor->max_instances)) !=
+        rime::core::Delivery::Deliver) {
+      state->dropped.fetch_add(1, std::memory_order_relaxed);
+      continue;
+    }
     monitor->running += 1;
     if (const auto error = state->host->invoke_callback(monitor->callback, text); !error.ok()) {
       record_failure(state->host, "rime:input.onMessage", error);
@@ -1232,6 +2259,13 @@ JSValue events_hotkey(JSContext* context, JSValueConst, int argc, JSValueConst* 
   if (argc < 2 || !JS_IsString(argv[0])) {
     return JS_ThrowTypeError(context, "hotkey(name, action, options?)");
   }
+  // Argument validation first (M2-B/M2-C order): the options are parsed
+  // before the capability gate is consulted.
+  RegOptions options;
+  if (argc >= 3 &&
+      !parse_reg_options(context, argv[2], "hotkey(name, action, options)", false, options)) {
+    return JS_EXCEPTION;
+  }
   if (!binding->kernel->allows(kHookCapability)) {
     return throw_capability_error(context, kHookCapability);
   }
@@ -1268,12 +2302,11 @@ JSValue events_hotkey(JSContext* context, JSValueConst, int argc, JSValueConst* 
     }
     if (control == 2) existing->enabled = !existing->enabled;
     else existing->enabled = control == 1;
-    if (argc >= 3) {
-      bool have = false;
-      bool enabled = existing->enabled;
-      if (!parse_onoff_options(context, argv[2], have, enabled)) return JS_EXCEPTION;
-      if (have) existing->enabled = enabled;
-    }
+    if (options.control == 1) existing->enabled = true;
+    else if (options.control == 0) existing->enabled = false;
+    else if (options.control == 2) existing->enabled = !existing->enabled;
+    if (options.have_exempt) existing->suspend_exempt = options.suspend_exempt;
+    if (options.have_level) existing->input_level = options.input_level;
     return make_subscription(context, binding, "hotkey", existing->sub);
   }
 
@@ -1283,11 +2316,8 @@ JSValue events_hotkey(JSContext* context, JSValueConst, int argc, JSValueConst* 
                              "hotkey(name, action, options?): action must be a function, an "
                              "action template, or 'on'|'off'|'toggle'");
   }
-  bool have_options = false;
-  bool options_enabled = true;
-  if (argc >= 3 && !parse_onoff_options(context, argv[2], have_options, options_enabled)) {
-    return JS_EXCEPTION;
-  }
+  const bool have_options = options.control >= 0;
+  const bool options_enabled = options.control != 0;
 
   // Validate the action before touching any registration.
   std::uint64_t incoming_observer = 0;
@@ -1310,6 +2340,8 @@ JSValue events_hotkey(JSContext* context, JSValueConst, int argc, JSValueConst* 
     existing->observer = incoming_observer;
     existing->action = std::move(incoming_action);
     if (have_options) existing->enabled = options_enabled;
+    if (options.have_exempt) existing->suspend_exempt = options.suspend_exempt;
+    if (options.have_level) existing->input_level = options.input_level;
     return make_subscription(context, binding, "hotkey", existing->sub);
   }
 
@@ -1326,6 +2358,8 @@ JSValue events_hotkey(JSContext* context, JSValueConst, int argc, JSValueConst* 
   entry.observer = incoming_observer;
   entry.action = std::move(incoming_action);
   entry.name = name;
+  if (options.have_exempt) entry.suspend_exempt = options.suspend_exempt;
+  entry.input_level = options.have_level ? options.input_level : state->policy.input_level;
   state->hotkeys.push_back(std::move(entry));
   if (const auto error = host->subscriptions().add("hotkey", sub); !error.ok()) {
     state->hotkeys.pop_back();
@@ -1397,17 +2431,22 @@ JSValue events_hotstring(JSContext* context, JSValueConst, int argc, JSValueCons
     return JS_NULL;
   }
 
+  // M2-D options: the onOff argument also accepts { on?, suspendExempt?,
+  // inputLevel? }; validation (and the capability check) happen before any
+  // registration is touched.
+  RegOptions options;
+  if (argc >= 3 &&
+      !parse_reg_options(context, argv[2], "hotstring(spec, action, onOff)", true, options)) {
+    return JS_EXCEPTION;
+  }
+
   // Settings forms above are plain state; registering a hotstring is what
   // installs a global hook stream, so only now is the capability required.
   if (!binding->kernel->allows(kHookCapability)) {
     return throw_capability_error(context, kHookCapability);
   }
 
-  int third_control = -1;
-  if (argc >= 3) {
-    third_control = parse_ctrl_word(context, argv[2], "hotstring(spec, action, onOff)");
-    if (third_control < 0 && !JS_IsUndefined(argv[2]) && !JS_IsNull(argv[2])) return JS_EXCEPTION;
-  }
+  const int third_control = options.control;
   const auto apply_control = [](EventsState::Hotstring& target, const int control) {
     if (control == 0) target.enabled = false;
     else if (control == 1) target.enabled = true;
@@ -1435,6 +2474,8 @@ JSValue events_hotstring(JSContext* context, JSValueConst, int argc, JSValueCons
     }
     apply_control(*existing, control);
     if (third_control >= 0) apply_control(*existing, third_control);
+    if (options.have_exempt) existing->suspend_exempt = options.suspend_exempt;
+    if (options.have_level) existing->input_level = options.input_level;
     return make_subscription(context, binding, "hotstring", existing->sub);
   }
 
@@ -1489,6 +2530,8 @@ JSValue events_hotstring(JSContext* context, JSValueConst, int argc, JSValueCons
       existing->action = EventAction{};
     }
     if (third_control >= 0) apply_control(*existing, third_control);
+    if (options.have_exempt) existing->suspend_exempt = options.suspend_exempt;
+    if (options.have_level) existing->input_level = options.input_level;
     (void)was_replacement;
     return make_subscription(context, binding, "hotstring", existing->sub);
   }
@@ -1500,6 +2543,8 @@ JSValue events_hotstring(JSContext* context, JSValueConst, int argc, JSValueCons
   parsed.criterion = state->current_criterion;
   parsed.key = key;
   parsed.enabled = third_control == 0 ? false : true;
+  if (options.have_exempt) parsed.suspend_exempt = options.suspend_exempt;
+  parsed.input_level = options.have_level ? options.input_level : state->policy.input_level;
   parsed.via_action = incoming_via_action;
   parsed.observer = incoming_observer;
   parsed.action = std::move(incoming_action);
@@ -2023,6 +3068,704 @@ JSValue events_on_exit(JSContext* context, JSValueConst, int argc, JSValueConst*
   return make_subscription(context, binding, "exit", sub);
 }
 
+// ---- InputHook JS object ---------------------------------------------------
+
+// Property magic for the accessor closures: the 17 accessor properties
+// from docs/api/objects.json in member order (6 settable bools, 6 readonly
+// snapshots, MinSendLevel, the 4 On* callbacks, Timeout). The `id` data
+// property is defined separately and stays non-enumerable, so Object.keys()
+// shows exactly the 23 documented members.
+enum InputHookProperty : int {
+  kHookPropBackspaceIsUndo = 0,
+  kHookPropCaseSensitive,
+  kHookPropFindAnywhere,
+  kHookPropNotifyNonText,
+  kHookPropVisibleNonText,
+  kHookPropVisibleText,
+  kHookPropEndKey,
+  kHookPropEndMods,
+  kHookPropEndReason,
+  kHookPropInProgress,
+  kHookPropInput,
+  kHookPropMatch,
+  kHookPropMinSendLevel,
+  kHookPropOnChar,
+  kHookPropOnEnd,
+  kHookPropOnKeyDown,
+  kHookPropOnKeyUp,
+  kHookPropTimeout,
+  kHookPropCount,
+};
+
+constexpr const char* kInputHookPropertyNames[kHookPropCount] = {
+    "BackspaceIsUndo", "CaseSensitive",    "FindAnywhere",  "NotifyNonText",
+    "VisibleNonText",  "VisibleText",      "EndKey",        "EndMods",
+    "EndReason",       "InProgress",       "Input",         "Match",
+    "MinSendLevel",    "OnChar",           "OnEnd",         "OnKeyDown",
+    "OnKeyUp",         "Timeout",
+};
+
+// __New(options?, endKeys?, matchList?): validates every argument into a
+// scratch copy first, then commits onto the idle hook - ValueError for bad
+// options/end keys/match list, InvalidState while input is in progress
+// (docs/api/objects.json). The factory and the __New method share this.
+bool input_hook_init(JSContext* context, EventsState* state, const std::uint64_t id,
+                     const int argc, JSValueConst* argv) {
+  EventsState::InputHook* hook = find_input_hook(state, id);
+  if (!hook) {
+    JS_ThrowInternalError(context, "InputHook is closed");
+    return false;
+  }
+  if (hook->in_progress) {
+    JS_ThrowInternalError(context, "InputHook: cannot re-initialize while input is in progress");
+    return false;
+  }
+  const auto read_arg = [context, argc, argv](const int index, std::string& out) -> int {
+    // 0 = ok/absent, -1 = error (exception pending), 1 = wrong type.
+    if (index >= argc || JS_IsUndefined(argv[index]) || JS_IsNull(argv[index])) return 0;
+    if (!JS_IsString(argv[index])) return 1;
+    const char* text = JS_ToCString(context, argv[index]);
+    if (!text) return -1;
+    out.assign(text);
+    JS_FreeCString(context, text);
+    return 0;
+  };
+  EventsState::InputHook scratch;  // default option values, untouched state
+  std::string text;
+  const int options_status = read_arg(0, text);
+  if (options_status < 0) return false;
+  if (options_status > 0) {
+    JS_ThrowTypeError(context, "__New(options): options must be a string");
+    return false;
+  }
+  if (argc >= 1 && JS_IsString(argv[0])) {
+      std::string error;
+      if (!parse_hook_options(text, scratch, error)) {
+      JS_ThrowTypeError(context, "__New(options): %s", error.c_str());
+      return false;
+    }
+  }
+  text.clear();
+  const int end_status = read_arg(1, text);
+  if (end_status < 0) return false;
+  if (end_status > 0) {
+    JS_ThrowTypeError(context, "__New(endKeys): endKeys must be a string");
+    return false;
+  }
+  if (argc >= 2 && JS_IsString(argv[1])) {
+    std::vector<KeyListEntry> entries;
+    if (!resolve_key_list(context, text, KeyListMode::EndKeys, entries, "__New(endKeys)")) {
+      return false;
+    }
+    apply_end_keys(entries, scratch.key_flags);
+  }
+  text.clear();
+  const int match_status = read_arg(2, text);
+  if (match_status < 0) return false;
+  if (match_status > 0) {
+    JS_ThrowTypeError(context, "__New(matchList): matchList must be a string");
+    return false;
+  }
+  if (argc >= 3 && JS_IsString(argv[2])) {
+    if (!parse_match_list(context, text, scratch.match_list)) return false;
+  }
+  // Commit: option fields plus a fresh collection state (AHK Start also
+  // clears the buffer; __New on an idle hook resets everything observable).
+  hook->backspace_undo = scratch.backspace_undo;
+  hook->case_sensitive = scratch.case_sensitive;
+  hook->find_anywhere = scratch.find_anywhere;
+  hook->notify_non_text = scratch.notify_non_text;
+  hook->visible_non_text = scratch.visible_non_text;
+  hook->visible_text = scratch.visible_text;
+  hook->min_send_level = scratch.min_send_level;
+  hook->timeout_ms = scratch.timeout_ms;
+  hook->buffer_max = scratch.buffer_max;
+  hook->key_flags = scratch.key_flags;
+  hook->match_list = scratch.match_list;
+  hook->buffer.clear();
+  hook->end_key.clear();
+  hook->end_mods.clear();
+  hook->match.clear();
+  hook->end_reason = "Stopped";
+  return true;
+}
+
+JSValue input_hook_new(JSContext* context, JSValueConst this_val, int argc, JSValueConst* argv,
+                       int, void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->events) return JS_ThrowInternalError(context, "rime:input is not wired");
+  EventsState* state = binding->events.get();
+  EventsState::InputHook* hook = hook_of(context, this_val, state);
+  if (!hook) return JS_EXCEPTION;
+  const std::uint64_t id = hook->id;
+  if (!input_hook_init(context, state, id, argc, argv)) return JS_EXCEPTION;
+  return JS_UNDEFINED;
+}
+
+// KeyOpt(keys, keyOptions): AHK SetKeyFlags option letters - '+' add, '-'
+// remove, E end key, I ignore text, N notify, Z zero; S/V are accepted
+// without hook-side effect; "{All}" applies to every key. ValueError on
+// invalid keys or options (docs/api/objects.json).
+JSValue input_hook_key_opt(JSContext* context, JSValueConst this_val, int argc,
+                           JSValueConst* argv, int, void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->events) return JS_ThrowInternalError(context, "rime:input is not wired");
+  EventsState* state = binding->events.get();
+  EventsState::InputHook* hook = hook_of(context, this_val, state);
+  if (!hook) return JS_EXCEPTION;
+  if (argc < 2 || !JS_IsString(argv[0]) || !JS_IsString(argv[1])) {
+    return JS_ThrowTypeError(context, "KeyOpt(keys, keyOptions)");
+  }
+  const char* keys_text = JS_ToCString(context, argv[0]);
+  if (!keys_text) return JS_EXCEPTION;
+  const std::string keys(keys_text);
+  JS_FreeCString(context, keys_text);
+  const char* options_text = JS_ToCString(context, argv[1]);
+  if (!options_text) return JS_EXCEPTION;
+  const std::string options(options_text);
+  JS_FreeCString(context, options_text);
+  bool adding = true;
+  std::uint8_t add_flags = 0;
+  std::uint8_t remove_flags = 0;
+  for (const char raw : options) {
+    const char letter = static_cast<char>(std::toupper(static_cast<unsigned char>(raw)));
+    if (letter == '+') {
+      adding = true;
+      continue;
+    }
+    if (letter == '-') {
+      adding = false;
+      continue;
+    }
+    if (letter == ' ' || letter == '\t') continue;
+    std::uint8_t flag = 0;
+    if (letter == 'E') {
+      flag = EventsState::InputHook::kEndKey;
+    } else if (letter == 'I') {
+      flag = EventsState::InputHook::kIgnoreText;
+    } else if (letter == 'N') {
+      flag = EventsState::InputHook::kNotify;
+    } else if (letter == 'S' || letter == 'V') {
+      continue;  // accepted, not implemented (documented deviation)
+    } else if (letter == 'Z') {
+      add_flags = 0;
+      remove_flags = EventsState::InputHook::kKeyOptionMask;
+      continue;
+    } else {
+      JS_ThrowTypeError(context, "KeyOpt: unsupported option '%c'", letter);
+      return JS_EXCEPTION;
+    }
+    if (adding) {
+      add_flags = static_cast<std::uint8_t>(add_flags | flag);
+    } else {
+      remove_flags = static_cast<std::uint8_t>(remove_flags | flag);
+      add_flags = static_cast<std::uint8_t>(add_flags & ~flag);
+    }
+  }
+  if (ascii_lower(keys) == "{all}") {
+    for (std::uint8_t& slot : hook->key_flags) {
+      slot = static_cast<std::uint8_t>((slot & ~remove_flags) | add_flags);
+    }
+    return JS_UNDEFINED;
+  }
+  std::vector<KeyListEntry> entries;
+  if (!resolve_key_list(context, keys, KeyListMode::KeyOpt, entries, "KeyOpt(keys)")) {
+    return JS_EXCEPTION;
+  }
+  for (const KeyListEntry& entry : entries) {
+    std::uint8_t& slot = hook->key_flags[entry.vk];
+    slot = static_cast<std::uint8_t>((slot & ~remove_flags) | add_flags);
+  }
+  return JS_UNDEFINED;
+}
+
+// Start(): idempotent while input is in progress; capability-checked here
+// (construction stays ungated - docs/api/objects.json pins no capability
+// error on the factory).
+JSValue input_hook_start(JSContext* context, JSValueConst this_val, int, JSValueConst*, int,
+                         void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->events || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  EventsState* state = binding->events.get();
+  EventsState::InputHook* hook = hook_of(context, this_val, state);
+  if (!hook) return JS_EXCEPTION;
+  if (hook->in_progress) return JS_UNDEFINED;  // AHK: Start is idempotent
+  if (!binding->kernel->allows(kHookCapability)) {
+    return throw_capability_error(context, kHookCapability);
+  }
+  if (!activate_input_hook(context, binding, state, *hook)) return JS_EXCEPTION;
+  return JS_UNDEFINED;
+}
+
+// Stop(): no-op when input is not in progress (AHK has no error path).
+JSValue input_hook_stop(JSContext* context, JSValueConst this_val, int, JSValueConst*, int,
+                        void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->events) return JS_ThrowInternalError(context, "rime:input is not wired");
+  EventsState* state = binding->events.get();
+  EventsState::InputHook* hook = hook_of(context, this_val, state);
+  if (!hook) return JS_EXCEPTION;
+  if (hook->in_progress) end_input_hook(context, state, *hook, "Stopped");
+  return JS_UNDEFINED;
+}
+
+// Wait(maxTime?): promise resolving to the EndReason string. While idle it
+// resolves immediately with the last EndReason; otherwise it waits for the
+// input to end, or for the (optional, seconds) budget to expire - then the
+// promise resolves with "Timeout" while the input itself keeps running.
+JSValue input_hook_wait(JSContext* context, JSValueConst this_val, int argc, JSValueConst* argv,
+                        int, void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->events) return JS_ThrowInternalError(context, "rime:input is not wired");
+  EventsState* state = binding->events.get();
+  EventsState::InputHook* hook = hook_of(context, this_val, state);
+  if (!hook) return JS_EXCEPTION;
+  double seconds = 0;
+  if (argc >= 1 && !JS_IsUndefined(argv[0]) && !JS_IsNull(argv[0])) {
+    if (!JS_IsNumber(argv[0]) || JS_ToFloat64(context, &seconds, argv[0]) != 0 ||
+        !std::isfinite(seconds)) {
+      return JS_ThrowTypeError(context, "Wait(maxTime): maxTime must be a number (seconds)");
+    }
+    if (seconds < 0) seconds = 0;  // AHK's negative cast is UB; we clamp
+  }
+  rime::js::Host* host = state->host;
+  JSValue promise = JS_UNDEFINED;
+  std::uint64_t token = 0;
+  if (const auto error = host->begin_async(context, promise, token, 0); !error.ok()) {
+    return JS_ThrowInternalError(context, "%s", error.message.c_str());
+  }
+  if (!hook->in_progress) {
+    host->complete_async(token, true, json::stringify(json::Value::string(hook->end_reason)));
+    return promise;
+  }
+  const std::uint64_t id = hook->id;
+  hook->wait_tokens.push_back(token);
+  if (argc >= 1 && seconds > 0) {
+    const auto queue = host->event_queue();
+    const std::uint64_t channel = state->hook_channel_callback;
+    const std::uint64_t timer = host->timers().schedule(
+        std::chrono::milliseconds(static_cast<std::int64_t>(seconds * 1000.0)),
+        [queue, channel, id, token] {
+          (void)queue->push(channel, "{\"hook\":" + std::to_string(id) +
+                                         ",\"wait\":" + std::to_string(token) + "}");
+        });
+    hook->wait_timers.push_back(timer);
+  } else {
+    hook->wait_timers.push_back(0);
+  }
+  return promise;
+}
+
+JSValue input_hook_get(JSContext* context, JSValueConst this_val, int, JSValueConst*, int magic,
+                       void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->events) return JS_UNDEFINED;
+  EventsState* state = binding->events.get();
+  EventsState::InputHook* hook = hook_of(context, this_val, state);
+  if (!hook) return JS_EXCEPTION;
+  switch (magic) {
+    case kHookPropBackspaceIsUndo:
+      return JS_NewBool(context, hook->backspace_undo ? 1 : 0);
+    case kHookPropCaseSensitive:
+      return JS_NewBool(context, hook->case_sensitive ? 1 : 0);
+    case kHookPropFindAnywhere:
+      return JS_NewBool(context, hook->find_anywhere ? 1 : 0);
+    case kHookPropNotifyNonText:
+      return JS_NewBool(context, hook->notify_non_text ? 1 : 0);
+    case kHookPropVisibleNonText:
+      return JS_NewBool(context, hook->visible_non_text ? 1 : 0);
+    case kHookPropVisibleText:
+      return JS_NewBool(context, hook->visible_text ? 1 : 0);
+    case kHookPropEndKey:
+      return JS_NewString(context, hook->end_key.c_str());
+    case kHookPropEndMods:
+      return JS_NewString(context, hook->end_mods.c_str());
+    case kHookPropEndReason:
+      return JS_NewString(context, hook->end_reason.c_str());
+    case kHookPropInProgress:
+      return JS_NewBool(context, hook->in_progress ? 1 : 0);
+    case kHookPropInput:
+      return JS_NewString(context, hook->buffer.c_str());
+    case kHookPropMatch:
+      return JS_NewString(context, hook->match.c_str());
+    case kHookPropMinSendLevel:
+      return JS_NewUint32(context, hook->min_send_level);
+    case kHookPropOnChar:
+      return JS_IsUndefined(hook->on_char) ? JS_NULL : JS_DupValue(context, hook->on_char);
+    case kHookPropOnEnd:
+      return JS_IsUndefined(hook->on_end) ? JS_NULL : JS_DupValue(context, hook->on_end);
+    case kHookPropOnKeyDown:
+      return JS_IsUndefined(hook->on_key_down) ? JS_NULL
+                                               : JS_DupValue(context, hook->on_key_down);
+    case kHookPropOnKeyUp:
+      return JS_IsUndefined(hook->on_key_up) ? JS_NULL : JS_DupValue(context, hook->on_key_up);
+    case kHookPropTimeout:
+      return JS_NewFloat64(context, static_cast<double>(hook->timeout_ms) / 1000.0);
+    default:
+      return JS_UNDEFINED;
+  }
+}
+
+JSValue input_hook_set(JSContext* context, JSValueConst this_val, int argc, JSValueConst* argv,
+                       int magic, void* opaque) {
+  if (argc < 1) return JS_ThrowTypeError(context, "InputHook: missing property value");
+  JSValueConst value = argv[0];
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->events) return JS_ThrowInternalError(context, "rime:input is not wired");
+  EventsState* state = binding->events.get();
+  EventsState::InputHook* hook = hook_of(context, this_val, state);
+  if (!hook) return JS_EXCEPTION;
+  const char* name = (magic >= 0 && magic < kHookPropCount) ? kInputHookPropertyNames[magic]
+                                                           : "property";
+  if (magic >= kHookPropEndKey && magic <= kHookPropMatch) {
+    return JS_ThrowTypeError(context, "InputHook.%s is read-only", name);
+  }
+  if (magic == kHookPropMinSendLevel) {
+    double number = 0;
+    if (!JS_IsNumber(value) || JS_ToFloat64(context, &number, value) != 0 ||
+        !std::isfinite(number)) {
+      return JS_ThrowTypeError(context, "InputHook.%s must be numeric", name);
+    }
+    std::int32_t level = 0;
+    if (JS_ToInt32(context, &level, value) != 0) return JS_EXCEPTION;
+    hook->min_send_level = level < 0 ? 0 : static_cast<std::uint32_t>(level);
+    return JS_UNDEFINED;
+  }
+  if (magic == kHookPropTimeout) {
+    double number = 0;
+    if (!JS_IsNumber(value) || JS_ToFloat64(context, &number, value) != 0 ||
+        !std::isfinite(number)) {
+      return JS_ThrowTypeError(context, "InputHook.%s must be numeric", name);
+    }
+    if (number < 0) return JS_ThrowRangeError(context, "InputHook.%s cannot be negative", name);
+    hook->timeout_ms = static_cast<std::int64_t>(number * 1000.0);
+    arm_hook_timeout(state, *hook);  // re-arms while in progress
+    return JS_UNDEFINED;
+  }
+  if (magic >= kHookPropOnChar && magic <= kHookPropOnKeyUp) {
+    if (!JS_IsUndefined(value) && !JS_IsNull(value) && !JS_IsFunction(context, value)) {
+      return JS_ThrowTypeError(context, "InputHook.%s must be a callable object", name);
+    }
+    JSValue* owned = &hook->on_char;
+    std::uint64_t* callback = &hook->on_char_cb;
+    if (magic == kHookPropOnEnd) {
+      owned = &hook->on_end;
+      callback = &hook->on_end_cb;
+    } else if (magic == kHookPropOnKeyDown) {
+      owned = &hook->on_key_down;
+      callback = &hook->on_key_down_cb;
+    } else if (magic == kHookPropOnKeyUp) {
+      owned = &hook->on_key_up;
+      callback = &hook->on_key_up_cb;
+    }
+    JS_FreeValue(context, *owned);
+    *owned = (JS_IsUndefined(value) || JS_IsNull(value)) ? JS_UNDEFINED
+                                                         : JS_DupValue(context, value);
+    // While input is in progress the registered host callback must follow
+    // the assignment - a plain JSValue swap would never fire.
+    if (hook->in_progress) {
+      if (*callback != 0) {
+        (void)state->host->remove_callback(*callback);
+        *callback = 0;
+      }
+      if (!JS_IsUndefined(*owned)) {
+        if (const auto error = state->host->add_callback(JS_DupValue(context, *owned), *callback);
+            !error.ok()) {
+          return JS_ThrowInternalError(context, "%s", error.message.c_str());
+        }
+      }
+    }
+    return JS_UNDEFINED;
+  }
+  if (!JS_IsBool(value)) {
+    return JS_ThrowTypeError(context, "InputHook.%s must be a boolean", name);
+  }
+  const bool flag = JS_ToBool(context, value) > 0;
+  switch (magic) {
+    case kHookPropBackspaceIsUndo:
+      hook->backspace_undo = flag;
+      break;
+    case kHookPropCaseSensitive:
+      hook->case_sensitive = flag;
+      break;
+    case kHookPropFindAnywhere:
+      hook->find_anywhere = flag;
+      break;
+    case kHookPropNotifyNonText:
+      hook->notify_non_text = flag;
+      break;
+    case kHookPropVisibleNonText:
+      hook->visible_non_text = flag;
+      break;
+    case kHookPropVisibleText:
+      hook->visible_text = flag;
+      break;
+    default:
+      return JS_ThrowTypeError(context, "InputHook: unknown property");
+  }
+  return JS_UNDEFINED;
+}
+
+// input.createInputHook(options?, endKeys?, matchList?): builds one
+// runtime-owned hook object - the native side of the InputHook member list
+// in docs/api/objects.json. Construction is capability-free; Start() gates
+// on windows.hook.global.
+JSValue events_create_input_hook(JSContext* context, JSValueConst, int argc, JSValueConst* argv,
+                                 int, void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->events) return JS_ThrowInternalError(context, "rime:input is not wired");
+  EventsState* state = binding->events.get();
+  if (!state || state->closed) {
+    return JS_ThrowInternalError(context, "rime:input events are shut down");
+  }
+  EventsState::InputHook entry{};
+  entry.id = state->next_input_hook_id++;
+  const std::uint64_t id = entry.id;
+  state->input_hooks.push_back(entry);
+  const auto discard = [state, id] {
+    for (auto iterator = state->input_hooks.begin(); iterator != state->input_hooks.end();
+         ++iterator) {
+      if (iterator->id == id) {
+        state->input_hooks.erase(iterator);
+        break;
+      }
+    }
+  };
+  JSValue object = JS_NewObject(context);
+  if (JS_IsException(object)) {
+    discard();
+    return JS_EXCEPTION;
+  }
+  // `id`: non-enumerable, non-writable data property (hook_of reads it).
+  const JSAtom id_atom = JS_NewAtom(context, "id");
+  if (id_atom == JS_ATOM_NULL ||
+      JS_DefinePropertyValue(context, object, id_atom,
+                             JS_NewInt64(context, static_cast<std::int64_t>(id)),
+                             JS_PROP_CONFIGURABLE) < 0) {
+    if (id_atom != JS_ATOM_NULL) JS_FreeAtom(context, id_atom);
+    JS_FreeValue(context, object);
+    discard();
+    return JS_EXCEPTION;
+  }
+  JS_FreeAtom(context, id_atom);
+  const auto define_method = [context, object, binding](const char* name, JSCClosure* function,
+                                                        const int length) -> bool {
+    JSValue closure = JS_NewCClosure(context, function, name, nullptr, length, 0, binding);
+    if (JS_IsException(closure)) return false;
+    return JS_SetPropertyStr(context, object, name, closure) >= 0;
+  };
+  const auto define_property = [context, object, binding](const int magic) -> bool {
+    const char* name = kInputHookPropertyNames[magic];
+    const bool readonly = magic >= kHookPropEndKey && magic <= kHookPropMatch;
+    JSValue getter = JS_NewCClosure(context, input_hook_get, name, nullptr, 0, magic, binding);
+    if (JS_IsException(getter)) return false;
+    JSValue setter = JS_UNDEFINED;
+    if (!readonly) {
+      setter = JS_NewCClosure(context, input_hook_set, name, nullptr, 1, magic, binding);
+      if (JS_IsException(setter)) {
+        JS_FreeValue(context, getter);
+        return false;
+      }
+    }
+    const JSAtom atom = JS_NewAtom(context, name);
+    if (atom == JS_ATOM_NULL) {
+      JS_FreeValue(context, getter);
+      JS_FreeValue(context, setter);
+      return false;
+    }
+    // Consumes getter and setter on both success and failure.
+    const int defined =
+        JS_DefinePropertyGetSet(context, object, atom, getter, setter, JS_PROP_ENUMERABLE);
+    JS_FreeAtom(context, atom);
+    return defined >= 0;
+  };
+  bool built = define_method("__New", input_hook_new, 3) &&
+               define_method("KeyOpt", input_hook_key_opt, 2) &&
+               define_method("Start", input_hook_start, 0) &&
+               define_method("Stop", input_hook_stop, 0) &&
+               define_method("Wait", input_hook_wait, 1);
+  for (int magic = 0; built && magic < kHookPropCount; ++magic) built = define_property(magic);
+  if (!built) {
+    JS_FreeValue(context, object);
+    discard();
+    return JS_EXCEPTION;
+  }
+  if (!input_hook_init(context, state, id, argc, argv)) {
+    JS_FreeValue(context, object);
+    discard();
+    return JS_EXCEPTION;
+  }
+  return object;
+}
+
+// ---- input.suspend / input.policy (M2-D) ----------------------------------
+
+// input.suspend(on?): boolean or "on"|"off"|"toggle" sets the flag,
+// undefined/null (or no argument) toggles; returns the resulting state.
+// Hotkey and hotstring matching consult it through the central policy;
+// timers, onMessage and InputHook capture keep running (AHK's Suspend only
+// disables hotkey recognition).
+JSValue input_suspend(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                      void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->events) return JS_ThrowInternalError(context, "rime:input is not wired");
+  EventsState* state = binding->events.get();
+  if (!state || state->closed) {
+    return JS_ThrowInternalError(context, "rime:input events are shut down");
+  }
+  if (argc >= 1 && !JS_IsUndefined(argv[0]) && !JS_IsNull(argv[0])) {
+    if (JS_IsBool(argv[0])) {
+      state->suspended = JS_ToBool(context, argv[0]) > 0;
+    } else if (JS_IsString(argv[0])) {
+      const char* text = JS_ToCString(context, argv[0]);
+      if (!text) return JS_EXCEPTION;
+      const std::string word = ascii_lower(text);
+      JS_FreeCString(context, text);
+      if (word == "on") {
+        state->suspended = true;
+      } else if (word == "off") {
+        state->suspended = false;
+      } else if (word == "toggle") {
+        state->suspended = !state->suspended;
+      } else {
+        return JS_ThrowTypeError(context, "suspend(on?): expected 'on', 'off' or 'toggle'");
+      }
+    } else {
+      return JS_ThrowTypeError(context,
+                               "suspend(on?): expected a boolean or 'on'|'off'|'toggle'");
+    }
+  } else {
+    state->suspended = !state->suspended;
+  }
+  return JS_NewBool(context, state->suspended ? 1 : 0);
+}
+
+const char* overflow_policy_name(const rime::core::OverflowPolicy policy) {
+  switch (policy) {
+    case rime::core::OverflowPolicy::Reject:
+      return "reject";
+    case rime::core::OverflowPolicy::DropOldest:
+      return "dropOldest";
+    case rime::core::OverflowPolicy::CoalesceByKey:
+      return "coalesce";
+  }
+  return "reject";
+}
+
+// input.policy(snapshot?): without arguments returns the central dispatch
+// policy as { maxConcurrency, maxConcurrencyPerHotkey, inputLevel,
+// hotIfTimeout, overflow }; with a snapshot object every field is validated
+// first (unknown key => TypeError) and only then committed. This is the one
+// place the directive knobs live - docs/api/directives-and-syntax.md.
+JSValue input_policy(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->events) return JS_ThrowInternalError(context, "rime:input is not wired");
+  EventsState* state = binding->events.get();
+  if (!state || state->closed) {
+    return JS_ThrowInternalError(context, "rime:input events are shut down");
+  }
+  if (argc >= 1 && !JS_IsUndefined(argv[0]) && !JS_IsNull(argv[0])) {
+    if (!JS_IsObject(argv[0])) {
+      return JS_ThrowTypeError(context, "policy(snapshot): snapshot must be an object");
+    }
+    JSPropertyEnum* names = nullptr;
+    std::uint32_t count = 0;
+    if (JS_GetOwnPropertyNames(context, &names, &count, argv[0], JS_GPN_STRING_MASK) < 0) {
+      return JS_EXCEPTION;
+    }
+    bool known = true;
+    for (std::uint32_t index = 0; index < count && known; ++index) {
+      const char* key = JS_AtomToCString(context, names[index].atom);
+      if (!key) {
+        known = false;
+        break;
+      }
+      const std::string name(key);
+      JS_FreeCString(context, key);
+      if (name != "maxConcurrency" && name != "maxConcurrencyPerHotkey" &&
+          name != "inputLevel" && name != "hotIfTimeout" && name != "overflow") {
+        JS_ThrowTypeError(context, "policy(snapshot): unsupported field '%s'", name.c_str());
+        known = false;
+      }
+    }
+    JS_FreePropertyEnum(context, names, count);
+    if (!known) return JS_EXCEPTION;
+    rime::core::SchedulerPolicy next = state->policy;
+    // Reads one field; absent keys leave `present` false so the caller keeps
+    // the current value (the shared `field` variable stays untouched).
+    const auto read_uint = [context, argv](const char* key, std::uint64_t& out, bool& present) {
+      present = false;
+      JSValue entry = JS_GetPropertyStr(context, argv[0], key);
+      if (JS_IsException(entry)) return false;
+      if (JS_IsUndefined(entry)) {
+        JS_FreeValue(context, entry);
+        return true;
+      }
+      double number = 0;
+      const bool numeric = JS_IsNumber(entry) && JS_ToFloat64(context, &number, entry) == 0;
+      JS_FreeValue(context, entry);
+      if (!numeric || !std::isfinite(number) || number < 0 ||
+          number != std::trunc(number) || number > 4294967295.0) {
+        JS_ThrowTypeError(context, "policy.%s must be a non-negative integer", key);
+        return false;
+      }
+      out = static_cast<std::uint64_t>(number);
+      present = true;
+      return true;
+    };
+    std::uint64_t field = 0;
+    bool present = false;
+    if (!read_uint("maxConcurrency", field, present)) return JS_EXCEPTION;
+    if (present) next.max_concurrency = static_cast<std::uint32_t>(field);
+    if (!read_uint("maxConcurrencyPerHotkey", field, present)) return JS_EXCEPTION;
+    if (present) next.max_concurrency_per_subscription = static_cast<std::uint32_t>(field);
+    if (!read_uint("inputLevel", field, present)) return JS_EXCEPTION;
+    if (present) next.input_level = static_cast<std::uint32_t>(field);
+    if (!read_uint("hotIfTimeout", field, present)) return JS_EXCEPTION;
+    if (present) next.hot_if_timeout_ms = field;
+    JSValue overflow = JS_GetPropertyStr(context, argv[0], "overflow");
+    if (JS_IsException(overflow)) return JS_EXCEPTION;
+    if (!JS_IsUndefined(overflow)) {
+      if (!JS_IsString(overflow)) {
+        JS_FreeValue(context, overflow);
+        return JS_ThrowTypeError(context, "policy.overflow must be a string");
+      }
+      const char* text = JS_ToCString(context, overflow);
+      JS_FreeValue(context, overflow);
+      if (!text) return JS_EXCEPTION;
+      const std::string name(text);
+      JS_FreeCString(context, text);
+      if (name == "reject") {
+        next.overflow = rime::core::OverflowPolicy::Reject;
+      } else if (name == "dropOldest") {
+        next.overflow = rime::core::OverflowPolicy::DropOldest;
+      } else if (name == "coalesce") {
+        next.overflow = rime::core::OverflowPolicy::CoalesceByKey;
+      } else {
+        return JS_ThrowTypeError(
+            context, "policy.overflow must be 'reject', 'dropOldest' or 'coalesce'");
+      }
+    }
+    state->policy = next;
+  }
+  JSValue snapshot = JS_NewObject(context);
+  if (JS_IsException(snapshot)) return snapshot;
+  JS_SetPropertyStr(context, snapshot, "maxConcurrency",
+                    JS_NewUint32(context, state->policy.max_concurrency));
+  JS_SetPropertyStr(context, snapshot, "maxConcurrencyPerHotkey",
+                    JS_NewUint32(context, state->policy.max_concurrency_per_subscription));
+  JS_SetPropertyStr(context, snapshot, "inputLevel",
+                    JS_NewUint32(context, state->policy.input_level));
+  JS_SetPropertyStr(context, snapshot, "hotIfTimeout",
+                    JS_NewInt64(context, static_cast<std::int64_t>(state->policy.hot_if_timeout_ms)));
+  JS_SetPropertyStr(context, snapshot, "overflow",
+                    JS_NewString(context, overflow_policy_name(state->policy.overflow)));
+  return snapshot;
+}
+
 // ---- module wiring ---------------------------------------------------------
 
 // One EventsState per binding, created the first time rime:input loads and
@@ -2078,7 +3821,9 @@ bool add_events_exports(JSContext* context, JSValue input) {
          add("installMouseHook", events_install_mouse_hook, 2) &&
          add("setTimer", events_set_timer, 3) && add("onMessage", events_on_message, 3) &&
          add("onClipboardChange", events_on_clipboard_change, 1) &&
-         add("onError", events_on_error, 1) && add("onExit", events_on_exit, 1);
+         add("onError", events_on_error, 1) && add("onExit", events_on_exit, 1) &&
+         add("createInputHook", events_create_input_hook, 3) &&
+         add("suspend", input_suspend, 1) && add("policy", input_policy, 1);
 }
 
 // ---- teardown --------------------------------------------------------------
@@ -2099,6 +3844,27 @@ void EventsState::teardown() {
     dispatch_callback = 0;
   }
   dispatch_users = 0;
+
+  // 1b. InputHooks: end in-progress inputs WITHOUT invoking OnEnd (no
+  //     script runs during teardown), settle every Wait() with "Stopped",
+  //     release the active resources and free the owned On* values. The
+  //     vector itself stays (ids remain resolvable - to a closed state).
+  for (auto& hook : input_hooks) {
+    if (hook.in_progress) {
+      hook.in_progress = false;
+      hook.end_reason = "Stopped";
+      settle_hook_waiters(this, hook, "Stopped");
+    }
+    release_hook_active(this, hook);
+    free_owned(context, hook.on_char);
+    free_owned(context, hook.on_end);
+    free_owned(context, hook.on_key_down);
+    free_owned(context, hook.on_key_up);
+  }
+  if (hook_channel_callback != 0) {
+    (void)host->remove_callback(hook_channel_callback);
+    hook_channel_callback = 0;
+  }
 
   // 2. Hotkeys and hotstrings (observer callbacks plus their subscription
   //    ids); the criteria are released after them in step 7.
@@ -2205,8 +3971,13 @@ void EventsState::teardown() {
 }
 
 std::size_t EventsState::open_count() const {
+  std::size_t in_progress_hooks = 0;
+  for (const auto& hook : input_hooks) {
+    if (hook.in_progress) in_progress_hooks += 1;
+  }
   return hotkeys.size() + hotstrings.size() + timers.size() + monitors.size() +
-         clipboard_listeners.size() + error_observers.size() + exit_observers.size();
+         clipboard_listeners.size() + error_observers.size() + exit_observers.size() +
+         in_progress_hooks;
 }
 
 }  // namespace rime::win32
