@@ -72,4 +72,24 @@ if(RIME_BUILD_TESTS)
       message(STATUS "MSVC ASan runtime DLL not found next to tests; loader errors may block on a dialog")
     endif()
   endif()
+
+  if(MINGW)
+    # MinGW test binaries import libwinpthread (and libgcc/libstdc++ where
+    # the static flags do not apply). Those DLLs only exist on the
+    # toolchain PATH, so a shell without it dies with 0xc0000135 behind a
+    # modal loader dialog - the same failure class as the ASan runtime
+    # above. Copy them next to the test binaries at configure time.
+    unset(RIME_MINGW_libwinpthread-1.dll CACHE)
+    unset(RIME_MINGW_libgcc_s_seh-1.dll CACHE)
+    unset(RIME_MINGW_libstdc++-6.dll CACHE)
+    get_filename_component(_rime_mingw_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    foreach(_rime_mingw_dll libwinpthread-1.dll libgcc_s_seh-1.dll libstdc++-6.dll)
+      if(EXISTS "${_rime_mingw_bin}/${_rime_mingw_dll}")
+        foreach(_rime_mingw_dir tests/native tests/js hosts/desktop)
+          file(COPY "${_rime_mingw_bin}/${_rime_mingw_dll}"
+               DESTINATION "${CMAKE_BINARY_DIR}/${_rime_mingw_dir}")
+        endforeach()
+      endif()
+    endforeach()
+  endif()
 endif()
