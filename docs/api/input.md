@@ -1,6 +1,6 @@
 # Keyboard and Mouse API
 
-状态：`Send` 字符串语言（`Send`/`SendInput`/`SendEvent`/`SendPlay`/`SendText`，`SendMode` 经每调用 `mode` 选项承载，均映射到 `keyboard.send*` 族）、结构化注入 `input.send`、鼠标族 `mouse.move/click/drag/getPos`、修饰键快照 `input.modifiers()` 均已实现并通过 contract。`KeyWait`、`GetKeyState`、`BlockInput`、`KeyHistory` 已实现为 `input.keyWait`/`input.getKeyState`/`input.blockInput`/`input.keyHistory`（见"键状态与输入控制"）。`SendMessage`、`SendLevel`、`GetKeyName`、`Set*KeyState` 仍未实现。
+状态：`Send` 字符串语言（`Send`/`SendInput`/`SendEvent`/`SendPlay`/`SendText`，`SendMode` 经每调用 `mode` 选项承载，均映射到 `keyboard.send*` 族）、结构化注入 `input.send`、鼠标族 `mouse.move/click/drag/getPos`、修饰键快照 `input.modifiers()` 均已实现并通过 contract。`KeyWait`、`GetKeyState`、`BlockInput`、`KeyHistory` 已实现为 `input.keyWait`/`input.getKeyState`/`input.blockInput`/`input.keyHistory`（见"键状态与输入控制"）。`SendMessage`、`SendLevel`、`GetKeyName`、`Set*KeyState` 仍未实现。全局 Hook 之上的声明式事件（`Hotkey`/`Hotstring`/`HotIf*`/`Install*Hook`/`SetTimer`/`OnMessage`/`OnClipboardChange`/`OnError`/`OnExit`）已实现，契约与偏差见 [`hotkey-events.md`](./hotkey-events.md)。
 
 源码证据：`functions.h` 的 `Send*`/`Mouse*`/`KeyWait`；`rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp`（SendKeys ~460-830、SendKey 1035-1265、MouseClickDrag 2035-2106、MouseClick 2116、MouseMove 2355、BlockInput 4512/4520）；`script2.cpp:1308`（MouseGetPos）、`script2.cpp:2264`（GetKeyState 模式首字符）、`script2.cpp:870`（KeyHistory）、`lib/wait.cpp:111`（KeyWait 默认等释放/physical）、`hook.cpp:263-266`（hook 吞噬 return 1 先例）、`hook.h:255`+`globaldata.cpp:97`（`KeyHistoryItem` 与 `g_MaxHistoryKeys=40`）；`source/window.cpp:1136`（GetNonChildParent）；`lib/win.cpp:762`（ControlGetClassNN）。
 
@@ -134,8 +134,7 @@ input.keyHistory({ maxEvents: 40 });             // { capacity, count, events[] 
 - `{Text}` 外的非 ASCII 依赖 US 布局 VK 表，不可映射即抛错；不实现布局探测。
 - `SendLevel`、CapsLock 预翻转（`{CapsLock}` 按普通键处理）、SendEvent/SendPlay 的批间光标预测、标题栏点击补偿、`{Click}`/`{ASC}`/`{U+}`/鼠标键注入、相对移动 `R` 标志、X1/X2/滚轮点击：不实现。
 - 绝对坐标按主屏 `SM_CXSCREEN/SM_CYSCREEN` 归一化（AHK 同为主屏-only，不带 `MOUSEEVENTF_VIRTUALDESK`）。
-- coverage 台账中 `Send`/`SendInput` 行的 `lane: ui` 与实际 worker-lane 执行不一致（orchestrator 持有台账，不在本阶段修改）。
-- M2-B 四件套（`KeyWait`/`GetKeyState`/`BlockInput`/`KeyHistory`）的逐条偏差见上文"键状态与输入控制"节；TS 声明未随本次更新（`sdk/src` 并行持有），属跟进项。
+- M2-B 四件套（`KeyWait`/`GetKeyState`/`BlockInput`/`KeyHistory`）的逐条偏差见上文"键状态与输入控制"节；TS 声明已在 `sdk/src/input.ts` 的 `InputBridge` 落地（`getKeyState`/`keyWait`/`blockInput`/`keyHistory` 及配套类型）。
 
 ## 测试与契约
 
@@ -146,4 +145,4 @@ input.keyHistory({ maxEvents: 40 });             // { capacity, count, events[] 
 
 ## 订阅与 chord
 
-见 [`hotkey-events.md`](./hotkey-events.md)：`input.subscribe`/`input.bind`/`input.unbind` 与全局 Hook 共用同一订阅与取消契约。
+见 [`hotkey-events.md`](./hotkey-events.md)：`input.subscribe`/`input.bind`/`input.unbind` 与 `input.hotkey`/`input.hotstring`/`input.hotIf*`/`input.setTimer`/`input.onMessage`/`input.onClipboardChange`/`input.onError`/`input.onExit` 共用同一订阅与取消契约（`{ id, kind, close() }`、关闭态、回调计数、teardown 顺序）。

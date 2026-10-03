@@ -280,6 +280,12 @@ Host::Host() : owner_(std::this_thread::get_id()) {
 }
 
 Host::~Host() {
+  // Shutdown contract: exit handlers run first (while JS callbacks are still
+  // alive), then native teardowns release hooks/observers, then the event
+  // queue and timers close. Runtime::stop / HostAbi normally ran the exit
+  // handlers earlier; this call is the idempotent fallback.
+  run_exit_handlers("{\"reason\":\"shutdown\"}");
+  run_teardowns();
   if (events_) events_->close();
   timer_.stop();
   // Joins any running worker task (queue pump / async read) before the host
@@ -372,9 +378,24 @@ rime::core::Error Host::check_thread() const {
 }
 
 rime::core::Error Host::record(std::string where, std::string message) {
+  std::vector<std::uint64_t> observers;
   {
     std::lock_guard lock(error_mutex_);
-    errors_.push_back({std::move(where), message});
+    errors_.push_back({where, message});
+    // Loop prevention: an error recorded while an observer callback is
+    // running (its own throw, or anything it triggers) stays in errors_ for
+    // inspect but is not re-delivered, so a always-failing observer cannot
+    // spin the drain forever.
+    if (!error_observers_.empty() && !delivering_errors_.load(std::memory_order_acquire)) {
+      observers = error_observers_;
+    }
+  }
+  if (!observers.empty() && events_) {
+    json::Value value = json::Value::object();
+    value.set("where", json::Value::string(where));
+    value.set("message", json::Value::string(message));
+    const std::string payload = json::stringify(value);
+    for (const std::uint64_t id : observers) (void)events_->push(id, payload);
   }
   return {rime::core::Error::Code::ExecutionFailed, std::move(message)};
 }
@@ -433,7 +454,22 @@ std::size_t Host::drain() {
   std::size_t processed = ready.size();
   if (events_) {
     for (auto& [callback_id, payload] : events_->take()) {
-      if (invoke_callback(callback_id, payload).ok()) ++processed;
+      // Error-observer deliveries are marked so record() called while they
+      // run logs without re-queueing (see Host::record).
+      bool is_error_observer = false;
+      {
+        std::lock_guard lock(error_mutex_);
+        for (const std::uint64_t id : error_observers_) {
+          if (id == callback_id) {
+            is_error_observer = true;
+            break;
+          }
+        }
+      }
+      if (is_error_observer) delivering_errors_.store(true, std::memory_order_release);
+      const bool invoked = invoke_callback(callback_id, payload).ok();
+      if (is_error_observer) delivering_errors_.store(false, std::memory_order_release);
+      if (invoked) ++processed;
     }
   }
   for (;;) {
@@ -730,6 +766,83 @@ rime::core::Error Host::invoke_callback(const std::uint64_t id,
 std::size_t Host::callback_count() const {
   std::lock_guard lock(callback_mutex_);
   return callbacks_.size();
+}
+
+std::uint64_t Host::allocate_subscription_id() {
+  // Shares next_callback_ so module ids and callback ids form one unique
+  // space; SubscriptionRegistry keys entries by id alone.
+  std::lock_guard lock(callback_mutex_);
+  return next_callback_++;
+}
+
+void Host::add_error_observer(const std::uint64_t callback_id) {
+  std::lock_guard lock(error_mutex_);
+  error_observers_.push_back(callback_id);
+}
+
+bool Host::remove_error_observer(const std::uint64_t callback_id) {
+  std::lock_guard lock(error_mutex_);
+  for (auto it = error_observers_.begin(); it != error_observers_.end(); ++it) {
+    if (*it == callback_id) {
+      error_observers_.erase(it);
+      return true;
+    }
+  }
+  return false;
+}
+
+rime::core::Error Host::add_exit_handler(const std::uint64_t callback_id,
+                                         const std::uint64_t subscription_id) {
+  if (const auto thread_error = check_thread(); !thread_error.ok()) return thread_error;
+  if (exit_ran_) {
+    return {rime::core::Error::Code::InvalidState,
+            "exit handlers can no longer be registered: exit already ran"};
+  }
+  exit_handlers_.emplace_back(callback_id, subscription_id);
+  return rime::core::Error::none();
+}
+
+bool Host::remove_exit_handler(const std::uint64_t subscription_id) {
+  if (exit_ran_) return false;
+  for (auto it = exit_handlers_.begin(); it != exit_handlers_.end(); ++it) {
+    if (it->second == subscription_id) {
+      const std::uint64_t callback_id = it->first;
+      exit_handlers_.erase(it);
+      (void)remove_callback(callback_id);
+      return true;
+    }
+  }
+  return false;
+}
+
+void Host::run_exit_handlers(const std::string_view payload_json) {
+  if (exit_ran_ || !context_) return;
+  exit_ran_ = true;
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> handlers;
+  handlers.swap(exit_handlers_);
+  for (const auto& [callback_id, subscription_id] : handlers) {
+    if (const auto error = invoke_callback(callback_id, payload_json); !error.ok()) {
+      (void)record("onExit", error.message);
+    }
+    (void)remove_callback(callback_id);
+    (void)subscriptions_.remove(subscription_id);
+  }
+}
+
+void Host::add_teardown(std::function<void()> teardown) {
+  if (teardown) teardowns_.push_back(std::move(teardown));
+}
+
+void Host::run_teardowns() {
+  std::vector<std::function<void()>> hooks;
+  hooks.swap(teardowns_);
+  for (const auto& hook : hooks) {
+    try {
+      hook();
+    } catch (...) {
+      // Teardown is native-only and must never propagate across shutdown.
+    }
+  }
 }
 
 void Host::set_module_data(std::string name, void* data) {

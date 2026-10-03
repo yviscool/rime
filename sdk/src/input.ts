@@ -211,7 +211,85 @@ export interface ChordActionTemplate {
   payload?: Record<string, unknown>;
 }
 
-/** Bridge of the `rime:input` module. Handlers run on the JS thread. */
+/** Control word accepted by the event registrations: `on`, `off`, `toggle`. */
+export type EventControlWord = "on" | "off" | "toggle";
+
+/**
+ * Action bound to a `hotkey()`: an observer function, an action template
+ * queued through the dispatcher like `bind()`, or a control word that
+ * enables/disables an existing registration.
+ */
+export type HotkeyAction = ((event: HotkeyEvent) => void) | ChordActionTemplate | EventControlWord;
+
+/**
+ * Action bound to a `hotstring()`: an observer function (the trigger is not
+ * erased and nothing is injected), an action template, a control word, or
+ * omitted — the omission form injects the replacement text itself.
+ */
+export type HotstringAction = ((event: {}) => void) | ChordActionTemplate | EventControlWord;
+
+/** Payload handed to a `hotkey()` observer. */
+export interface HotkeyEvent {
+  /** The registered chord name, exactly as passed to `hotkey()`. */
+  name: string;
+}
+
+/**
+ * Payload handed to an `onClipboardChange()` listener. `type: 1` marks the
+ * change this process wrote, `type: 0` a foreign one (AHK's A_EventInfo).
+ */
+export interface ClipboardChangeEvent {
+  type: 0 | 1;
+}
+
+/** Payload handed to an `onError()` observer: where it was recorded and its text. */
+export interface ErrorEvent {
+  /** e.g. `promise`, `job`, `invoke_callback`, `onExit`, `rime:input.setTimer`. */
+  where: string;
+  message: string;
+}
+
+/** Payload handed to an `onExit()` handler while the runtime shuts down. */
+export interface ExitEvent {
+  reason: string;
+}
+
+/** Payload handed to an `onMessage()` monitor for the message it registered. */
+export interface MessageEvent {
+  msg: number;
+  wParam: number;
+  lParam: number;
+  hwnd: number;
+}
+
+/**
+ * The criterion a `hotIf*` call returned: `kind` names the criterion that
+ * was active before the call (`none` = no criterion, `gone` = the criterion
+ * was already released), `id` identifies it for `hotIf(null)`-style restores.
+ */
+export interface HotIfDescriptor {
+  kind: "none" | "function" | "winActive" | "winExist" | "winNotActive" | "winNotExist" | "gone";
+  id: number;
+}
+
+/**
+ * A `hotIf(fn)` predicate: evaluated on the JS thread with the window
+ * snapshot already resolved by the watcher, never on the UI lane. Returning
+ * a non-boolean or throwing fails closed (the registration does not fire)
+ * and records an error through `onError`.
+ */
+export type HotIfCondition = (event: { active: WindowSnapshot | null; seq: number }) => boolean;
+
+/** One event registration. `close()` is idempotent and reports whether it was still open. */
+export interface EventSubscription {
+  readonly id: number;
+  readonly kind: "hotkey" | "hotstring" | "timer" | "message" | "clipboard" | "error" | "exit";
+  close(): boolean;
+}
+
+/**
+ * Bridge of the `rime:input` module. Handlers run on the JS thread.
+ */
 export interface InputBridge {
   /** Installs a hook subscription; returns a positive subscription id. */
   subscribe(handler: (event: InputEvent) => void): number;
@@ -226,7 +304,7 @@ export interface InputBridge {
    * exactly, so `ctrl+k` does not fire while shift is also held.
    *
    * Throws TypeError for a malformed chord or template; throws Error naming
-   * `windows.input.inject` when the hook capability is missing.
+   * `windows.hook.global` when the hook capability is missing.
    */
   bind(chord: string, action: ChordActionTemplate): number;
   /** Closes a chord binding. False for unknown or already-closed ids. */
@@ -307,6 +385,123 @@ export interface InputBridge {
    * capability is missing. No GUI window and no target-column deviation.
    */
   keyHistory(options?: KeyHistoryOptions): KeyHistoryReport;
+
+  /**
+   * Registers a chord for the event stream (`Hotkey`). First match wins
+   * under the current `hotIf*` criterion; the chord grammar is the same one
+   * `bind()` accepts. Re-registering the same chord under the same criterion
+   * replaces its action in place and returns its existing subscription.
+   *
+   * `action` is an observer function (`{ name }` payload), an action
+   * template queued like `bind()`, or a control word — the control word
+   * form requires the chord to be registered already (AHK's nonexistent
+   * hotkey error). `options` is a second control word that wins over the
+   * action's own.
+   *
+   * Requires `windows.hook.global`. Throws TypeError for a malformed chord,
+   * action, or control word.
+   */
+  hotkey(name: string, action: HotkeyAction, options?: EventControlWord): EventSubscription;
+  /**
+   * Registers a word that expands as it is typed (`Hotstring`). Specs are
+   * `:options:trigger::replacement` (the omission form injects the
+   * replacement through `input.send`), `:options:trigger::` with an observer
+   * action (no erasure, no injection), and `:options:` which only updates
+   * the defaults later registrations inherit. Option letters: `*` wildcard,
+   * `?` inside word, `B` backspace, `C` case, `O` omit end char, `R`/`T`
+   * accepted as no-ops (always raw); `K`, `P`, `S` are rejected.
+   *
+   * Also accepts the global settings forms: `EndChars` (get/set the end
+   * characters), `MouseReset` (get/set whether mouse motion resets the
+   * buffer), `Reset` (clear the buffer). The control word in the third
+   * argument enables/disables an existing registration.
+   *
+   * Requires `windows.hook.global`, plus `windows.input.inject` when the
+   * replacement form is used. Returns `null` for the settings and
+   * options-only forms.
+   */
+  hotstring(spec: "EndChars"): string;
+  hotstring(spec: "EndChars", value: string): string;
+  hotstring(spec: "MouseReset"): boolean;
+  hotstring(spec: "MouseReset", value: boolean): boolean;
+  hotstring(spec: "Reset"): null;
+  hotstring(spec: string, action: HotstringAction, onOff?: EventControlWord): EventSubscription;
+  hotstring(spec: string, onOff: EventControlWord): EventSubscription;
+  hotstring(spec: string): EventSubscription | string | boolean | null;
+  /**
+   * Sets the current HotIf criterion to a predicate and returns the
+   * criterion that was active before the call; pass `null` to return to the
+   * unconditional one. Re-using a function (or an identical window query)
+   * reuses its criterion instead of allocating a new one.
+   *
+   * Throws TypeError for anything but a function or `null`.
+   */
+  hotIf(fn: HotIfCondition | null): HotIfDescriptor;
+  /** HotIf criterion matching a window of the given title (regex by default, `title` wins over the rest). */
+  hotIfWinActive(title?: string, className?: string, processName?: string): HotIfDescriptor;
+  /** HotIf criterion matching a window of the given title. */
+  hotIfWinExist(title?: string, className?: string, processName?: string): HotIfDescriptor;
+  /** HotIf criterion matching an active window that does not match the query. */
+  hotIfWinNotActive(title?: string, className?: string, processName?: string): HotIfDescriptor;
+  /** HotIf criterion matching a window that does not exist. */
+  hotIfWinNotExist(title?: string, className?: string, processName?: string): HotIfDescriptor;
+  /**
+   * Installs or removes the low-level keyboard hook on demand
+   * (`InstallKeybdHook`); `force: true` removes it even while a stream
+   * would otherwise keep it alive. Returns the effective installed state —
+   * a deviation from AHK's void return so the forced case is observable.
+   *
+   * Requires `windows.hook.global` when installing. Throws TypeError for a
+   * non-boolean argument.
+   */
+  installKeybdHook(install?: boolean, force?: boolean): boolean;
+  /** As `installKeybdHook`, for the mouse hook (`InstallMouseHook`). */
+  installMouseHook(install?: boolean, force?: boolean): boolean;
+  /**
+   * Registers a repeating callback (`SetTimer`). `period` is milliseconds;
+   * a negative period runs the callback once; `0` deletes the timer and
+   * returns `null`. Omitting it re-arms an existing timer with its previous
+   * period (`250` when it is new). `priority` orders timers that fall due in
+   * the same tick (higher first, then registration order).
+   *
+   * Callbacks are keyed by function identity: passing the same function
+   * again updates its timer in place. Throws TypeError for a non-function
+   * or a non-integer period/priority.
+   */
+  setTimer(fn: () => void, period?: number | null, priority?: number | null): EventSubscription | null;
+  /**
+   * Monitors a window message (`OnMessage`). The handler receives
+   * `{ msg, wParam, lParam, hwnd }` on the JS thread after the pump observed
+   * the message. `maxInstances` caps how many deliveries may be in flight
+   * (default 1, extra messages are dropped rather than queued, AHK's rule);
+   * `0` deletes the monitor with that exact `(msg, fn)` pair and returns
+   * `null`. Re-registering the same pair updates its cap in place.
+   *
+   * Requires a running message pump. Throws TypeError for a message number
+   * outside uint32 or a negative `maxInstances`.
+   */
+  onMessage(msgNumber: number, fn: (event: MessageEvent) => void, maxInstances?: number | null): EventSubscription | null;
+  /**
+   * Observes clipboard changes (`OnClipboardChange`): `{ type: 1 }` for a
+   * change this process wrote, `{ type: 0 }` for a foreign one.
+   *
+   * Requires `windows.clipboard.read`, a clipboard service and a running
+   * message pump. Each listener is called only for changes it was
+   * registered for.
+   */
+  onClipboardChange(fn: (event: ClipboardChangeEvent) => void): EventSubscription;
+  /**
+   * Observes errors recorded by the host (`OnError`): `{ where, message }`.
+   * An observer that throws is re-entered at most a few times before the
+   * host stops re-queueing it, so a failing observer stays bounded.
+   */
+  onError(fn: (event: ErrorEvent) => void): EventSubscription;
+  /**
+   * Registers a shutdown handler (`OnExit`): `{ reason }`, delivered on the
+   * JS thread while the runtime stops. Exit handlers are deliberately not
+   * counted as busy subscriptions — a waiting handler never blocks unload.
+   */
+  onExit(fn: (event: ExitEvent) => void): EventSubscription;
 }
 
 /**

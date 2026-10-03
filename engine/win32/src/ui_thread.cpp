@@ -4,11 +4,13 @@
 
 #include <windows.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <memory>
 #include <mutex>
 #include <utility>
+#include <vector>
 
 namespace rime::win32 {
 namespace {
@@ -65,6 +67,36 @@ struct UiThread::Impl {
   HWND hidden_window{nullptr};
   std::deque<std::shared_ptr<UiTask>> queue;
 
+  // Message observers (OnMessage, WM_CLIPBOARDUPDATE relay). Registration
+  // and removal are thread-safe; each message takes a copy so an observer
+  // can remove itself while delivery runs.
+  struct ObserverEntry {
+    std::uint64_t id{0};
+    UiThread::MessageObserver fn;
+    std::atomic<bool> active{true};
+  };
+  mutable std::mutex observer_mutex;
+  std::vector<std::shared_ptr<ObserverEntry>> observers;
+  std::uint64_t next_observer_id{1};
+
+  void run_message_observers(const std::uintptr_t message, const std::uintptr_t wparam,
+                             const std::uintptr_t lparam, const std::uintptr_t hwnd) {
+    std::vector<std::shared_ptr<ObserverEntry>> copy;
+    {
+      std::lock_guard lock(observer_mutex);
+      if (observers.empty()) return;
+      copy.assign(observers.begin(), observers.end());
+    }
+    for (const auto& entry : copy) {
+      if (!entry->active.load(std::memory_order_acquire) || !entry->fn) continue;
+      try {
+        entry->fn(static_cast<unsigned int>(message), wparam, lparam, hwnd);
+      } catch (...) {
+        // Observers must not throw across the message pump boundary.
+      }
+    }
+  }
+
   void drain_queue() {
     std::deque<std::shared_ptr<UiTask>> pending;
     bool closed = false;
@@ -93,6 +125,14 @@ void UiThread::dispatch_task_message(void* userdata) {
   if (impl) impl->drain_queue();
 }
 
+void UiThread::dispatch_message_observers(void* userdata, const std::uintptr_t message,
+                                          const std::uintptr_t wparam,
+                                          const std::uintptr_t lparam,
+                                          const std::uintptr_t hwnd) {
+  auto* impl = static_cast<Impl*>(userdata);
+  if (impl) impl->run_message_observers(message, wparam, lparam, hwnd);
+}
+
 const char* ui_thread_state_name(const UiThreadState state) {
   switch (state) {
     case UiThreadState::Created:
@@ -114,11 +154,16 @@ const char* ui_thread_state_name(const UiThreadState state) {
 namespace {
 
 LRESULT CALLBACK ui_thread_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+  auto* impl = reinterpret_cast<void*>(GetWindowLongPtrW(window, GWLP_USERDATA));
   if (message == kTaskMessage) {
-    UiThread::dispatch_task_message(
-        reinterpret_cast<void*>(GetWindowLongPtrW(window, GWLP_USERDATA)));
+    UiThread::dispatch_task_message(impl);
     return 0;
   }
+  // Every other message is offered to registered observers (OnMessage,
+  // clipboard-update relay) before default processing; observers see the
+  // pump window only and cannot consume or reply to the message.
+  UiThread::dispatch_message_observers(impl, message, wparam, lparam,
+                                       reinterpret_cast<std::uintptr_t>(window));
   return DefWindowProcW(window, message, wparam, lparam);
 }
 
@@ -304,6 +349,45 @@ UiThreadState UiThread::state() const {
 bool UiThread::on_ui_thread() const {
   std::lock_guard lock(impl_->mutex);
   return impl_->thread_id != 0 && impl_->thread_id == GetCurrentThreadId();
+}
+
+std::uint64_t UiThread::add_message_observer(MessageObserver observer) {
+  if (!observer) return 0;
+  std::lock_guard lock(impl_->observer_mutex);
+  {
+    std::lock_guard state_lock(impl_->mutex);
+    if (impl_->state != UiThreadState::Running || impl_->closing ||
+        !impl_->hidden_window) {
+      return 0;
+    }
+  }
+  auto entry = std::make_shared<Impl::ObserverEntry>();
+  entry->id = impl_->next_observer_id++;
+  entry->fn = std::move(observer);
+  impl_->observers.push_back(entry);
+  return entry->id;
+}
+
+bool UiThread::remove_message_observer(const std::uint64_t id) {
+  std::lock_guard lock(impl_->observer_mutex);
+  for (auto it = impl_->observers.begin(); it != impl_->observers.end(); ++it) {
+    if ((*it)->id == id) {
+      (*it)->active.store(false, std::memory_order_release);
+      impl_->observers.erase(it);
+      return true;
+    }
+  }
+  return false;
+}
+
+std::size_t UiThread::message_observer_count() const {
+  std::lock_guard lock(impl_->observer_mutex);
+  return impl_->observers.size();
+}
+
+std::uintptr_t UiThread::message_window() const {
+  std::lock_guard lock(impl_->mutex);
+  return reinterpret_cast<std::uintptr_t>(impl_->hidden_window);
 }
 
 }  // namespace rime::win32

@@ -55,6 +55,11 @@ class HostAbi final {
   void set_error_handler(ErrorHandler handler);
   void set_exit_handler(ExitHandler handler);
 
+  // The embedded host. Escape hatch for embedders (and contract tests) that
+  // wire native modules onto the same host the ABI drives; still bound to
+  // the JS-thread affinity documented above.
+  [[nodiscard]] Host& host() { return host_; }
+
  private:
   HostAbiState state_{HostAbiState::Created};
   std::string source_;

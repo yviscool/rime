@@ -257,6 +257,11 @@ void Runtime::run() {
         if (has_eval) eval_task.completion.set_value(std::move(result));
       }
     }
+
+    // Exit contract: JS exit handlers run on the JS thread after the loop
+    // stops and before ~Host tears the context down (idempotent with the
+    // destructor fallback).
+    host.run_exit_handlers("{\"reason\":\"stop\"}");
   }
 
   rime::core::LaneRegistry::instance().release(rime::core::Lane::Js);

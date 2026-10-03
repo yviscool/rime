@@ -1671,13 +1671,13 @@
         "rime-research/AutoHotkey-alpha/source/hotkey.h",
         "rime-research/AutoHotkey-alpha/source/script.cpp"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "HotIfWinActive",
@@ -1686,13 +1686,13 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "HotIfWinExist",
@@ -1701,13 +1701,13 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "HotIfWinNotActive",
@@ -1716,13 +1716,13 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "HotIfWinNotExist",
@@ -1731,13 +1731,13 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "Hotkey",
@@ -1752,13 +1752,13 @@
         "rime-research/AutoHotkey-alpha/source/hotkey.h",
         "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
       "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "Hotstring",
@@ -1773,13 +1773,13 @@
         "rime-research/AutoHotkey-alpha/source/util.h",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
       "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "IL_Add",
@@ -1918,13 +1918,13 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/input.cpp"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
       "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "InstallMouseHook",
@@ -1937,13 +1937,13 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
       "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "IsLabel",
@@ -2335,13 +2335,13 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
+      "capability": "windows.clipboard.read",
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "OnError",
@@ -2354,13 +2354,13 @@
         "rime-research/AutoHotkey-alpha/source/script_expression.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "OnExit",
@@ -2375,13 +2375,13 @@
         "rime-research/AutoHotkey-alpha/source/script.h",
         "rime-research/AutoHotkey-alpha/source/script2.cpp"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "OnMessage",
@@ -2396,13 +2396,13 @@
         "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
         "rime-research/AutoHotkey-alpha/source/script_gui.h"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "OutputDebug",
@@ -3053,13 +3053,13 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/InputBox.cpp"
       ],
-      "tsModule": "@rime/hotkey-events",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.hook.global",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "tsModule": "@rime/input",
+      "status": "implemented",
+      "async": "sync",
+      "capability": "runtime",
+      "contractTest": "tests/js/events_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "SetTitleMatchMode",

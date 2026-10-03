@@ -18,6 +18,7 @@ namespace {
 
 constexpr UINT kQuitMessage = WM_APP + 77;
 constexpr UINT kWakeMessage = WM_APP + 78;
+constexpr UINT kHookControlMessage = WM_APP + 79;
 constexpr std::size_t kPendingCapacity = 2048;
 constexpr auto kInstallTimeout = std::chrono::seconds(2);
 
@@ -115,9 +116,63 @@ struct InputService::Impl {
   HHOOK keyboard_hook{nullptr};
   HHOOK mouse_hook{nullptr};
 
+  // InstallKeybdHook/InstallMouseHook state: `wanted` is the requested
+  // state (any thread writes, hook thread applies), `installed` mirrors the
+  // hook-thread reality (any thread reads). Waiters use their own mutex so
+  // a control wait never holds `mutex` (enqueue runs inside the hook
+  // callback and must not stall the desktop).
+  std::atomic<bool> keyboard_wanted{true};
+  std::atomic<bool> mouse_wanted{true};
+  std::atomic<bool> keyboard_installed{false};
+  std::atomic<bool> mouse_installed{false};
+  struct HookControl {
+    bool done{false};
+  };
+  std::mutex control_mutex;
+  std::condition_variable control_condition;
+  std::vector<std::shared_ptr<HookControl>> hook_controls;  // guarded by control_mutex
+
   // The single running service owns the low-level hook callbacks (they
   // receive no per-hook user pointer).
   static std::atomic<Impl*> owner;
+
+  // Seeds the physical down snapshot after a (re)install so keys held while
+  // the hook was away are not reported as newly pressed.
+  void seed_physical() {
+    for (int vk = 1; vk <= 0xFE; ++vk) {
+      physical[static_cast<std::size_t>(vk)].store((GetAsyncKeyState(vk) & 0x8000) != 0);
+    }
+  }
+
+  // Hook thread: reconciles installed hooks with the wanted flags. A failed
+  // install leaves wanted=true but installed=false (reported to waiters).
+  void apply_hooks() {
+    const bool want_keyboard = keyboard_wanted.load(std::memory_order_acquire);
+    if (want_keyboard && !keyboard_hook) {
+      keyboard_hook = SetWindowsHookExW(WH_KEYBOARD_LL, keyboard_proc, GetModuleHandleW(nullptr), 0);
+      if (keyboard_hook) seed_physical();
+    } else if (!want_keyboard && keyboard_hook) {
+      UnhookWindowsHookEx(keyboard_hook);
+      keyboard_hook = nullptr;
+    }
+    const bool want_mouse = mouse_wanted.load(std::memory_order_acquire);
+    if (want_mouse && !mouse_hook) {
+      mouse_hook = SetWindowsHookExW(WH_MOUSE_LL, mouse_proc, GetModuleHandleW(nullptr), 0);
+    } else if (!want_mouse && mouse_hook) {
+      UnhookWindowsHookEx(mouse_hook);
+      mouse_hook = nullptr;
+    }
+    keyboard_installed.store(keyboard_hook != nullptr, std::memory_order_release);
+    mouse_installed.store(mouse_hook != nullptr, std::memory_order_release);
+  }
+
+  // Hook thread: releases every waiter (control message or shutdown).
+  void finish_hook_controls() {
+    std::lock_guard lock(control_mutex);
+    for (auto& control : hook_controls) control->done = true;
+    hook_controls.clear();
+    control_condition.notify_all();
+  }
 
   void enqueue(InputEvent event) {
     DWORD hook_thread = 0;
@@ -230,16 +285,8 @@ void InputService::Impl::thread_main() {
     std::lock_guard lock(mutex);
     thread_id = GetCurrentThreadId();
   }
-  keyboard_hook = SetWindowsHookExW(WH_KEYBOARD_LL, keyboard_proc, GetModuleHandleW(nullptr), 0);
-  mouse_hook = SetWindowsHookExW(WH_MOUSE_LL, mouse_proc, GetModuleHandleW(nullptr), 0);
+  apply_hooks();
   const bool installed = keyboard_hook != nullptr && mouse_hook != nullptr;
-  if (installed) {
-    // Seed the physical snapshot from the live OS state before start()
-    // reports Running, so keys already held at install are not reported up.
-    for (int vk = 1; vk <= 0xFE; ++vk) {
-      physical[static_cast<std::size_t>(vk)].store((GetAsyncKeyState(vk) & 0x8000) != 0);
-    }
-  }
   {
     std::lock_guard lock(mutex);
     install_ok = installed;
@@ -256,7 +303,7 @@ void InputService::Impl::thread_main() {
   MSG message;
   for (;;) {
     const BOOL received = GetMessageW(&message, nullptr, 0, 0);
-    // GetMessageW returns -1 on error and 0 on WM_QUIT; both exit the pump
+    // GetMessageW returns -1 on error and 0 for WM_QUIT; both exit the pump
     // the same way. The error detail (GetLastError) is deliberately not acted
     // on here to keep the pump shape unchanged; hook cleanup below still runs
     // on either path.
@@ -265,12 +312,23 @@ void InputService::Impl::thread_main() {
       std::lock_guard lock(mutex);
       if (stopping) break;
     }
+    // InstallKeybdHook/InstallMouseHook: reconcile hooks before delivering,
+    // so events queued after the control message observe the new state.
+    if (message.message == kHookControlMessage) {
+      apply_hooks();
+      finish_hook_controls();
+      continue;
+    }
     deliver_events();
     TranslateMessage(&message);
     DispatchMessageW(&message);
   }
 
   cleanup_hooks();
+  keyboard_installed.store(false, std::memory_order_release);
+  mouse_installed.store(false, std::memory_order_release);
+  // A waiter blocked on a control message must not outlive the pump.
+  finish_hook_controls();
   {
     std::lock_guard lock(mutex);
     for (auto& entry : entries) entry->closed = true;
@@ -496,6 +554,15 @@ std::uint64_t InputService::subscribe(Callback callback) {
   entry->id = impl_->next_id++;
   entry->callback = std::move(callback);
   impl_->entries.push_back(entry);
+  // Any subscription consumes both event streams, so a new one reinstalls
+  // hooks a forced Install*Hook removed (AHK reinstalls on demand too).
+  // Fire-and-forget: the next delivery observes the applied state; callers
+  // that need a verdict use set_*_hook.
+  impl_->keyboard_wanted.store(true, std::memory_order_release);
+  impl_->mouse_wanted.store(true, std::memory_order_release);
+  if (impl_->thread_id != 0) {
+    PostThreadMessageW(impl_->thread_id, kHookControlMessage, 0, 0);
+  }
   return entry->id;
 }
 
@@ -539,6 +606,67 @@ std::size_t InputService::subscription_count() const {
 std::uint64_t InputService::dropped_events() const {
   std::lock_guard lock(impl_->mutex);
   return impl_->dropped;
+}
+
+bool InputService::control_hook(const bool keyboard, const bool install, const bool force) {
+  std::atomic<bool>* wanted = keyboard ? &impl_->keyboard_wanted : &impl_->mouse_wanted;
+  std::atomic<bool>* installed =
+      keyboard ? &impl_->keyboard_installed : &impl_->mouse_installed;
+  std::uint32_t thread_id = 0;
+  {
+    std::lock_guard lock(impl_->mutex);
+    if (impl_->state != InputServiceState::Running || impl_->stopping || !impl_->ready) {
+      return installed->load(std::memory_order_acquire);
+    }
+    thread_id = impl_->thread_id;
+    if (install) {
+      wanted->store(true, std::memory_order_release);
+    } else if (force || impl_->entries.empty()) {
+      // Force (AHK's unconditional remove) or nothing left that needs input.
+      wanted->store(false, std::memory_order_release);
+    }
+    // else: subscribers still need this stream; the hook stays (AHK keeps
+    // hooks while hotkeys/hotstrings exist).
+  }
+  if (thread_id == 0) return installed->load(std::memory_order_acquire);
+
+  const auto control = std::make_shared<Impl::HookControl>();
+  {
+    std::lock_guard lock(impl_->control_mutex);
+    impl_->hook_controls.push_back(control);
+  }
+  if (!PostThreadMessageW(thread_id, kHookControlMessage, 0, 0)) {
+    std::lock_guard lock(impl_->control_mutex);
+    for (auto it = impl_->hook_controls.begin(); it != impl_->hook_controls.end(); ++it) {
+      if (*it == control) {
+        impl_->hook_controls.erase(it);
+        break;
+      }
+    }
+    return installed->load(std::memory_order_acquire);
+  }
+  // Wait on the control mutex, never on `mutex`: enqueue() runs inside the
+  // low-level hook callback and must not stall behind this wait.
+  std::unique_lock lock(impl_->control_mutex);
+  (void)impl_->control_condition.wait_for(lock, kInstallTimeout,
+                                          [&control] { return control->done; });
+  return installed->load(std::memory_order_acquire);
+}
+
+bool InputService::set_keyboard_hook(const bool install, const bool force) {
+  return control_hook(true, install, force);
+}
+
+bool InputService::set_mouse_hook(const bool install, const bool force) {
+  return control_hook(false, install, force);
+}
+
+bool InputService::keyboard_hook_installed() const {
+  return impl_->keyboard_installed.load(std::memory_order_acquire);
+}
+
+bool InputService::mouse_hook_installed() const {
+  return impl_->mouse_installed.load(std::memory_order_acquire);
 }
 
 rime::core::Error InputService::send(const std::vector<SendKeyEvent>& keys) {

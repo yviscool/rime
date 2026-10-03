@@ -128,6 +128,47 @@ class Host final {
   rime::core::Error invoke_callback(std::uint64_t id, std::string_view argument_json);
   [[nodiscard]] std::size_t callback_count() const;
 
+  // Reserves a unique id from the same counter add_callback draws from, so a
+  // native module that registers its own SubscriptionRegistry entries (or
+  // tracks ids without registering them, like onExit) can never collide with
+  // "js#<callback>" ids. The caller registers the id in subscriptions() or
+  // releases it; this only hands out the number.
+  [[nodiscard]] std::uint64_t allocate_subscription_id();
+
+  // JS thread: error observers (rime:input.onError) receive {where, message}
+  // for every record()ed failure. record() is the single sink, so eval
+  // failures, unhandled rejections and native diagnostics all arrive here.
+  // While an observer callback runs, record() appends but does not re-push:
+  // an observer that always throws would otherwise loop forever.
+  void add_error_observer(std::uint64_t callback_id);
+  bool remove_error_observer(std::uint64_t callback_id);
+
+  // JS thread: ordered exit handlers (rime:input.onExit). Registration after
+  // run_exit_handlers() has fired is refused - exit runs once. Each entry
+  // owns its callback plus the SubscriptionRegistry id its registration
+  // added, so running the handlers releases both (unload stays clean).
+  rime::core::Error add_exit_handler(std::uint64_t callback_id, std::uint64_t subscription_id);
+  // JS thread: removes a not-yet-run exit handler (subscription.close() on an
+  // onExit registration). False when unknown or after the handlers ran.
+  bool remove_exit_handler(std::uint64_t subscription_id);
+  // JS thread: how many exit handlers are still waiting. Unload excludes
+  // them from the held-callback count because running them is part of a
+  // successful unload (see HostAbi::unload).
+  [[nodiscard]] std::size_t exit_handler_count() const { return exit_handlers_.size(); }
+  // JS thread: invokes every exit handler in registration order with
+  // `payload_json` ({"reason": ...}), then releases them. Idempotent; runs
+  // from Runtime::stop, HostAbi exit/unload and ~Host, so handlers always
+  // complete before unload/teardown finishes.
+  void run_exit_handlers(std::string_view payload_json);
+  [[nodiscard]] bool exit_handlers_ran() const { return exit_ran_; }
+
+  // JS thread: native teardown hooks (unsubscribe services, remove UI
+  // observers). run_teardowns() runs them exactly once; ~Host and a
+  // successful HostAbi::unload both call it. Unlike exit handlers these run
+  // without touching JS.
+  void add_teardown(std::function<void()> teardown);
+  void run_teardowns();
+
   // Producers push events from any thread; drain() invokes the callbacks.
   [[nodiscard]] std::shared_ptr<HostEventQueue> event_queue() const { return events_; }
 
@@ -224,6 +265,16 @@ class Host final {
 
   mutable std::mutex error_mutex_;
   std::vector<ErrorRecord> errors_;
+  // Guarded by error_mutex_; copied under the lock, pushed outside it.
+  std::vector<std::uint64_t> error_observers_;
+  // Set on the JS thread while an error-observer callback is executing.
+  std::atomic<bool> delivering_errors_{false};
+
+  // JS thread only: ordered exit handlers (callback id, subscription id).
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> exit_handlers_;
+  bool exit_ran_{false};
+  // JS thread only: native teardown hooks.
+  std::vector<std::function<void()>> teardowns_;
 
   ModuleRegistry modules_;
   SubscriptionRegistry subscriptions_;

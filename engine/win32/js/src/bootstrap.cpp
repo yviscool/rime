@@ -29,6 +29,7 @@ Bootstrap::Bootstrap(std::unordered_set<std::string> capabilities)
       dispatcher_(kernel_, rime::action::default_dispatch_policy()) {
   input_binding_.service = &input_service_;
   input_binding_.window_service = &window_service_;
+  input_binding_.clipboard_service = &clipboard_service_;
   input_binding_.kernel = &kernel_;
   input_binding_.dispatcher = &dispatcher_;
   input_binding_.next_action_id = &next_action_id_;

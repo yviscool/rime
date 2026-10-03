@@ -3,6 +3,7 @@
 #include "quickjs.h"
 
 #include <sstream>
+#include <string>
 #include <utility>
 
 namespace rime::js {
@@ -83,6 +84,12 @@ rime::core::Error HostAbi::unload() {
     return rime::core::Error::none();
   }
 
+  // Busy check first: a refused unload must not consume the script's exit
+  // handlers - they run only once the host is provably clean. Exit handlers
+  // are excluded from the held-callback count because invoking them (and
+  // releasing their callbacks) is the first step of a successful unload;
+  // without the exclusion a lone OnExit registration would make every unload
+  // impossible.
   std::ostringstream reasons;
   bool busy = false;
   const auto subscriptions = host_.subscriptions().list();
@@ -95,10 +102,11 @@ rime::core::Error HostAbi::unload() {
     }
     reasons << "; ";
   }
+  const std::size_t exit_handlers = host_.exit_handler_count();
   const std::size_t callbacks = host_.callback_count();
-  if (callbacks > 0) {
+  if (callbacks > exit_handlers) {
     busy = true;
-    reasons << callbacks << " JS callback(s) still held; ";
+    reasons << (callbacks - exit_handlers) << " JS callback(s) still held; ";
   }
   const std::size_t promises = host_.pending_async();
   if (promises > 0) {
@@ -120,16 +128,20 @@ rime::core::Error HostAbi::unload() {
             "unload refused while host is still active: " + reasons.str()};
   }
 
+  host_.run_exit_handlers("{\"reason\":\"unload\",\"code\":" + std::to_string(exit_code_) + "}");
   host_.subscriptions().close();
   host_.timers().stop();
+  host_.run_teardowns();
   state_ = HostAbiState::Unloaded;
   return rime::core::Error::none();
 }
 
 void HostAbi::exit(const int code) {
-  // NOTE: exit() only records the code and fires on_exit; it is not an
-  // unload - subscriptions/callbacks/timers stay alive until unload().
+  // NOTE: exit() records the code, runs JS exit handlers and fires on_exit;
+  // it is not an unload - subscriptions/callbacks/timers stay alive until
+  // unload() succeeds.
   exit_code_ = code;
+  host_.run_exit_handlers("{\"reason\":\"exit\",\"code\":" + std::to_string(code) + "}");
   if (on_exit_) on_exit_(code);
 }
 

@@ -110,8 +110,54 @@ Error ClipboardService::write_text(const std::string& utf8_text) const {
     GlobalFree(memory);
     return {Code::ExecutionFailed, "cannot set clipboard text"};
   }
-  // On success the system owns the buffer.
+  // On success the system owns the buffer. Mark the change as ours so the
+  // next WM_CLIPBOARDUPDATE fans out with from_self=true (AHK type 1).
+  self_write_.store(true, std::memory_order_release);
   return Error::none();
+}
+
+std::uint64_t ClipboardService::add_change_listener(ChangeListener listener) {
+  if (!listener) return 0;
+  std::lock_guard lock(listeners_mutex_);
+  const std::uint64_t id = next_listener_id_.fetch_add(1, std::memory_order_relaxed);
+  listeners_.push_back(Listener{id, std::move(listener)});
+  return id;
+}
+
+bool ClipboardService::remove_change_listener(const std::uint64_t id) {
+  std::lock_guard lock(listeners_mutex_);
+  for (auto it = listeners_.begin(); it != listeners_.end(); ++it) {
+    if (it->id == id) {
+      listeners_.erase(it);
+      return true;
+    }
+  }
+  return false;
+}
+
+std::size_t ClipboardService::change_listener_count() const {
+  std::lock_guard lock(listeners_mutex_);
+  return listeners_.size();
+}
+
+void ClipboardService::notify_change() {
+  // Consume the self flag once per update so every listener of this update
+  // sees the same type, and a stale flag cannot leak into a later foreign
+  // change.
+  const bool from_self = self_write_.exchange(false, std::memory_order_acq_rel);
+  std::vector<ChangeListener> snapshot;
+  {
+    std::lock_guard lock(listeners_mutex_);
+    snapshot.reserve(listeners_.size());
+    for (const auto& listener : listeners_) snapshot.push_back(listener.fn);
+  }
+  for (const auto& listener : snapshot) {
+    try {
+      listener(from_self);
+    } catch (...) {
+      // Listeners cross the UI-thread boundary; they must not throw out.
+    }
+  }
 }
 
 }  // namespace rime::win32

@@ -47,6 +47,16 @@ if (WIN32 AND TARGET rime_win32_js)
   endif()
   add_test(NAME quickjs_input_slice COMMAND rime_input_slice)
 
+  add_executable(rime_events_slice events_slice.cpp)
+  # imm32: the slice detaches the desktop IME from its edit control so the
+  # typed hotstring trigger lands as ASCII instead of a pinyin composition.
+  target_link_libraries(rime_events_slice PRIVATE rime_js rime_win32_js rime_action rime_test_support imm32)
+  target_compile_features(rime_events_slice PRIVATE cxx_std_20)
+  if (MINGW)
+    target_link_options(rime_events_slice PRIVATE -static-libstdc++ -static-libgcc)
+  endif()
+  add_test(NAME quickjs_events_slice COMMAND rime_events_slice)
+
   add_executable(rime_breadth_slice breadth_slice.cpp)
   target_link_libraries(rime_breadth_slice PRIVATE rime_js rime_win32_js rime_test_support)
   target_compile_features(rime_breadth_slice PRIVATE cxx_std_20)

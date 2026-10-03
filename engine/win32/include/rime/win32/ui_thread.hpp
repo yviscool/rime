@@ -19,6 +19,14 @@ const char* ui_thread_state_name(UiThreadState state);
 // thread; HWND, hook and window-procedure work may only run through call().
 class UiThread final {
  public:
+  // Runs on the UI thread for every message that reaches the message window
+  // (WM_CLIPBOARDUPDATE, WM_USER+n, OnMessage test traffic...). Returning is
+  // void by design: observers are async event sources (delivery hops to the
+  // JS thread through the host event queue), never synchronous reply hooks,
+  // so no observer can block or replace DefWindowProc processing.
+  using MessageObserver = std::function<void(unsigned int message, std::uintptr_t wparam,
+                                             std::uintptr_t lparam, std::uintptr_t hwnd)>;
+
   UiThread();
   ~UiThread();
   UiThread(const UiThread&) = delete;
@@ -37,10 +45,27 @@ class UiThread final {
    [[nodiscard]] UiThreadState state() const;
    [[nodiscard]] bool on_ui_thread() const;
 
-   // Internal: invoked by the message-window procedure (a free function that
-   // cannot name the private Impl). Takes void* to avoid pulling windows.h
-   // into this header.
-   static void dispatch_task_message(void* userdata);
+   // Thread-safe: registers a message observer (id 0 when the pump is not
+   // running). The observer stays registered until remove_message_observer;
+   // a copy taken per message keeps removal safe during delivery.
+   std::uint64_t add_message_observer(MessageObserver observer);
+   bool remove_message_observer(std::uint64_t id);
+   [[nodiscard]] std::size_t message_observer_count() const;
+   // Raw message-window handle for native callers (tests post their probe
+   // messages here). Exposed as uintptr_t so this header stays free of
+   // windows.h; 0 before start/after stop. Never handed to JS.
+   [[nodiscard]] std::uintptr_t message_window() const;
+
+  // Internal: invoked by the message-window procedure (a free function that
+  // cannot name the private Impl). Takes void* to avoid pulling windows.h
+  // into this header.
+  static void dispatch_task_message(void* userdata);
+  // Internal: relays one non-task message to the registered observers
+  // (OnMessage, clipboard-update relay) before DefWindowProc; uintptr_t
+  // parameters keep windows.h out of this header.
+  static void dispatch_message_observers(void* userdata, std::uintptr_t message,
+                                         std::uintptr_t wparam, std::uintptr_t lparam,
+                                         std::uintptr_t hwnd);
 
   private:
    // Opaque pump state; defined in ui_thread.cpp.

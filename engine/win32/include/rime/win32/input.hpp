@@ -138,6 +138,18 @@ class InputService final {
   rime::core::Error stop();
   [[nodiscard]] InputServiceState state() const;
 
+  // InstallKeybdHook/InstallMouseHook: runtime control of one low-level hook.
+  // The request is applied on the hook thread and the call waits (bounded)
+  // for the verdict, so the returned state is the effective installed state.
+  // install=false without force keeps the hook while subscriptions still
+  // need it; force removes it regardless (events then stop until a later
+  // install - AHK's force-uninstall contract). Returns false when the
+  // service is not running or the hook could not be (re)installed.
+  bool set_keyboard_hook(bool install, bool force);
+  bool set_mouse_hook(bool install, bool force);
+  [[nodiscard]] bool keyboard_hook_installed() const;
+  [[nodiscard]] bool mouse_hook_installed() const;
+
   // Registers a subscription while running. Returns 0 when not running.
   // Closing semantics: after unsubscribe returns, the callback is not
   // running (unless unsubscribe was called from inside that callback).
@@ -187,6 +199,8 @@ class InputService final {
 
  private:
   struct Impl;
+  // Shared body of set_keyboard_hook/set_mouse_hook.
+  bool control_hook(bool keyboard, bool install, bool force);
   std::unique_ptr<Impl> impl_;
 };
 
