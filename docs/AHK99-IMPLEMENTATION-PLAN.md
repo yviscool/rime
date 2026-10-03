@@ -8,7 +8,7 @@
 2. **GUI 底座 = Win32 通用控件**：`GuiService` 在 UI Thread 拥有真实 HWND + common controls（Button/Edit/ListView/TreeView/…），行为与 AHK 对齐、可逐控件落到 Win32 消息。Rime UI Runtime 继续服务 Rim 自身 UI，两者不冲突；本计划不等待 UI Runtime。
 3. **维持策略裁剪**：DllCall、ComCall、CallbackCreate/Free、ObjPtr/AddRef/Release 系、NumGet/NumPut、StrPtr、ComObj*、Obj*PtrData 等裸互操作保持 `unsupported-by-policy`，补文档与"拒绝行为"测试，计为已决策项（分母中为终态）。调试器、AHK 脚本引擎同样排除。
 
-**99% 公式**：`终态条目 / 范围内条目 ≥ 99%`，终态 = `implemented | sdk-owned | unsupported-by-policy`（均须有测试 ID）；`excluded`（AHK v1 别名等版本差异条目）不计入范围内分母。
+**99% 公式**：`终态条目 / 范围内条目 ≥ 99%`，终态 = `implemented | js-native | unsupported-by-policy`（`implemented` 须有测试 ID；`js-native` 以等价表达式与差异记录替代测试 ID）；`contract-only`/`sdk-owned` 为过渡态，逐步收敛到终态（状态口径见 `docs/api/stdlib.md` §3）；`excluded`（AHK v1 别名等版本差异条目）不计入范围内分母。
 
 ## 1. 事实基线
 
@@ -25,14 +25,14 @@
 
 ### 1.2 终态现状
 
-| 清单 | implemented | sdk-owned | unsupported | 终态合计 | 剩余 |
+| 清单 | implemented | js-native | unsupported | 终态合计 | 剩余（`contract-only`） |
 |---|---:|---:|---:|---:|---:|
-| coverage 253 | 21（window 13 + process 6 + `Send`/`SendInput` 2） | 7 | 5 | 33 | 220 |
-| core-builtins 101 | 0 | 56 | 16 | 72 | 29 |
-| objects 243 | 0 | 0 | 0 | 0 | 243 |
-| builtins 134（145 − 11 `excluded`） | 1（`A_Clipboard`） | 0 | 0 | 1 | 133 |
+| coverage 253 | 91 | 0 | 7 | 98 | 155 |
+| core-builtins 101 | 3 | 51 | 18 | 72 | 29 |
+| objects 243（成员） | 0 | 0 | 0 | 0 | 243 |
+| builtins 134（145 − 11 `excluded`） | 5 | 0 | 0 | 5 | 129 |
 
-注：已落地能力已回填（M0）：`process.*` 6 项、`Send`/`SendInput`（`input.send`）、`A_Clipboard`（`clipboard.read`/`clipboard.write`）；15 个 action 的真值源在 `contracts/registry/actions.json`（`automation.*` 等无独立 AHK 函数条目，其状态记录在该注册表，`matrix:check` 校验 type 集 == executor 注册集）。当前终态 106 / 731 ≈ 14.5%（四个 JSON，不含指令）。
+注：已落地能力已回填（M0-M2）：`process.*` 6 项、`Send`/`SendInput`（`input.send`）、`A_Clipboard`（`clipboard.read`/`clipboard.write`）、`Click/WinActive/WinExist`、`Sleep`（`runtime.delay`）、`GetKeyState` 等；15 个 action 的真值源在 `contracts/registry/actions.json`（`automation.*` 等无独立 AHK 函数条目，其状态记录在该注册表，`matrix:check` 校验 type 集 == executor 注册集）。138 项纯语言分类已入 `core-builtins`/`coverage`（映射表 `docs/api/runtime-language.md`）。当前终态 175 / 731 ≈ 23.9%（四个 JSON，不含指令）。
 
 ### 1.3 代码现状（结构事实，M0 之后）
 
@@ -93,10 +93,10 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 
 ### M3 纯 JS 快铺（可穿插，M）
 
-- runtime-language 39 项 + core-builtins 的数学/字符串/谓词/日期 ≈ **90+ 项**：`Abs/Ceil/Floor/Max/Min/Sqrt/…`、`Trim/LTrim/RTrim/StrLower/…/StrReplace/SplitPath`、`Is*` 谓词、`DateAdd/DateDiff/FormatTime`、`RegExMatch/RegExReplace`（JS RegExp + AHK 语义还原壳：MatchPos/Name/Len 捕获对象）；
-- `Set*Delay/CoordMode/SetWorkingDir/OutputDebug/ListVars…` → Runtime/SchedulerPolicy 显式 API；
-- `Sleep/Exit*/Reload/Pause/Suspend/Persistent/Critical/Thread` → HostLifecycle/调度器映射；
-- 每项带语义还原测试（对照原版语义用例，见设计文档 §0 还原保留原则）。
+- 138 项纯语言归档已定（`docs/api/runtime-language.md` 映射表）：**51 项 `js-native`**（零专属代码，等价表达式与差异入档）、**62 项 `contract-only`**（44 项 L2/L3 目标 + **18 项 L4 还原保留候选**）、5 项 `implemented`、20 项 `unsupported-by-policy`；
+- **L4 还原保留（18 项）**：`SubStr/InStr/Mod/Round/StrReplace/StrTitle/Format/Sort/Random/VerCompare/FormatTime/DateAdd/DateDiff/SplitPath/StrSplit/RegExMatch/RegExReplace/Type`——以自有命名与参数形状实现（先命名提案后落码，不建 AHK 名称兼容层，计划 §0.1），每项带对照原版语义测试；
+- `Set*Delay/CoordMode/SetWorkingDir/OutputDebug/ListVars/Exit/ExitApp/Reload/Pause/Persistent` → Runtime/HostLifecycle/SchedulerPolicy 显式 API（`Sleep`/`Suspend` 已分别由 `runtime.delay`/`input.suspend` 承载并流转 `implemented`；`Critical`/`Thread` 按 `stdlib.md` §5.3 判 `unsupported-by-policy`）；
+- `js-native` 行只做映射入档与差异核对，不写代码。
 
 ### M4 Worker 簇：storage + registry + process（45 + 5 + 31 + 12，L）
 

@@ -28,4 +28,4 @@
 
 ## 完成标准
 
-只有当 `coverage.json`、`core-builtins.json`、`objects.json`、`builtins.json`、ABI、指令、状态和错误清单中的每一项都具有精确源码证据、TS 契约、实现状态和测试 ID，才能称为“设计完备”。实现完备还要求状态全部达到 `implemented` 或有明确的 `unsupported-by-policy` 替代方案。
+只有当 `coverage.json`、`core-builtins.json`、`objects.json`、`builtins.json`、ABI、指令、状态和错误清单中的每一项都具有精确源码证据、TS 契约、实现状态和测试 ID（`js-native` 行以等价表达式与差异记录替代测试 ID），才能称为“设计完备”。实现完备还要求状态全部达到终态 `implemented | js-native | unsupported-by-policy`（理由与等价物入档；口径见 `stdlib.md` §3，计划 §0 公式同步）。

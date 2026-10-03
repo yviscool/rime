@@ -273,7 +273,7 @@ async function render(): Promise<string> {
   lines.push("# AHK Function Compatibility Matrix");
   lines.push("");
   lines.push(
-    `Source: docs/api/coverage.json, derived from the ${rows.length} md_func entries in functions.h. contract-only means the target contract is registered; it does not mean a JavaScript binding or Native executor exists. sourceFiles is a function-name hit index and must be verified before implementation.`,
+    `Source: docs/api/coverage.json, derived from the ${rows.length} md_func entries in functions.h. contract-only means the target contract is registered; it does not mean a JavaScript binding or Native executor exists. js-native means ECMAScript already covers the item (equivalence mapping in docs/api/runtime-language.md, zero dedicated code); terminal statuses per docs/api/stdlib.md are implemented | js-native | unsupported-by-policy. sourceFiles is a function-name hit index and must be verified before implementation.`,
   );
   lines.push("");
   lines.push("");

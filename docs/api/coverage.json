@@ -590,7 +590,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/input",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -612,10 +612,10 @@
         "rime-research/AutoHotkey-alpha/source/window.h"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "contract-only",
+      "status": "unsupported-by-policy",
       "async": "async",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "deadline+AbortSignal"
     },
@@ -627,7 +627,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/math.cpp"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "sdk-owned",
+      "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
       "contractTest": "missing",
@@ -642,7 +642,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/math.cpp"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "sdk-owned",
+      "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
       "contractTest": "missing",
@@ -1162,7 +1162,7 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/script_expression.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "rime:runtime",
       "status": "contract-only",
       "async": "async",
       "capability": "runtime",
@@ -1183,7 +1183,7 @@
         "rime-research/AutoHotkey-alpha/source/hook.cpp",
         "rime-research/AutoHotkey-alpha/source/hotkey.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "rime:runtime",
       "status": "contract-only",
       "async": "async",
       "capability": "runtime",
@@ -1506,7 +1506,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/input",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -1521,7 +1521,7 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/input",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -1557,7 +1557,7 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/input",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -1952,7 +1952,7 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "rime:runtime",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -2006,7 +2006,7 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/input",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -2024,7 +2024,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/wait.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "rime:runtime",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -2041,7 +2041,7 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "rime:runtime",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -2414,7 +2414,7 @@
         "rime-research/AutoHotkey-alpha/source/var.h",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "rime:runtime",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -2433,7 +2433,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/CCallback.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "rime:runtime",
       "status": "contract-only",
       "async": "async",
       "capability": "runtime",
@@ -2451,7 +2451,7 @@
         "rime-research/AutoHotkey-alpha/source/script_expression.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "rime:runtime",
       "status": "contract-only",
       "async": "async",
       "capability": "runtime",
@@ -2506,7 +2506,7 @@
         "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/window",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -2650,8 +2650,8 @@
         "rime-research/AutoHotkey-alpha/source/window.cpp",
         "rime-research/AutoHotkey-alpha/source/window.h"
       ],
-      "tsModule": "@rime/native-interop",
-      "status": "sdk-owned",
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
       "async": "explicit-capability",
       "capability": "native.unsafe",
       "contractTest": "missing",
@@ -2665,8 +2665,8 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/regex.cpp"
       ],
-      "tsModule": "@rime/native-interop",
-      "status": "sdk-owned",
+      "tsModule": "@rime/runtime-language",
+      "status": "contract-only",
       "async": "explicit-capability",
       "capability": "native.unsafe",
       "contractTest": "missing",
@@ -2686,7 +2686,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "rime:runtime",
       "status": "contract-only",
       "async": "async",
       "capability": "runtime",
@@ -2904,7 +2904,7 @@
         "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/input",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -2920,7 +2920,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/automation",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -2935,7 +2935,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/input",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -2955,7 +2955,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/input",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -2972,7 +2972,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/input",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -2987,7 +2987,7 @@
         "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/input",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -3002,7 +3002,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/registry",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -3017,7 +3017,7 @@
         "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/input",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -3032,7 +3032,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/input",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -3089,7 +3089,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "@rime/window",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -3107,7 +3107,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
+      "tsModule": "rime:runtime",
       "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
@@ -3145,11 +3145,11 @@
         "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
         "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp"
       ],
-      "tsModule": "@rime/runtime-language",
-      "status": "contract-only",
+      "tsModule": "rime:runtime",
+      "status": "implemented",
       "async": "async",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "tests/js/runtime_smoke.cpp",
       "lane": "js",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3193,7 +3193,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/string.cpp"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "sdk-owned",
+      "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
       "contractTest": "missing",
@@ -3244,7 +3244,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/string.cpp"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "sdk-owned",
+      "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
       "contractTest": "missing",
@@ -3261,7 +3261,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/string.cpp"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "sdk-owned",
+      "status": "contract-only",
       "async": "sync",
       "capability": "runtime",
       "contractTest": "missing",
@@ -3329,10 +3329,10 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "contract-only",
+      "status": "unsupported-by-policy",
       "async": "async",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "deadline+AbortSignal"
     },
