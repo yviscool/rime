@@ -711,7 +711,7 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "contract-only",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
       "contractTest": "missing",
@@ -724,7 +724,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "docs/api/runtime-language.md"
     },
     {
       "ahkName": "IsAlnum",
@@ -1167,7 +1167,7 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "contract-only",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
       "contractTest": "missing",
@@ -1180,7 +1180,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "docs/api/runtime-language.md"
     },
     {
       "ahkName": "NumGet",
@@ -1647,7 +1647,7 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "contract-only",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
       "contractTest": "missing",
@@ -1660,7 +1660,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "docs/api/runtime-language.md"
     },
     {
       "ahkName": "RegCreateKey",
@@ -2175,7 +2175,7 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "contract-only",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
       "contractTest": "missing",
@@ -2188,7 +2188,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "docs/api/runtime-language.md"
     },
     {
       "ahkName": "StrUpper",
@@ -2223,7 +2223,7 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "contract-only",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
       "contractTest": "missing",
@@ -2236,7 +2236,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "docs/api/runtime-language.md"
     },
     {
       "ahkName": "Tan",
@@ -2319,7 +2319,7 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "contract-only",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
       "contractTest": "missing",
@@ -2332,7 +2332,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "docs/api/runtime-language.md"
     },
     {
       "ahkName": "VarSetStrCapacity",

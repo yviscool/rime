@@ -1,6 +1,6 @@
 # Runtime and Language Compatibility
 
-状态：138 项已分类——51 `js-native`、62 `contract-only`（含 18 项 L4 还原保留候选）、5 `implemented`、20 `unsupported-by-policy`。判定真值见 §2 映射表；状态词汇的权威是 [`stdlib.md`](./stdlib.md)（§3 四状态口径、§5 黑名单、§6 L4 还原保留层）。
+状态：138 项已分类——59 `js-native`、54 `contract-only`（含 10 项 L4 还原保留候选）、5 `implemented`、20 `unsupported-by-policy`。判定真值见 §2 映射表；状态词汇的权威是 [`stdlib.md`](./stdlib.md)（§3 四状态口径、§5 黑名单、§6 L4 还原保留层）。
 
 命名与参数形状不在本页裁定：公共 API 命名遵循 [`AHK-TS-WINDOWS-API-DESIGN.md`](../AHK-TS-WINDOWS-API-DESIGN.md) §0 的六个核心设计问题与 [`future-runtime.md`](./future-runtime.md)（stdlib.md 开篇）。本页只登记**判定、证据与语义差异**，不给出 API 形状；AHK 名称仅作能力研究样本与语义核对测试的 oracle（计划 §0.1：不存在 AHK 名称兼容层）。
 
@@ -14,7 +14,7 @@
 |---|---|---|
 | `implemented` | 已有 TS 服务表面 + contract 测试（测试 ID 入台账）；本页给出服务模块与改名注记 | 是 |
 | `js-native` | L0 已覆盖：本页给等价 TS 表达式与可观察差异（无差异写“无”），零专属代码，映射记录替代测试 ID | 是 |
-| `contract-only` | 过渡态：目标模块与计划阶段已定、待实现；含 §2.2.2 的 18 项 L4 还原保留候选（实现后 → `implemented`） | 否 |
+| `contract-only` | 过渡态：目标模块与计划阶段已定、待实现；含 §2.2.2 的 10 项 L4 还原保留候选（实现后 → `implemented`） | 否 |
 | `unsupported-by-policy` | stdlib.md §5 黑名单或计划 §0.3 已拍板裁剪：本页给理由与等价物/替代 | 是（需理由与替代） |
 
 终态公式（stdlib.md §3）：`终态 = implemented | js-native | unsupported-by-policy`。台账收敛规则：`sdk-owned` 收敛到 `contract-only`（差异有用户价值的进 §2.2.2 还原保留候选），`contract-only` 服务表面落地后收敛为 `implemented`，`unsupported-by-policy` 必须能指到 stdlib.md §5 的条目（三条已定案见 §5）。
@@ -23,9 +23,9 @@
 
 台账标记：**CB** = `core-builtins.json`，**COV** = `coverage.json`。
 
-### 2.1 `js-native`（51）
+### 2.1 `js-native`（59）
 
-等价式为可直接使用的 TS/ECMAScript 表达式；差异列记录可观察行为不一致处（均不转入 §2.2.2 还原保留：差异集中在错误路径、区域设置或低频参数形态，按 stdlib.md §3 记录即可）。
+等价式为可直接使用的 TS/ECMAScript 表达式；差异列记录可观察行为不一致处（按 stdlib.md §3：差异集中在错误路径、区域设置或低频参数形态）。本轮按 §6“JS 覆盖不了的语义能力”严格复判，把原 18 项还原保留候选中的 8 项——`Mod`、`Random`、`InStr`、`SubStr`、`StrTitle`、`Type`、`StrReplace`、`StrSplit`——改判入本表：等价式已覆盖其核心语义与已核验的边界情形，残余差异逐项记在差异列（复判过程见 §3）。
 
 | 函数 | 台账 | 等价 TS 表达式 | 可观察差异 | 证据 |
 |---|---|---|---|---|
@@ -44,6 +44,7 @@
 | `HasBase` | CB | `Object.prototype.isPrototypeOf.call(base, Object(value))` | AHK 对原始值取其值原型（script_object_bif.cpp:173-184），表达式用 Object() 包装后等价；参数为 unset/非对象时两端均判 false/抛错形态不同 | `script_object_bif.cpp:187` |
 | `HasMethod` | CB | `typeof Object(o)[name] === "function"` | 同 GetMethod：可选第 3 参形参个数校验（script_object_bif.cpp:261-273）无内建等价，移植侧需自行校验 | `script_object_bif.cpp:252` |
 | `HasProp` | CB | `name in Object(o)` | AHK 对 COM 对象抛错（script_object_bif.cpp:211-212）、原始值走值原型；表达式对普通对象等价（含原型链） | `script_object_bif.cpp:208` |
+| `InStr` | CB | `h.toLowerCase().indexOf(n.toLowerCase(), from - 1) + 1` | +1 对齐 AHK 的 1-based 返回值与 0=未找到（string.cpp:1311/1277）；AHK 省略 CaseSense 即 SCS_INSENSITIVE（script_func_impl.h:15），与 toLowerCase 一致；残余差异：Occurrence>1 与负 StartingPos 的 RTL 组合（string.cpp:1300-1314 tcsrstr）表达式不覆盖，需自行循环 indexOf；空 Needles AHK 抛参数错（1262-1263）而 indexOf("") 返回起点；大小写折衷不同（AHK 逻辑折衷 vs JS Unicode 折衷，İ/ß 可能改变串长导致索引偏移） | `lib/string.cpp:1254` |
 | `IsAlnum` | CB | `/^[0-9a-zA-Z]*$/.test(s)` | 仅 ASCII 字母数字；空串 AHK 记 true（script2.cpp:2187-2195）；CaseSense=Locale 时改走 IsCharAlphaNumeric（2190）JS 无等价；纯数字参数 AHK 抛 Type 错（2104-2107） | `script2.cpp:2086` |
 | `IsAlpha` | CB | `/^[a-zA-Z]*$/.test(s)` | 空串 AHK 记 true（script2.cpp:2196-2205，注释 2197）；Locale 分支走 IsCharAlpha（2200）；纯数字参数 AHK 抛 Type 错 | `script2.cpp:2086` |
 | `IsDigit` | CB | `/^[0-9]*$/.test(s)` | 仅 ASCII 数字（script2.cpp:2166-2174）；空串记 true；Locale 不影响本项 | `script2.cpp:2086` |
@@ -62,6 +63,7 @@
 | `LTrim` | CB | `s.replace(/^[\t ]+/, "")` | 不能用 trim()：AHK 默认 cutset 是空格+Tab（string.cpp:1551）而 trim() 裁全部 Unicode 空白；自定义 omit 是字符集合（1551），需按 [.] 转义 | `lib/string.cpp:1540` |
 | `Max` | CB | `Math.max(...vs)` | 非数值/空串 AHK 抛 Type 参数错（math.cpp:184-186），JS 得 NaN；整数/浮点分桶比较后返回原 token（166-192），值一致；JS 无参得 Infinity，AHK 强制至少一参 | `lib/math.cpp:152` |
 | `Min` | CB | `Math.min(...vs)` | 同 Max | `lib/math.cpp:152` |
+| `Mod` | CB | `a % b` | 整型走 C %、浮点走 qmathFmod（math.cpp:137/143），余数都取被除数符号，与 JS % 相同——值语义一致；残余差异：除数为 0 时 AHK 抛 ZeroDivision（math.cpp:132/141）而 JS 得 NaN，非数值参数 AHK 抛 Type 错（147-148）而 JS 走 ToNumber 隐式转换 | `lib/math.cpp:123` |
 | `ObjBindMethod` | CB | `o[name].bind(o, ...args)` | AHK 允许省略 name，绑定对象自身作为可调用目标（script_object_bif.cpp:90-102），JS 需对象自身可调用；其余等价 | `script_object_bif.cpp:84` |
 | `ObjGetBase` | CB | `Object.getPrototypeOf(Object(o))` | AHK 对原始值返回值原型、不可设基的对象返回 unset（script_object_bif.cpp:141-170）；表达式用 Object() 包装，null 原型两侧均可表达 | `script_object_bif.cpp:141` |
 | `ObjHasOwnProp` | CB | `Object.hasOwn(o, name)` | 无：AHK FindField 只查自有字段（script_object.cpp:2054-2057），与 Object.hasOwn 等价（AHK 无 symbol 键） | `script_object.cpp:2054` |
@@ -70,21 +72,27 @@
 | `ObjSetBase` | CB | `Object.setPrototypeOf(o, base)` | AHK 拒绝非对象 base（script_object_bif.cpp:149-151）且不触发 meta-function；JS 额外允许 null（设为无原型） | `script_object_bif.cpp:141` |
 | `Ord` | CB | `s.codePointAt(0) ?? 0` | 代理对合并为码点（string.cpp:1329-1330）与 JS 一致；空串 AHK 记 0，表达式已用 ?? 0 吸收 | `lib/string.cpp:1319` |
 | `Props` | CB | `function* (o) { for (const k in o) yield [k, o[k]]; }` | AHK 沿基类链逐层枚举并按名排序、跳过 NoEnumGet/无 getter 的属性（script_object.cpp:3311-3364），且可对原始值枚举其值原型（script_object_bif.cpp:226-249）；JS for-in 按插入序、只给 enumerable 名 | `script_object_bif.cpp:226` |
+| `Random` | CB | `Math.min(a,b) + Math.floor(Math.random() * (Math.abs(a-b) + 1))（整型闭区间）；Math.min(a,b) + Math.random() * Math.abs(a-b)（浮点）；Math.random()（无参）` | 闭区间与参数宽容度可由参数调整覆盖：min>max 自动交换、单参等价 (0,n)、无参返回 [0,1) 浮点（math.cpp:322-330/346-349），浮点式与 AHK 的 53-bit 构造 (rand>>11)/2^53*range+min（math.cpp:338）同构；残余差异：AHK 用 OS CSPRNG 并做拒绝采样保证均匀（math.cpp:326-370），Math.random 是非加密 PRNG 且有 ≤1/2^53 量级模偏差；范围超过 2^53 时表达式精度不足；整型/浮点需按参数选式（AHK 按是否含小数点自动分流，math.cpp:317-320） | `lib/math.cpp:312` |
 | `RTrim` | CB | `s.replace(/[\t ]+$/, "")` | 同 LTrim | `lib/string.cpp:1540` |
 | `Sin` | CB | `Math.sin(v)` | 同 Cos | `lib/math.cpp:215` |
 | `Sqrt` | CB | `Math.sqrt(v)` | v<0 AHK 抛参数错（math.cpp:292-294），JS 得 NaN；非数值 AHK 按 0 得 0，JS 得 NaN | `lib/math.cpp:288` |
 | `StrCompare` | CB | `a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0` | 默认大小写不敏感 = _tcsicmp（string.cpp:1162/1180）；CaseSense=Locale/Logical 走 lstrcmpi/StrCmpLogicalW（1181-1182）无 JS 等价；非 ASCII 折叠规则与 _tcsicmp 有边缘差异 | `lib/string.cpp:1159` |
 | `StrLen` | CB | `s.length` | 无：AHK 返回 TCHAR（UTF-16 code unit）个数（string.cpp:1194-1196），与 .length 等价 | `lib/string.cpp:1191` |
 | `StrLower` | CB | `s.toLowerCase()` | AHK 走 Win32 CharLower（string.cpp:348-349，按用户区域设置），JS 与 locale 无关；ASCII 输入无差异，土耳其 İ/i 等区域规则有差异 | `lib/string.cpp:338` |
+| `StrReplace` | COV | `q === '' ? h : h.replace(new RegExp(q.replace(/[.*+?^${}()\|[\]\\]/g, '\\$&'), 'gi'), () => r)` | 默认大小写不敏感与 AHK 一致（string.cpp:366：省略 CaseSense 即 SCS_INSENSITIVE）；空 SearchText 返回原串、计数 0（util.cpp:1130-1140）由三元覆盖；函数替换体规避 JS 替换串的 $ 特殊序列（AHK 替换串是字面量）；残余差异：Limit 次数上限与计数输出不覆盖，需自行计数；大小写折衷不同（AHK 逻辑折衷 vs JS /i/ 的 Unicode 折衷）；模式串转义依赖左侧转义式，需对照测试守住 | `lib/string.cpp:358` |
+| `StrSplit` | COV | `s === '' ? [] : d == null \|\| d === '' ? [s] : s.split(d)` | 空输入返回 []（string.cpp:459-462）、分隔符省略或空串返回单元素整串（string.cpp:447-455 按非空计数）由三元覆盖；残余差异：OmitChars 需逐段 trim（p.replace(/^[chars]+\|[chars]+$/g, '')）；MaxParts 达上限时 AHK 把余项并入最后一段（string.cpp:477-481）而 JS split(n) 丢弃余项、语义相反，需 p.length>n ? [...p.slice(0,n-1), p.slice(n-1).join(d)] : p；MaxParts=0 返回 []；数组分隔符需 regex 联合 | `lib/string.cpp:402` |
+| `StrTitle` | CB | `s.toLowerCase().replace(/\S+/g, w => w.replace(/\p{L}/, c => c.toUpperCase()))` | 与 StrToTitleCase（util.h:97-119）逐条对应：词边界只认空白（_istspace）、数字与标点不改写、每词只有首个字母大写其余小写（先整体小写再提升首字母，撤号与缩写按“非空白段”处理）；残余差异：AHK 走 Win32 风格逐字符 CharLower/CharUpper（string.cpp:353 调用），JS 用 Unicode 简单大小写映射，非 ASCII（ß、İ 等）与组合字符表现可能不同 | `util.h:97` |
 | `StrUpper` | CB | `s.toUpperCase()` | AHK 走 Win32 CharUpper（string.cpp:350-351）；差异同 StrLower | `lib/string.cpp:338` |
+| `SubStr` | CB | `(i => s.slice(i, len === undefined ? undefined : len < 0 ? Math.max(s.length + len, i) : i + len))(start === 0 ? s.length : start > 0 ? start - 1 : start)` | 逐条对应 string.cpp:1211-1247：start==0 返回空串（映射为 s.length 使 slice 为空）、start>0 转 0-based、start<0 为尾部偏移（slice 负索引同语义且同样钳到 0）、len 省略到尾、len<0 为尾部去掉 len 个字符（Math.max(s.length+len, i) 在余项不足时给出空串）、越界与零长度返回空串；残余差异：非整数 Start/Length 被 AHK 经 ParamIndexToInt64 向零截断（1212/1230），表达式按整数参数使用 | `lib/string.cpp:1201` |
 | `Tan` | CB | `Math.tan(v)` | 同 Cos | `lib/math.cpp:235` |
 | `Throw` | CB | `throw e` | AHK Throw 是可作表达式调用的 BIF（error.cpp:154），异常原型是 AHK Error 家族；JS throw 是语句、可抛任意值——模型差异，无专属适配代码 | `error.cpp:154` |
 | `Trim` | CB | `s.replace(/^[\t ]+/, "").replace(/[\t ]+$/, "")` | 同 LTrim：默认 cutset 空格+Tab（string.cpp:1551），不可直接用 String.trim()；对象参数 AHK 抛参数错（1542-1543） | `lib/string.cpp:1540` |
+| `Type` | CB | `v === undefined ? 'unset' : typeof v === 'string' ? 'String' : typeof v === 'number' ? (Number.isInteger(v) ? 'Integer' : 'Float') : typeof v === 'bigint' ? 'Integer' : (v?.constructor?.name ?? 'Object')` | 三段映射与 TokenTypeString（script2.cpp:3099-3121）一致：String/Integer/Float/对象类名/unset（无参调用即 undefined→unset）；残余差异：JS 只有 IEEE double，整数值的 Float（如 3.0）报 Integer 而 AHK 报 Float——token 类型在 L0 已丢失，专属函数同样无法恢复；函数报 Function 而 AHK 报 Func/Closure/BoundFunc；BigInt 报 Integer（AHK 对应 int64）；null 与 symbol 无 AHK 对应物 | `script2.cpp:3099` |
 
 
-### 2.2 `contract-only`（62）
+### 2.2 `contract-only`（54）
 
-过渡态，不计终态（stdlib.md §3）。62 = 44 项常规能力 + 18 项 L4 还原保留候选（stdlib.md §6），分列两个小节：常规能力按 L2 模块归属排期，还原保留候选统一落 `@rime/runtime-language` 但实现顺序不同（先命名提案、后实现与对照测试），故单独标记。
+过渡态，不计终态（stdlib.md §3）。54 = 44 项常规能力 + 10 项 L4 还原保留候选（stdlib.md §6），分列两个小节：常规能力按 L2 模块归属排期，还原保留候选统一落 `@rime/runtime-language` 但实现顺序不同（先命名提案、后实现与对照测试），故单独标记。
 
 #### 2.2.1 常规能力（44）
 
@@ -138,30 +146,22 @@
 | `SoundSetVolume` | CB | `@rime/sound` | M5（winmm） | 同 SoundGetMute | `lib/sound.cpp:292` |
 
 
-#### 2.2.2 L4 还原保留候选（18）
+#### 2.2.2 L4 还原保留候选（10）
 
-原 `compat-shim` 桶按新口径并入 `contract-only`（计划 §0.1 禁止 AHK 名称兼容层，stdlib.md §6 把这类工作定义为 L4 还原保留层）。差异研究保留在“还原保留理由”列（JSON `note` 以 `还原保留：` 前缀）；实现以自有命名与参数形状落地，AHK 只作语义测试 oracle；全部 `contractTest: missing`，落点 `sdk/src/runtime-language.ts`。
+计划 §0.1 禁止 AHK 名称兼容层，stdlib.md §6 把“JS 覆盖不了的语义能力”定义为 L4 还原保留层。原 18 项候选经本轮严格复判：8 项改判 §2.1 `js-native`（等价式可覆盖），其余 10 项保留——“还原保留理由”列逐项写明**单表达式在何处失效**（JSON `note` 以 `还原保留：` 前缀）。实现以自有命名与参数形状落地，AHK 只作语义测试 oracle；全部 `contractTest: missing`，落点 `sdk/src/runtime-language.ts`。
 
 | 函数 | 台账 | 还原保留理由（可观察差异） | 规模 | 证据 |
 |---|---|---|---|---|
-| `DateAdd` | COV | AHK 用 YYYYMMDDHH24MISS 字符串 + d/h/m/s/ms/n/y 单位做日期算术（math.cpp:381-…，functions.h:55），JS Date 是毫秒时间戳且没有该字符串类型；需显式解析与单位表 | ~45 行 | `lib/math.cpp:381` |
-| `DateDiff` | COV | 同 DateAdd 的字符串与单位方言（math.cpp:426-…，functions.h:56），且 AHK 按单位截断差值；(b-a)/86400000 只覆盖天粒度 | ~40 行 | `lib/math.cpp:426` |
-| `Format` | CB | AHK Format 用 {} 顺序占位、{:fmt} printf 风格、U/L/T 大小写选项与 * 宽度取参（string.cpp:1369-1536），ECMAScript 只有 %s 风格的二手 sprintf 与 Intl，无同构语法 | ~90 行 | `lib/string.cpp:1369` |
-| `FormatTime` | CB | AHK 自带 token 方言（yyyy/MM/dd hh:mm:ss t…）并回落 Win32 GetDateFormat/GetTimeFormat（string.cpp:25-144），Intl.DateTimeFormat 的组件与本地化默认值都不同，需按 token 表逐项还原 | ~70 行 | `lib/string.cpp:25` |
-| `InStr` | CB | 1-based 起始位置、负 StartPos 从右数、Haystack 与 Needles 的空串规则与 CaseSense 参数（string.cpp:1254-…），indexOf/startWith 是 0-based 且无该参数集 | ~35 行 | `lib/string.cpp:1254` |
-| `Mod` | CB | 值语义与 JS % 一致（截断取余），但 AHK 除数为 0 抛 ZeroDivision（math.cpp:132-133/141-142）而 JS 得 NaN；非数值参数 AHK 抛 Type 错（147），JS 隐式 Coerce；浮点走 qmathFmod（143） | ~12 行 | `lib/math.cpp:123` |
-| `Random` | CB | AHK Random(min, max) 为闭区间 [min,max] 且整数/浮点按参数类型分流（math.cpp:312-377），Math.random() 只有 [0,1)；AHK 无参返回浮点、单参返回 [1,n] | ~20 行 | `lib/math.cpp:312` |
-| `RegExMatch` | COV | AHK 返回 Match 对象（Pos/Len/Name/Value/Mark 与 O) 输出变量族）且位置为 1-based（functions.h:236），RegExp.exec 为 0-based 数组；PCRE 构造无 JS 等价时显式抛错（stdlib.md §6） | ~60 行 | `lib/functions.h:236` |
-| `RegExReplace` | COV | AHK 的 Limit/Position/O) 输出与 1-based 位置、以及 PCRE→JS 差异需还原（functions.h:237，stdlib.md §6）；replace/replaceAll 只覆盖子集 | ~55 行 | `lib/functions.h:237` |
-| `Round` | CB | 半值远离零（-2.5 → -3，math.cpp:48-49），Math.round 半值朝 +∞（-2.5 → -2）；第 2 参 >0 时返回定长十进制字符串（"3.50"，79-81）而非 number；非数值/NaN 抛参数错（37/46）；非整数输入在 n≤0 时带 0.2 修正取整（90） | ~30 行 | `lib/math.cpp:26` |
-| `Sort` | CB | AHK 接受 options 字符串（大小写/数值/方言/反转）与分隔符（默认 \n，string.cpp:777-874）返回重组字符串；Array.prototype.sort 需自写比较器且不处理 AHK 的 F/R/N/L 等选项 | ~60 行 | `lib/string.cpp:777` |
-| `SplitPath` | COV | AHK 按 Windows 盘符/UNC/扩展名规则输出 name/dir/ext/nameNoExt/drive 五个分量（string.cpp:534-537、648-651，functions.h:280），ECMAScript 无内建路径模块（URL 不等价） | ~35 行 | `lib/string.cpp:648` |
-| `StrReplace` | COV | AHK 第 4 参 CaseSense 默认不敏感（string.cpp:358-…），String.prototype.replaceAll 恒为大小写敏感；另有限制次数 Limit 与输出计数 | ~20 行 | `lib/string.cpp:358` |
-| `StrSplit` | COV | AHK 接受分隔符集合、OmitChars、MaxParts（string.cpp:401-402，functions.h:286），split 只支持分隔符/正则，需组合实现 OmitChars 与 MaxParts 语义 | ~30 行 | `lib/string.cpp:402` |
-| `StrTitle` | CB | AHK 用 Win32 StrToTitleCase 逐词首字母大写（string.cpp:352-353），ECMAScript 无内建 title-case（toLowerCase 只做全小写）；词边界/缩写/撇号规则需按原版还原 | ~15 行 | `lib/string.cpp:338` |
-| `SubStr` | CB | 1-based、Start 为负从尾部计、Length 省略到尾与越界规则（string.cpp:1201-…），slice/substring 语义不同（负数方向、0-based） | ~30 行 | `lib/string.cpp:1201` |
-| `Type` | CB | AHK 返回 Integer/Float/String/unset/对象类名（script2.cpp:3099-3121），typeof 只有 number/string/object/function 且不分整数浮点；需 typeof + Number.isInteger + 构造器名三段映射 | ~12 行 | `script2.cpp:3099` |
-| `VerCompare` | CB | AHK 版本串比较规则（数字段 + 字母段 + 内部 rc/beta 语义）经 VersionSatisfies 落地（string.cpp:1567-1572），JS 无版本比较原语，Intl.Collator 也不等价 | ~40 行 | `lib/string.cpp:1567` |
+| `DateAdd` | COV | 表达式不可靠（注：本版本只有 S/M/H/D 四个单位、按 FILETIME 直接加秒，math.cpp:393-416，无日历/DST 运算——保留理由是输入校验与截断语义）：YYYYMMDDHH24MISS 必须按 AHK 同样校验（util.cpp:86-90 SystemTimeToFileTime 拒绝非法分量与 year<1601），而 Date.UTC 对 2024-02-31 静默进位、对 year<1601 静默通过；秒数按 (__int64) 向零截断（math.cpp:416）再格式化为 14 位串（420），朴素表达式会接受 AHK 拒绝的输入 | ~45 行 | `lib/math.cpp:381` |
+| `DateDiff` | COV | 表达式不可靠：除同 DateAdd 的输入校验外，空参默认取当前本地墙钟（util.cpp:283-303 GetSystemTimeAsFileTime+FileTimeToLocalFileTime）需与朴素字符串时间在同一表达式内混算，差值先按整型秒（util.cpp:307-318）再向零截断除以单位（math.cpp:435-438），三者无法单式可靠表达 | ~40 行 | `lib/math.cpp:426` |
+| `Format` | CB | 表达式不可靠：AHK Format 是小型格式语言（{} 顺序占位、{:fmt} printf 风格、U/L/T 大小写选项、* 宽度从参数取值，string.cpp:1369-1536），ECMAScript 只有 %s 风格 sprintf 与模板串，无同构语法，占位解析与类型分派必须专用实现 | ~90 行 | `lib/string.cpp:1369` |
+| `FormatTime` | CB | 表达式不可靠：AHK 自带 token 方言（yyyy/MM/dd hh:mm:ss t…，string.cpp:25-144）并回落 Win32 GetDateFormat/GetTimeFormat 取本地化默认（AM/PM 文案、月份名），Intl.DateTimeFormat 的组件、默认值与本地化输出都不同，逐 token 对齐必须是专用引擎 | ~70 行 | `lib/string.cpp:25` |
+| `RegExMatch` | COV | 表达式不可靠：PCRE 构造（分支、递归、回溯控制、命名组）无 JS 等价时须显式抛错（stdlib.md §6），返回的 Match 对象（Pos/Len/Name/Value/Mark 与 O) 输出变量族）与 1-based 位置（functions.h:236）不是 RegExp.exec 数组能表达的形状 | ~60 行 | `lib/functions.h:236` |
+| `RegExReplace` | COV | 表达式不可靠：同 RegExMatch 的 PCRE→JS 显式抛错要求；Limit、Position、O) 输出与 1-based 位置（functions.h:237）需要还原壳，replace/replaceAll 只覆盖子集 | ~55 行 | `lib/functions.h:237` |
+| `Round` | CB | 表达式不可靠：Math.round 半值朝 +∞（-2.5→-2）而 AHK 半值远离零（math.cpp:48-49）；n>0 时 AHK 用 %0.*f 输出定长十进制字符串（“3.50”，79-81），toFixed 对恰好一半的负数取更大 n（-0.125.toFixed(2)=“-0.12”）与 AHK（“-0.13”）相反；n≤0 走 0.2 修正后按 int64 返回（90-91），非数值抛参数错而 JS 得 NaN | ~30 行 | `lib/math.cpp:26` |
+| `Sort` | CB | 表达式不可靠：options 是旗标方言（C/COn/COff/CL/CLocale/CLogical、D+分隔符、N、P+列偏移、R/Random、U、Z、反斜杠按裸文件名，string.cpp:801-870）+ 自定义比较函数 + 尾分隔符空项规则（string.cpp:777-874），单表达式无法表达；Array.prototype.sort 需自写比较器，且 AHK 默认不区分大小写、按换行分行并重组 | ~60 行 | `lib/string.cpp:777` |
+| `SplitPath` | COV | 表达式不可靠：四类路径规则耦合——URL 把 :// 之后的服务器名当 drive（string.cpp:542-553）、UNC 双反斜杠探测（600-602）、仅对 drive 去前导空白（541）、C:file.txt 的 dir 含冒号（621、670-673），扩展名取 name 内最右点（635），单条正则或 split 组合会在 URL/UNC/相对路径上静默错分 | ~35 行 | `lib/string.cpp:648` |
+| `VerCompare` | CB | 表达式不可靠：AHK 版本比较是分段算法（数字段与字母段切分、rc/beta 顺序经 VersionSatisfies 落地，string.cpp:1567-1572），单表达式无法同时表达分段、进制解析与大小写规则，Intl.Collator 也不等价 | ~40 行 | `lib/string.cpp:1567` |
 
 
 ### 2.3 `implemented`（5）
@@ -201,12 +201,14 @@
 | `VarSetStrCapacity` | CB | stdlib.md §5.4：预留变量缓冲容量（script2.cpp:2327-2331），属内存布局细节 | JS 字符串不可变，容量无概念 | `script2.cpp:2327` |
 
 
-## 3. L4 还原保留候选清单与政策对照（18 项）
+## 3. L4 还原保留候选清单与政策对照（10 项）
 
-- **stdlib.md §6 逐点名的 14 项**：`SubStr`、`InStr`、`Mod`、`FormatTime`、`RegExMatch`、`RegExReplace`、`DateAdd`、`DateDiff`、`SplitPath`、`StrSplit`、`Format`、`Sort`、`Random`、`VerCompare` —— 全部进 §2.2.2 还原保留候选，与政策一致。
-- **§6 以“等”字兜底、按同一标准（差异真实存在且有用户价值）纳入的 4 项**：`Round`（半值远离零 + n>0 返回定长十进制字符串）、`StrReplace`（第 4 参默认大小写不敏感，与 `replaceAll` 恒敏感相反）、`StrTitle`（L0 无 title-case 操作）、`Type`（Integer/Float/类名三段映射，`typeof` 无法表达）。
+本轮按 stdlib.md §6 的判据——只有“JS 覆盖不了的语义能力”才进 L4，**能被单条已记录表达式压平的差异归 `js-native`**——对原 18 项候选逐项复判，结果如下。
+- **保留还原的 10 项（§2.2.2）**：§6 逐点名的 9 项 `FormatTime`、`RegExMatch`、`RegExReplace`、`DateAdd`、`DateDiff`、`SplitPath`、`Format`、`Sort`、`VerCompare`，加 §6“等”兜底的 `Round`。单表达式失效点逐项写在 §2.2.2 的“还原保留理由”列，概括为：`Round` 的半值远离零与定长十进制字符串、`Format`/`FormatTime` 的格式语言与 token 引擎、`Sort` 的旗标方言 + 自定义比较函数、`SplitPath` 的 URL/UNC/冒号规则耦合、`VerCompare` 的分段比较算法、`DateAdd`/`DateDiff` 的输入校验与秒级截断（本版本无日历/DST 运算，保留理由是校验与截断语义）、`RegEx*` 的 PCRE 缺口显式抛错与 Match 对象返回形状。
+- **§6 点名但经表达式判定改判 `js-native` 的 5 项**：`Mod`（`a % b`，整型 C % 与浮点 qmathFmod 同为余数取被除数符号，差异只在除零/非数值错误路径）、`SubStr`（`slice` + 两处钳制覆盖 1-based、负 start、负 length、空起始与越界，已对照 string.cpp:1211-1247 核验）、`InStr`（`toLowerCase` + `indexOf` + 1 对齐 1-based 与默认 CaseSense=Off，Occurrence/负起点 RTL 记为低频参数差异）、`StrSplit`（`split` + 空输入/空分隔符三元，OmitChars/MaxParts 记为差异）、`Random`（闭区间 `floor` 式，模偏差、CSPRNG 源与 2^53 范围记为差异）。**建议 §6 的示例清单同步措辞**（其“等”字已可涵盖，或直接改为“示例见 runtime-language.md §3”）。
+- **§6 以“等”字兜底但同样改判 `js-native` 的 3 项**：`StrReplace`（转义式 + `/gi/` + 函数替换体覆盖默认大小写不敏感、字面替换与空搜索，Limit/计数记为差异）、`StrTitle`（整体小写 + 非空白段首字母提升，逐条对应 util.h:97-119）、`Type`（`typeof` + `Number.isInteger` + 构造器名三段映射，整数值 Float 的 token 类型在 L0 已丢失，专属函数同样无法恢复）。
 - **明确不进 L4 的（判 `js-native`）**：`Trim`/`LTrim`/`RTrim`、`Abs`、`StrLen`、`Is*` 11 项（`IsAlnum` 至 `IsXDigit`）、`StrLower`/`StrUpper`/`StrCompare`、`Chr`/`Ord` —— 与 §6“JS 已覆盖的不写代码”一致；`Trim` 类的默认 cutset 差异在 §2.1 差异列显式记录。
-- **落点与形状**：`sdk/src/runtime-language.ts`，实现为纯函数、不反向依赖 L2（stdlib.md §6）；命名以 future-runtime.md 定义优先，无定义者实现阶段先出命名提案再落码；不新造 AHK 约定包装。18 项 `contractTest` 均为 `missing`，实现时补对照原版的语义用例。
+- **落点与形状**：`sdk/src/runtime-language.ts`，实现为纯函数、不反向依赖 L2（stdlib.md §6）；命名以 future-runtime.md 定义优先，无定义者实现阶段先出命名提案再落码；不新造 AHK 约定包装。10 项 `contractTest` 均为 `missing`，实现时补对照原版的语义用例；8 项改判行的 `contractTest` 指向本页（映射与差异记录替代测试 ID，stdlib.md §3）。
 
 ## 4. PCRE → JS 政策
 
@@ -216,7 +218,7 @@
 
 ## 5. 分批与计划对齐注记
 
-- **M3（纯 JS 快铺）**：51 项 `js-native`（等价式与差异入档，零专属代码）与 18 项 L4 还原保留候选（§2.2.2，`sdk/src/runtime-language.ts`，计划 §7.3 先命名提案、后实现与对照测试）排在 M3；`contract-only` 中的 `Set*Delay`/`CoordMode`/`SetWorkingDir`/`OutputDebug`/`ListVars`（计划 line 97）与 `Exit`/`ExitApp`/`Reload`/`Pause`/`Persistent`（计划 line 98）同属 M3 的显式 API/HostLifecycle 映射；`GetKeySC`/`GetKeyVK`/`GetKeyName`/`ListHotkeys`/`Set*LockState` 归 `@rime/input` 的 M3 输入映射。
+- **M3（纯 JS 快铺）**：59 项 `js-native`（等价式与差异入档，零专属代码）与 10 项 L4 还原保留候选（§2.2.2，`sdk/src/runtime-language.ts`，`stdlib.md` §7 先命名提案、后实现与对照测试）排在 M3；`contract-only` 中的 `Set*Delay`/`CoordMode`/`SetWorkingDir`/`OutputDebug`/`ListVars`/`Exit`/`ExitApp`/`Reload`/`Pause`/`Persistent`（计划 §M3 第三条）同属 M3 的显式 API/HostLifecycle 映射；`GetKeySC`/`GetKeyVK`/`GetKeyName`/`ListHotkeys`/`Set*LockState` 归 `@rime/input` 的 M3 输入映射。
 - **M4**：`FileOpen`（fs service + `File` 对象）、`Reg*` 5 项 + `SetRegView`（registry service，计划 line 105 点名）。
 - **M5**：`Sound*` 5 项（winmm，计划 line 112）。
 - **M7**：`PostMessage`（Control 三层执行的 Win32 消息层）。

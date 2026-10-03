@@ -3244,10 +3244,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/string.cpp"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "contract-only",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "none"
     },
@@ -3261,10 +3261,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/string.cpp"
       ],
       "tsModule": "@rime/runtime-language",
-      "status": "contract-only",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "none"
     },

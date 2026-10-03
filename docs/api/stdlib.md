@@ -72,8 +72,8 @@ L4  还原保留层           JS 覆盖不了的语义能力，以自有命名�
 
 计划 §0.1 拍板：**不存在 AHK 名称兼容层**；AHK 只是能力研究样本与语义核对测试的 oracle。因此：
 
-- **JS 已覆盖的不写代码**：`Trim/Abs/StrLen/Is*` 等记 `js-native`，给等价表达式与差异说明。
-- **JS 覆盖不了的语义能力做还原保留**：`Round` 半值远离零、`FormatTime` 时间格式化、`DateAdd/DateDiff` 日历算术、`RegExMatch/RegExReplace` 富匹配对象、`SplitPath/StrSplit`、`Format`、`Sort`/`Random`/`VerCompare` 等——以**自有命名与参数形状**实现（future-runtime 命名有定义的从其定义；没有的在实现阶段先出命名提案再落码），测试用 AHK 原版语义用例守住能力（计划 §0.1"语义以对照原版的测试守住"）。
+- **JS 已覆盖的不写代码**：`Trim/Abs/StrLen/Is*` 等记 `js-native`，给等价表达式与差异说明；`Mod`/`SubStr`/`Type`/`StrReplace`/`StrSplit`/`StrTitle`/`InStr`/`Random` 这类**差异可被等价表达式消解**的同样记 `js-native`（表达式与残余差异入档），不做专属函数。
+- **JS 覆盖不了的语义能力做还原保留**（当前 10 项，逐项判据见 `runtime-language.md` §3）：`Round`（半值规则与定长输出）、`Format`/`FormatTime`/`Sort`（小型格式语言/选项方言）、`SplitPath`（URL/UNC/盘符规则耦合）、`VerCompare`（分段比较算法）、`DateAdd`/`DateDiff`（非法分量校验与截断语义）、`RegExMatch`/`RegExReplace`（PCRE 差距 + 富匹配对象）——以**自有命名与参数形状**实现（future-runtime 命名有定义的从其定义；没有的在实现阶段先出命名提案再落码），测试用 AHK 原版语义用例守住能力（计划 §0.1"语义以对照原版的测试守住"）。
 - 每项：AHK 源引用（file:line）+ 差异表 + 对照测试；PCRE 构造无 JS 等价时**显式抛错**，不静默错配。
 - 实现保持纯函数、不反向依赖 L2 Windows 能力（可测、可移植）。
 
