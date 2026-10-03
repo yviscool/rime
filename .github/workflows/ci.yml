@@ -21,6 +21,11 @@ jobs:
         with:
           bun-version: "1.4.2"
 
+      # quickjs preset 不加载 vcvars；runner 默认 PATH 里只有 mingw 的 gcc
+      # 没有 cl，CMake 会误选 GNU。先把 MSVC 环境进 PATH，后面两个
+      # preset（msvc / quickjs）都用同一编译器。
+      - uses: ilammy/msvc-dev-cmd@v1
+
       - name: Toolchain
         shell: pwsh
         run: |
