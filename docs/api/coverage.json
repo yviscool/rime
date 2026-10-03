@@ -2202,11 +2202,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {
@@ -2218,11 +2218,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {
@@ -2235,11 +2235,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
-      "capability": "windows.input.inject",
-      "contractTest": "missing",
-      "lane": "ui",
+      "capability": "windows.input.read",
+      "contractTest": "tests/js/input_slice.cpp,tests/sdk/send.test.ts",
+      "lane": "ui/worker",
       "cancellation": "deadline+AbortSignal"
     },
     {
@@ -2252,11 +2252,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {
@@ -2761,8 +2761,8 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp",
-      "lane": "ui",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {
@@ -2776,11 +2776,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/sdk/send.test.ts,tests/js/input_slice.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {
@@ -2800,8 +2800,8 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp",
-      "lane": "ui",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {
@@ -2857,11 +2857,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/sdk/send.test.ts,tests/js/input_slice.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {
@@ -2875,11 +2875,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/sdk/send.test.ts,tests/js/input_slice.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {
@@ -2890,11 +2890,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {

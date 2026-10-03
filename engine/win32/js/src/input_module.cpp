@@ -4,8 +4,11 @@
 #include "rime/core/json.hpp"
 #include "rime/js/host.hpp"
 #include "rime/js/runtime.hpp"
+#include "rime/win32/window.hpp"
 
 #include "quickjs.h"
+
+#include <windows.h>
 
 #include <atomic>
 #include <chrono>
@@ -94,19 +97,36 @@ std::string event_json(const InputEvent& event) {
 }
 
 // Reads one send step with TypeError on anything but an integer vk in
-// 1..254 plus a boolean down; the executor re-validates the payload as the
-// contract enforcer, this only gives JS callers precise call-site errors.
+// 1..254 (0..65535 when unicode marks a UTF-16 code unit) plus a boolean
+// down; the executor re-validates the payload as the contract enforcer, this
+// only gives JS callers precise call-site errors. The optional `unicode`
+// field must be a boolean when present.
 bool parse_send_step(JSContext* context, JSValueConst step, SendKeyEvent& out) {
+  JSValue unicode_value = JS_GetPropertyStr(context, step, "unicode");
+  if (JS_IsException(unicode_value)) return false;
+  bool is_unicode = false;
+  if (!JS_IsUndefined(unicode_value)) {
+    if (!JS_IsBool(unicode_value)) {
+      JS_FreeValue(context, unicode_value);
+      JS_ThrowTypeError(context, "send(steps): step.unicode must be a boolean");
+      return false;
+    }
+    is_unicode = JS_ToBool(context, unicode_value) > 0;
+  }
+  JS_FreeValue(context, unicode_value);
   JSValue vk_value = JS_GetPropertyStr(context, step, "vk");
   if (JS_IsException(vk_value)) return false;
   double vk_number = 0;
   const bool vk_ok =
       JS_IsNumber(vk_value) && JS_ToFloat64(context, &vk_number, vk_value) == 0 &&
-      std::isfinite(vk_number) && std::trunc(vk_number) == vk_number && vk_number >= 1.0 &&
-      vk_number <= 254.0;
+      std::isfinite(vk_number) && std::trunc(vk_number) == vk_number &&
+      (is_unicode ? (vk_number >= 0.0 && vk_number <= 65535.0)
+                  : (vk_number >= 1.0 && vk_number <= 254.0));
   JS_FreeValue(context, vk_value);
   if (!vk_ok) {
-    JS_ThrowTypeError(context, "send(steps): step.vk must be an integer in 1..254");
+    JS_ThrowTypeError(context,
+                      is_unicode ? "send(steps): step.unicode vk must be an integer in 0..65535"
+                                 : "send(steps): step.vk must be an integer in 1..254");
     return false;
   }
   JSValue down_value = JS_GetPropertyStr(context, step, "down");
@@ -118,8 +138,65 @@ bool parse_send_step(JSContext* context, JSValueConst step, SendKeyEvent& out) {
   }
   out.vk = static_cast<std::uint32_t>(vk_number);
   out.down = JS_ToBool(context, down_value) > 0;
+  out.unicode = is_unicode;
   JS_FreeValue(context, down_value);
   return true;
+}
+
+// Reads one mouse step into its payload JSON: action must be move/relmove
+// (int32 x and y) or down/up (button 1..3). TypeError on anything else; the
+// executor re-validates as the contract enforcer.
+bool parse_mouse_step(JSContext* context, JSValueConst step, json::Value& entry) {
+  JSValue action_value = JS_GetPropertyStr(context, step, "action");
+  if (JS_IsException(action_value)) return false;
+  if (!JS_IsString(action_value)) {
+    JS_FreeValue(context, action_value);
+    JS_ThrowTypeError(context, "mouse(payload): every step needs a string action");
+    return false;
+  }
+  const char* action_text = JS_ToCString(context, action_value);
+  JS_FreeValue(context, action_value);
+  if (!action_text) return false;
+  const std::string action(action_text);
+  JS_FreeCString(context, action_text);
+  entry = json::Value::object();
+  entry.set("action", json::Value::string(action));
+  if (action == "move" || action == "relmove") {
+    for (const char* field : {"x", "y"}) {
+      JSValue value = JS_GetPropertyStr(context, step, field);
+      if (JS_IsException(value)) return false;
+      double number = 0;
+      const bool ok = JS_IsNumber(value) && JS_ToFloat64(context, &number, value) == 0 &&
+                      std::isfinite(number) && std::trunc(number) == number &&
+                      number >= -2147483648.0 && number <= 2147483647.0;
+      JS_FreeValue(context, value);
+      if (!ok) {
+        JS_ThrowTypeError(context, "mouse(payload): move steps need int32 integer x and y");
+        return false;
+      }
+      entry.set(field, json::Value::number(number));
+    }
+    return true;
+  }
+  if (action == "down" || action == "up") {
+    JSValue button_value = JS_GetPropertyStr(context, step, "button");
+    if (JS_IsException(button_value)) return false;
+    double button = 0;
+    const bool ok = JS_IsNumber(button_value) && JS_ToFloat64(context, &button, button_value) == 0 &&
+                    std::isfinite(button) && std::trunc(button) == button && button >= 1.0 &&
+                    button <= 3.0;
+    JS_FreeValue(context, button_value);
+    if (!ok) {
+      JS_ThrowTypeError(context,
+                        "mouse(payload): button steps need button 1 (left), 2 (right) or 3 (middle)");
+      return false;
+    }
+    entry.set("button", json::Value::number(button));
+    return true;
+  }
+  JS_ThrowTypeError(context,
+                    "mouse(payload): step.action must be move, relmove, down or up");
+  return false;
 }
 
 // Installing or binding a global hook is a privileged operation; the same
@@ -676,6 +753,9 @@ JSValue input_send(JSContext* context, JSValueConst, int argc, JSValueConst* arg
     json::Value entry = json::Value::object();
     entry.set("vk", json::Value::number(static_cast<double>(key.vk)));
     entry.set("down", json::Value::boolean(key.down));
+    // Omitted when false so non-unicode payloads stay byte-identical with
+    // earlier revisions; the executor treats a missing field as false.
+    if (key.unicode) entry.set("unicode", json::Value::boolean(true));
     payload.push(std::move(entry));
   }
   ActionOptions options;
@@ -684,6 +764,181 @@ JSValue input_send(JSContext* context, JSValueConst, int argc, JSValueConst* arg
                             "windows.input.inject", {"input", "keyboard"},
                             json::stringify(payload), options);
   return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
+}
+
+// Per-side modifier + CapsLock snapshot behind input.modifiers(). Reads are
+// synchronous (keyboard.send needs the pre-state before it compiles the
+// batch) and gated behind windows.input.inject like every other input read:
+// the denial is a thrown Error naming the capability.
+JSValue input_modifiers(JSContext* context, JSValueConst, int, JSValueConst*, int, void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (!binding->kernel->allows("windows.input.inject")) {
+    return throw_capability_error(context, "windows.input.inject");
+  }
+  const ModifierState state = read_modifier_state();
+  JSValue result = JS_NewObject(context);
+  if (JS_IsException(result)) return JS_EXCEPTION;
+  const struct {
+    const char* name;
+    bool value;
+  } fields[] = {
+      {"lcontrol", state.lcontrol}, {"rcontrol", state.rcontrol}, {"lshift", state.lshift},
+      {"rshift", state.rshift},     {"lalt", state.lalt},         {"ralt", state.ralt},
+      {"lwin", state.lwin},         {"rwin", state.rwin},         {"capsLock", state.caps_lock},
+  };
+  for (const auto& field : fields) {
+    if (JS_SetPropertyStr(context, result, field.name, JS_NewBool(context, field.value)) < 0) {
+      JS_FreeValue(context, result);
+      return JS_EXCEPTION;
+    }
+  }
+  return result;
+}
+
+// Queues the `input.mouse` action: the payload ({steps, speed?}) validates up
+// front (TypeError for malformed input, Error naming windows.input.inject
+// when the capability is missing), the steps become the action payload, and
+// the shared queue settles the returned promise with {sent: n}.
+JSValue input_mouse(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                    void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc < 1 || argc > 2 || !JS_IsObject(argv[0]) || JS_IsArray(argv[0])) {
+    return JS_ThrowTypeError(context, "mouse(payload[, options])");
+  }
+  if (!binding->kernel->allows("windows.input.inject")) {
+    return throw_capability_error(context, "windows.input.inject");
+  }
+  JSValue payload_object = argv[0];
+  JSValue steps = JS_GetPropertyStr(context, payload_object, "steps");
+  if (JS_IsException(steps)) return JS_EXCEPTION;
+  if (!JS_IsArray(steps)) {
+    JS_FreeValue(context, steps);
+    return JS_ThrowTypeError(context, "mouse(payload): payload.steps must be an array");
+  }
+  json::Value payload = json::Value::object();
+  JSValue speed_value = JS_GetPropertyStr(context, payload_object, "speed");
+  if (JS_IsException(speed_value)) {
+    JS_FreeValue(context, steps);
+    return JS_EXCEPTION;
+  }
+  if (!JS_IsUndefined(speed_value)) {
+    double speed = 0;
+    const bool speed_ok =
+        JS_IsNumber(speed_value) && JS_ToFloat64(context, &speed, speed_value) == 0 &&
+        std::isfinite(speed) && std::trunc(speed) == speed && speed >= 0.0 && speed <= 100.0;
+    if (!speed_ok) {
+      JS_FreeValue(context, speed_value);
+      JS_FreeValue(context, steps);
+      return JS_ThrowTypeError(context, "mouse(payload): speed must be an integer in 0..100");
+    }
+    payload.set("speed", json::Value::number(speed));
+  }
+  JS_FreeValue(context, speed_value);
+  JSValue length_value = JS_GetPropertyStr(context, steps, "length");
+  if (JS_IsException(length_value)) {
+    JS_FreeValue(context, steps);
+    return JS_EXCEPTION;
+  }
+  std::int64_t length = 0;
+  const bool length_ok = JS_ToInt64(context, &length, length_value) == 0;
+  JS_FreeValue(context, length_value);
+  if (!length_ok) {
+    JS_FreeValue(context, steps);
+    return JS_EXCEPTION;
+  }
+  if (length <= 0) {
+    JS_FreeValue(context, steps);
+    return JS_ThrowTypeError(context, "mouse(payload): steps must not be empty");
+  }
+  json::Value step_array = json::Value::array();
+  for (std::int64_t index = 0; index < length; ++index) {
+    JSValue step = JS_GetPropertyInt64(context, steps, index);
+    if (JS_IsException(step)) {
+      JS_FreeValue(context, steps);
+      return JS_EXCEPTION;
+    }
+    if (!JS_IsObject(step)) {
+      JS_FreeValue(context, step);
+      JS_FreeValue(context, steps);
+      return JS_ThrowTypeError(context, "mouse(payload): every step must be an object");
+    }
+    json::Value entry = json::Value::object();
+    const bool step_ok = parse_mouse_step(context, step, entry);
+    JS_FreeValue(context, step);
+    if (!step_ok) {
+      JS_FreeValue(context, steps);
+      return JS_EXCEPTION;
+    }
+    step_array.push(std::move(entry));
+  }
+  JS_FreeValue(context, steps);
+  payload.set("steps", std::move(step_array));
+  ActionOptions options;
+  if (argc == 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
+  auto action = make_action(*binding->next_action_id, "rime:input", "input.mouse",
+                            "windows.input.inject", {"input", "mouse"},
+                            json::stringify(payload), options);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
+}
+
+// Cursor plus the window/control under it behind input.mouseGetPos(). The
+// capability check runs inside the async body like every window read: a
+// missing windows.input.read rejects with code capability_denied instead of
+// throwing synchronously.
+JSValue input_mouse_get_pos(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                            void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->service || !binding->kernel || !binding->window_service) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc > 1) return JS_ThrowTypeError(context, "mouseGetPos([options])");
+  ActionOptions options;
+  if (argc == 1 && !parse_action_options(context, argv[0], options)) return JS_EXCEPTION;
+  rime::action::Kernel* kernel = binding->kernel;
+  WindowService* window_service = binding->window_service;
+  const auto timeout = std::chrono::milliseconds(options.deadline_ms);
+  return start_async(
+      context,
+      [kernel, window_service, timeout]() -> AsyncOutcome {
+        // Ownership: kernel/window_service (raw) outlive the host; the task
+        // always settles its promise, so no outcome is dropped.
+        if (!kernel->allows("windows.input.read")) {
+          return async_failure("capability_denied",
+                               "required capability was not granted: windows.input.read");
+        }
+        POINT point{};
+        if (!GetCursorPos(&point)) {
+          return async_failure("execution_failed", "GetCursorPos failed");
+        }
+        WindowAtInfo info;
+        if (const auto error =
+                window_service->window_at(point.x, point.y, info, timeout);
+            !error.ok()) {
+          return async_failure(error);
+        }
+        json::Value result = json::Value::object();
+        result.set("x", json::Value::number(static_cast<double>(point.x)));
+        result.set("y", json::Value::number(static_cast<double>(point.y)));
+        result.set("window",
+                   info.window ? window_info_json(*info.window) : json::Value::null());
+        json::Value control = json::Value::null();
+        if (info.control) {
+          control = json::Value::object();
+          control.set("id", json::Value::number(static_cast<double>(info.control->id)));
+          control.set("className", json::Value::string(info.control->class_name));
+          control.set("classNN", json::Value::string(info.control->class_nn));
+        }
+        result.set("control", std::move(control));
+        return async_success(json::stringify(result));
+      },
+      options.cancellation_id);
 }
 
 int input_module_init(JSContext* context, JSModuleDef* module) {
@@ -708,7 +963,8 @@ int input_module_init(JSContext* context, JSModuleDef* module) {
   };
   if (!add("subscribe", input_subscribe, 1) || !add("unsubscribe", input_unsubscribe, 1) ||
       !add("bind", input_bind, 2) || !add("unbind", input_unbind, 1) ||
-      !add("send", input_send, 1)) {
+      !add("send", input_send, 1) || !add("modifiers", input_modifiers, 0) ||
+      !add("mouse", input_mouse, 1) || !add("mouseGetPos", input_mouse_get_pos, 1)) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "input", input);

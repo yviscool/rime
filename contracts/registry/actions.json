@@ -286,11 +286,23 @@
       "capability": "windows.input.inject",
       "target": { "kind": "input", "example": "keyboard" },
       "payloadSchema": "inline",
-      "validation": "engine/win32/src/input_executor.cpp:39-66",
-      "executor": "engine/win32/src/input_executor.cpp:28",
-      "module": "engine/win32/js/src/input_module.cpp:680",
-      "sdk": "sdk/src/input.ts:87",
-      "tests": ["tests/js/input_slice.cpp"],
+      "validation": "engine/win32/src/input_executor.cpp:41-77",
+      "executor": "engine/win32/src/input_executor.cpp:189",
+      "module": "engine/win32/js/src/input_module.cpp:718",
+      "sdk": "sdk/src/input.ts:334",
+      "tests": ["tests/js/input_slice.cpp", "tests/sdk/send.test.ts"],
+      "status": "implemented"
+    },
+    {
+      "type": "input.mouse",
+      "capability": "windows.input.inject",
+      "target": { "kind": "input", "example": "mouse" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/input_executor.cpp:101-174",
+      "executor": "engine/win32/src/input_executor.cpp:189",
+      "module": "engine/win32/js/src/input_module.cpp:805",
+      "sdk": "sdk/src/input.ts:376",
+      "tests": ["tests/native/input_tests.cpp", "tests/js/input_slice.cpp"],
       "status": "implemented"
     },
     {
@@ -398,9 +410,16 @@
     {
       "name": "windows.input.inject",
       "status": "implemented",
-      "declared": "engine/win32/js/src/input_module.cpp:648",
+      "declared": "engine/win32/js/src/input_module.cpp:728",
       "checked": ["engine/action/src/kernel.cpp:97"],
-      "actions": ["input.send"]
+      "actions": ["input.send", "input.mouse"]
+    },
+    {
+      "name": "windows.input.read",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/input_module.cpp:912",
+      "checked": ["engine/win32/js/src/input_module.cpp:912"],
+      "actions": []
     },
     {
       "name": "windows.hook.global",
@@ -492,6 +511,11 @@
       "api": "windows.info(hwnd)",
       "capability": "windows.window.read",
       "site": "engine/win32/js/src/window_module.cpp:265"
+    },
+    {
+      "api": "input.mouseGetPos()",
+      "capability": "windows.input.read",
+      "site": "engine/win32/js/src/input_module.cpp:912"
     },
     {
       "api": "clipboard.read()",

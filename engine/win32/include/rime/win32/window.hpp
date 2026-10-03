@@ -190,6 +190,15 @@ struct ControlInfo {
   std::string class_nn;    // UTF-8, e.g. "Edit1"
 };
 
+// Result of one MouseGetPos point query: the non-child parent window under
+// the point (WindowFromPoint + the first WS_CHILD-free ancestor, AHK
+// GetNonChildParent) plus the child control under it. Both are nullopt when
+// nothing answers -- the desktop, or a window with no control per se.
+struct WindowAtInfo {
+  std::optional<WindowInfo> window;
+  std::optional<ControlInfo> control;
+};
+
 // WinWait family conditions (AHK WinWait/WinWaitActive/WinWaitClose/
 // WinWaitNotActive): wait until a matching window exists / becomes the
 // foreground / no matching window remains / the match stops being foreground.
@@ -280,6 +289,14 @@ class WindowService final {
   // controls are skipped unless DetectHiddenText is on.
   rime::core::Error text(std::uint64_t id, std::string& out,
                          std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // MouseGetPos point query: the window (and control) under the screen point
+  // (x, y), resolved entirely on the UI lane. The control search replicates
+  // AHK EnumChildFindPoint: visible children whose rect contains the point,
+  // rect-enclosure beats center distance, ClassNN numbered like controls().
+  // No window at the point (desktop) succeeds with nullopt window and
+  // control -- it is a read of what exists, not an error.
+  rime::core::Error window_at(std::int32_t x, std::int32_t y, WindowAtInfo& out,
+                              std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // Moves the window to a named placement: left, right, top, bottom, full.
   rime::core::Error move(std::uint64_t id, std::string_view placement,
                          std::chrono::milliseconds timeout = std::chrono::seconds(5));

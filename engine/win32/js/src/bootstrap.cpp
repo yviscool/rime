@@ -28,6 +28,7 @@ Bootstrap::Bootstrap(std::unordered_set<std::string> capabilities)
     : kernel_(std::make_shared<rime::action::StaticCapabilityPolicy>(std::move(capabilities))),
       dispatcher_(kernel_, rime::action::default_dispatch_policy()) {
   input_binding_.service = &input_service_;
+  input_binding_.window_service = &window_service_;
   input_binding_.kernel = &kernel_;
   input_binding_.dispatcher = &dispatcher_;
   input_binding_.next_action_id = &next_action_id_;
@@ -70,10 +71,11 @@ rime::core::Error Bootstrap::register_executors() {
       return error;
     }
   }
-  if (const auto error =
-          kernel_.register_executor("input.send", std::make_shared<InputExecutor>(input_service_));
-      !error.ok()) {
-    return error;
+  const auto input_executor = std::make_shared<InputExecutor>(input_service_);
+  for (const char* type : {"input.send", "input.mouse"}) {
+    if (const auto error = kernel_.register_executor(type, input_executor); !error.ok()) {
+      return error;
+    }
   }
   if (const auto error = kernel_.register_executor(
           "clipboard.write", std::make_shared<ClipboardExecutor>(clipboard_service_));
@@ -153,9 +155,10 @@ std::unordered_set<std::string> production_capabilities() {
   // contracts/registry/actions.json; planned capabilities (registry.*,
   // media.sound) stay ungranted until their executors land.
   return {"windows.window.read", "windows.window.write", "windows.clipboard.read",
-          "windows.clipboard.write", "windows.input.inject", "windows.hook.global",
-          "windows.automation.find", "windows.automation.read", "windows.automation.invoke",
-          "process.inspect", "process.launch", "process.terminate"};
+          "windows.clipboard.write", "windows.input.inject", "windows.input.read",
+          "windows.hook.global", "windows.automation.find", "windows.automation.read",
+          "windows.automation.invoke", "process.inspect", "process.launch",
+          "process.terminate"};
 }
 
 int run_bundle_file(const std::string& path, std::unordered_set<std::string> capabilities) {

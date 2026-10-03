@@ -20,6 +20,8 @@ class Runtime;
 
 namespace rime::win32 {
 
+class WindowService;
+
 // One `input.bind` registration. The binding owns it for its own lifetime;
 // the JS closure delivered to by the host event queue only borrows it, so
 // teardown order (remove the callback, then erase the registration) can
@@ -42,6 +44,10 @@ struct ChordBinding {
 // into queued, traceable actions.
 struct InputModuleBinding {
   InputService* service{nullptr};
+  // Window reads for `input.mouseGetPos` (window + control under the cursor).
+  // Null when the host runs without a window service; the JS entry then
+  // refuses with an explicit internal error instead of dereferencing null.
+  WindowService* window_service{nullptr};
   rime::action::Kernel* kernel{nullptr};
   rime::action::Dispatcher* dispatcher{nullptr};
   std::atomic<std::uint64_t>* next_action_id{nullptr};

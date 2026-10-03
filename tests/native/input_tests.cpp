@@ -68,9 +68,19 @@ int main() {
   // Work before start is rejected.
   assert(service.subscribe([](const InputEvent&) {}) == 0);
   assert(!service.send({{VK_F24, true}}).ok());
+  assert(!service.send_mouse({{rime::win32::SendMouseAction::Move, 0, 0, 1}}).ok());
   assert(service.start().ok());
   assert(!service.start().ok());  // start-once
   assert(service.state() == rime::win32::InputServiceState::Running);
+
+  // read_modifier_state(): caps_lock mirrors the LED toggle bit and an
+  // injected hold shows up on the correct side, then clears on release.
+  assert(rime::win32::read_modifier_state().caps_lock ==
+         ((GetKeyState(VK_CAPITAL) & 1) != 0));
+  assert(service.send({{VK_LCONTROL, true}}).ok());
+  assert(wait_for([&] { return rime::win32::read_modifier_state().lcontrol; }));
+  assert(service.send({{VK_LCONTROL, false}}).ok());
+  assert(wait_for([&] { return !rime::win32::read_modifier_state().lcontrol; }));
 
   std::mutex mutex;
   std::vector<InputEvent> events;
@@ -145,6 +155,31 @@ int main() {
     assert(self && foreign);
   }
 
+  // KEYEVENTF_UNICODE batches arrive as self-injected key events. Windows
+  // reports them to the low-level hook as vk 231 (0xE7) with the UTF-16 code
+  // unit in scanCode - probed on this build for ASCII, Latin-1, CJK and
+  // surrogate units, all identical - so the batch is matched on vk + scan.
+  assert(service.send({{0x4f60, true, true}, {0x4f60, false, true}}).ok());
+  assert(wait_for([&] {
+    std::lock_guard lock(mutex);
+    bool pressed = false;
+    bool released = false;
+    for (const auto& event : events) {
+      if (event.kind == InputEventKind::Key && event.vk == 231 && event.scan == 0x4f60 &&
+          event.self_injected) {
+        if (event.key_down) pressed = true;
+        if (!event.key_down) released = true;
+      }
+    }
+    return pressed && released;
+  }));
+  {
+    const auto vk_range = service.send({{0, false, false}});
+    assert(vk_range.code == rime::core::Error::Code::InvalidContract);
+    const auto unicode_range = service.send({{65536, true, true}});
+    assert(unicode_range.code == rime::core::Error::Code::InvalidContract);
+  }
+
   // A synthetic absolute move arrives with the exact coordinates.
   POINT original{};
   // NOTE: hoisted out of assert(): GetCursorPos has a side effect (writes
@@ -166,6 +201,78 @@ int main() {
   // cursor) that must run even when NDEBUG compiles assert() out.
   const BOOL restored = SetCursorPos(original.x, original.y);
   if (restored == FALSE) return 1;
+
+  // send_mouse(): contract enforcement plus a real batch - absolute move,
+  // relative move and a down/up pair - all tagged as self input. The move
+  // targets tolerate the 65535/(extent-1) absolute rounding (<= 1px).
+  {
+    const auto empty = service.send_mouse({});
+    assert(empty.code == rime::core::Error::Code::InvalidContract);
+    const auto bad_button =
+        service.send_mouse({{rime::win32::SendMouseAction::Down, 0, 0, 4}});
+    assert(bad_button.code == rime::core::Error::Code::InvalidContract);
+  }
+  POINT batch_origin{};
+  // NOTE: hoisted out of assert(): GetCursorPos writes batch_origin even
+  // when NDEBUG compiles the assertion out.
+  const BOOL got_origin = GetCursorPos(&batch_origin);
+  if (got_origin == FALSE) return 1;
+  assert(
+      service.send_mouse({{rime::win32::SendMouseAction::Move, 456, 789, 1}}).ok());
+  assert(wait_for([&] {
+    std::lock_guard lock(mutex);
+    for (const auto& event : events) {
+      if (event.kind == InputEventKind::Mouse && event.mouse_action == MouseAction::Move &&
+          event.self_injected && event.x >= 455 && event.x <= 457 && event.y >= 788 &&
+          event.y <= 790) {
+        return true;
+      }
+    }
+    return false;
+  }));
+  // Relative moves assert on the observed cursor delta. The desktop is
+  // interactive (the physical cursor can move under us), so re-read the origin
+  // and retry a few times: a genuine injection fault still fails every attempt.
+  bool relative_ok = false;
+  for (int attempt = 0; attempt < 5 && !relative_ok; ++attempt) {
+    POINT before_relative{};
+    const BOOL got_relative = GetCursorPos(&before_relative);
+    if (got_relative == FALSE) return 1;
+    assert(service.send_mouse({{rime::win32::SendMouseAction::RelMove, 5, -3, 1}}).ok());
+    relative_ok = wait_for([&] {
+      POINT now{};
+      if (GetCursorPos(&now) == FALSE) return false;
+      return now.x >= before_relative.x + 4 && now.x <= before_relative.x + 6 &&
+             now.y >= before_relative.y - 4 && now.y <= before_relative.y - 2;
+    });
+  }
+  assert(relative_ok);
+  assert(service.send_mouse({{rime::win32::SendMouseAction::Down, 0, 0, 1}}).ok());
+  assert(wait_for([&] {
+    std::lock_guard lock(mutex);
+    for (const auto& event : events) {
+      if (event.kind == InputEventKind::Mouse && event.mouse_action == MouseAction::Down &&
+          event.button == 1 && event.self_injected) {
+        return true;
+      }
+    }
+    return false;
+  }));
+  assert(service.send_mouse({{rime::win32::SendMouseAction::Up, 0, 0, 1}}).ok());
+  assert(wait_for([&] {
+    std::lock_guard lock(mutex);
+    for (const auto& event : events) {
+      if (event.kind == InputEventKind::Mouse && event.mouse_action == MouseAction::Up &&
+          event.button == 1 && event.self_injected) {
+        return true;
+      }
+    }
+    return false;
+  }));
+  // NOTE: hoisted out of assert(): SetCursorPos has a side effect (moves the
+  // cursor) that must run even when NDEBUG compiles assert() out.
+  const BOOL restored_batch = SetCursorPos(batch_origin.x, batch_origin.y);
+  if (restored_batch == FALSE) return 1;
 
   // Unsubscribe closes the subscription; later events are not recorded.
   assert(service.unsubscribe(subscription));

@@ -50,11 +50,46 @@ struct InputEvent {
 };
 
 // One send() step: a key transition. vk is 1..254, down selects press or
-// release. Ordered batches are injected in a single SendInput call.
+// release. Ordered batches are injected in a single SendInput call. When
+// unicode is set, vk carries a UTF-16 code unit (0..65535) injected with
+// KEYEVENTF_UNICODE instead of a virtual key (AHK SendUnicodeChar).
 struct SendKeyEvent {
   std::uint32_t vk{0};
   bool down{false};
+  bool unicode{false};
 };
+
+// One send_mouse() step. Move is an absolute point in screen coordinates
+// (primary monitor, AHK MOUSE_COORD_TO_ABS), RelMove is a raw delta applied
+// in batch order, Down/Up press or release buttons 1 left / 2 right /
+// 3 middle (logical; the SM_SWAPBUTTON translation happens at injection).
+enum class SendMouseAction : std::uint8_t { Move, RelMove, Down, Up };
+
+struct SendMouseStep {
+  SendMouseAction action{SendMouseAction::Move};
+  std::int32_t x{0};
+  std::int32_t y{0};
+  std::uint32_t button{1};
+};
+
+// Live per-side modifier + CapsLock snapshot behind input.modifiers().
+struct ModifierState {
+  bool lcontrol{false};
+  bool rcontrol{false};
+  bool lshift{false};
+  bool rshift{false};
+  bool lalt{false};
+  bool ralt{false};
+  bool lwin{false};
+  bool rwin{false};
+  bool caps_lock{false};
+};
+
+// Reads the per-side modifier state with GetAsyncKeyState (global physical
+// state, one query per side so left/right stay distinguishable) and the
+// CapsLock LED with GetKeyState's toggle bit. Free function: callable from
+// any thread and directly unit-testable, no service instance required.
+ModifierState read_modifier_state();
 
 enum class InputServiceState : std::uint8_t { Created, Running, Stopping, Stopped };
 
@@ -91,9 +126,17 @@ class InputService final {
   // k_self_injected_marker so the hook reports it as self input. Refuses with
   // InvalidState while the service is not running (the hooks would never
   // observe the batch) and with InvalidContract for an empty or out-of-range
-  // step list. Batches serialize against each other; the hook thread only
-  // queues, so injection never blocks low-level input delivery.
+  // step list: non-unicode steps require vk 1..254, unicode steps a UTF-16
+  // code unit 0..65535. Batches serialize against each other; the hook
+  // thread only queues, so injection never blocks low-level input delivery.
   rime::core::Error send(const std::vector<SendKeyEvent>& keys);
+
+  // Injects one ordered mouse batch through SendInput under the same marker,
+  // serialization and running-state contract as send(). Absolute moves use
+  // AHK's MOUSE_COORD_TO_ABS conversion against the primary screen; logical
+  // buttons translate through SM_SWAPBUTTON like AHK v2. Refuses with
+  // InvalidContract for an empty batch or buttons outside 1..3.
+  rime::core::Error send_mouse(const std::vector<SendMouseStep>& steps);
 
  private:
   struct Impl;

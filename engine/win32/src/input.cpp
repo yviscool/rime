@@ -51,6 +51,18 @@ bool is_extended_vk(const std::uint32_t vk) {
   }
 }
 
+// AHK MOUSE_COORD_TO_ABS (keyboard_mouse.cpp, MouseMove conversion comment):
+//   ((65536 * coord) / extent) + (coord < 0 ? -1 : 1)
+// Applied against SM_CXSCREEN/SM_CYSCREEN like AHK's primary-only SendInput
+// path; the +-1 avoids snapping pixel 0 to a rounded-down boundary. The
+// 64-bit intermediate keeps extreme coordinates free of signed overflow
+// (the in-range result matches the 32-bit AHK expression).
+int mouse_coord_to_abs(const int coord, const int extent) {
+  if (extent <= 0) return 0;
+  const auto scaled = (65536ll * coord) / extent;
+  return static_cast<int>(scaled) + (coord < 0 ? -1 : 1);
+}
+
 }  // namespace
 
 struct InputService::Impl {
@@ -250,9 +262,14 @@ LRESULT CALLBACK InputService::Impl::mouse_proc(const int code, const WPARAM wpa
       event.kind = InputEventKind::Mouse;
       event.timestamp_ms = data->time;
       event.injected = (data->flags & LLMHF_INJECTED) != 0;
+      // WH_MOUSE_LL reports dwExtraInfo zero-extended from 32 bits on this
+      // Windows (probed: 0xDEADBEEF00000042 arrives as 0x42) while the
+      // keyboard hook preserves all 64 bits, so the marker is matched on its
+      // low half here and in full on the keyboard path.
       event.self_injected =
           event.injected &&
-          data->dwExtraInfo == static_cast<ULONG_PTR>(k_self_injected_marker);
+          static_cast<std::uint32_t>(data->dwExtraInfo) ==
+              static_cast<std::uint32_t>(k_self_injected_marker);
       event.x = data->pt.x;
       event.y = data->pt.y;
       bool valid = false;
@@ -370,9 +387,9 @@ rime::core::Error InputService::stop() {
   std::thread worker = std::move(impl_->thread);
   const DWORD thread_id = impl_->thread_id;
   lock.unlock();
-  // Wait out an in-flight send() batch: it observed Running before the state
-  // flip, so let it inject while the hooks are still installed; every later
-  // send() observes Stopping and refuses.
+  // Wait out an in-flight send()/send_mouse() batch: it observed Running
+  // before the state flip, so let it inject while the hooks are still
+  // installed; every later batch observes Stopping and refuses.
   {
     std::lock_guard send_lock(impl_->send_mutex);
   }
@@ -446,7 +463,12 @@ rime::core::Error InputService::send(const std::vector<SendKeyEvent>& keys) {
     return {rime::core::Error::Code::InvalidContract, "send requires at least one key step"};
   }
   for (const auto& step : keys) {
-    if (step.vk == 0 || step.vk > 0xFE) {
+    if (step.unicode) {
+      if (step.vk > 0xFFFF) {
+        return {rime::core::Error::Code::InvalidContract,
+                "unicode key steps require a UTF-16 code unit in 0..65535"};
+      }
+    } else if (step.vk == 0 || step.vk > 0xFE) {
       return {rime::core::Error::Code::InvalidContract,
               "send key steps require a virtual key in 1..254"};
     }
@@ -463,10 +485,23 @@ rime::core::Error InputService::send(const std::vector<SendKeyEvent>& keys) {
   for (const auto& step : keys) {
     INPUT input{};
     input.type = INPUT_KEYBOARD;
-    input.ki.wVk = static_cast<WORD>(step.vk);
-    input.ki.wScan = static_cast<WORD>(MapVirtualKeyW(step.vk, MAPVK_VK_TO_VSC));
-    input.ki.dwFlags = (step.down ? 0u : static_cast<DWORD>(KEYEVENTF_KEYUP)) |
-                       (is_extended_vk(step.vk) ? static_cast<DWORD>(KEYEVENTF_EXTENDEDKEY) : 0u);
+    if (step.unicode) {
+      // KEYEVENTF_UNICODE packet (AHK SendUnicodeChar): the code unit rides
+      // in wScan, no VK, no scan mapping, no extended-key bit. The hook then
+      // reports vk 231 (0xE7, Windows' unicode-injection placeholder) with
+      // scan = the code unit - probed on this build for ASCII, Latin-1, CJK
+      // and surrogate units - which no chord can match (chords resolve real
+      // virtual keys only).
+      input.ki.wVk = 0;
+      input.ki.wScan = static_cast<WORD>(step.vk);
+      input.ki.dwFlags = static_cast<DWORD>(KEYEVENTF_UNICODE) |
+                         (step.down ? 0u : static_cast<DWORD>(KEYEVENTF_KEYUP));
+    } else {
+      input.ki.wVk = static_cast<WORD>(step.vk);
+      input.ki.wScan = static_cast<WORD>(MapVirtualKeyW(step.vk, MAPVK_VK_TO_VSC));
+      input.ki.dwFlags = (step.down ? 0u : static_cast<DWORD>(KEYEVENTF_KEYUP)) |
+                         (is_extended_vk(step.vk) ? static_cast<DWORD>(KEYEVENTF_EXTENDEDKEY) : 0u);
+    }
     input.ki.dwExtraInfo = static_cast<ULONG_PTR>(k_self_injected_marker);
     inputs.push_back(input);
   }
@@ -478,6 +513,99 @@ rime::core::Error InputService::send(const std::vector<SendKeyEvent>& keys) {
                 std::to_string(inputs.size()) + " key steps"};
   }
   return rime::core::Error::none();
+}
+
+rime::core::Error InputService::send_mouse(const std::vector<SendMouseStep>& steps) {
+  if (steps.empty()) {
+    return {rime::core::Error::Code::InvalidContract, "send_mouse requires at least one step"};
+  }
+  for (const auto& step : steps) {
+    if (step.action != SendMouseAction::Move && step.action != SendMouseAction::RelMove &&
+        step.action != SendMouseAction::Down && step.action != SendMouseAction::Up) {
+      return {rime::core::Error::Code::InvalidContract, "send_mouse step action is unknown"};
+    }
+    if ((step.action == SendMouseAction::Down || step.action == SendMouseAction::Up) &&
+        (step.button < 1 || step.button > 3)) {
+      return {rime::core::Error::Code::InvalidContract,
+              "send_mouse buttons must be 1 (left), 2 (right) or 3 (middle)"};
+    }
+  }
+  std::lock_guard send_lock(impl_->send_mutex);
+  {
+    std::lock_guard lock(impl_->mutex);
+    if (impl_->state != InputServiceState::Running || impl_->stopping) {
+      return {rime::core::Error::Code::InvalidState, "input service is not running"};
+    }
+  }
+  const int width = GetSystemMetrics(SM_CXSCREEN);
+  const int height = GetSystemMetrics(SM_CYSCREEN);
+  // AHK v2 translates logical L/R into physical through SM_SWAPBUTTON
+  // (keyboard_mouse.cpp:2190) before choosing the event flags; middle is
+  // never swapped. We always inject in SendInput mode, so the swap applies
+  // to every button batch (SendPlay would be exempt).
+  const bool swap_buttons = GetSystemMetrics(SM_SWAPBUTTON) != 0;
+  std::vector<INPUT> inputs;
+  inputs.reserve(steps.size());
+  for (const auto& step : steps) {
+    INPUT input{};
+    input.type = INPUT_MOUSE;
+    switch (step.action) {
+      case SendMouseAction::Move:
+        input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+        input.mi.dx = mouse_coord_to_abs(step.x, width);
+        input.mi.dy = mouse_coord_to_abs(step.y, height);
+        break;
+      case SendMouseAction::RelMove:
+        // Raw deltas: SendInput applies them in batch order, so mixed
+        // absolute/relative sequences need no cursor prediction here.
+        input.mi.dwFlags = MOUSEEVENTF_MOVE;
+        input.mi.dx = step.x;
+        input.mi.dy = step.y;
+        break;
+      case SendMouseAction::Down:
+      case SendMouseAction::Up: {
+        std::uint32_t button = step.button;
+        if (swap_buttons && (button == 1 || button == 2)) button = 3 - button;
+        const bool up = step.action == SendMouseAction::Up;
+        if (button == 1) {
+          input.mi.dwFlags = up ? MOUSEEVENTF_LEFTUP : MOUSEEVENTF_LEFTDOWN;
+        } else if (button == 2) {
+          input.mi.dwFlags = up ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_RIGHTDOWN;
+        } else {
+          input.mi.dwFlags = up ? MOUSEEVENTF_MIDDLEUP : MOUSEEVENTF_MIDDLEDOWN;
+        }
+        break;
+      }
+      default:
+        return {rime::core::Error::Code::InvalidContract, "send_mouse step action is unknown"};
+    }
+    input.mi.dwExtraInfo = static_cast<ULONG_PTR>(k_self_injected_marker);
+    inputs.push_back(input);
+  }
+  const UINT sent =
+      SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+  if (sent != inputs.size()) {
+    return {rime::core::Error::Code::ExecutionFailed,
+            "SendInput injected " + std::to_string(sent) + " of " +
+                std::to_string(inputs.size()) + " mouse steps"};
+  }
+  return rime::core::Error::none();
+}
+
+ModifierState read_modifier_state() {
+  ModifierState state;
+  state.lcontrol = async_key_down(VK_LCONTROL);
+  state.rcontrol = async_key_down(VK_RCONTROL);
+  state.lshift = async_key_down(VK_LSHIFT);
+  state.rshift = async_key_down(VK_RSHIFT);
+  state.lalt = async_key_down(VK_LMENU);
+  state.ralt = async_key_down(VK_RMENU);
+  state.lwin = async_key_down(VK_LWIN);
+  state.rwin = async_key_down(VK_RWIN);
+  // Toggle bit of GetKeyState: the CapsLock LED state (0/1), not the
+  // thread-queued down bit.
+  state.caps_lock = (GetKeyState(VK_CAPITAL) & 1) != 0;
+  return state;
 }
 
 }  // namespace rime::win32
