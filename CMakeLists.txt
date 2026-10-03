@@ -53,4 +53,23 @@ if(RIME_BUILD_TESTS)
   if(RIME_ENABLE_QUICKJS)
     add_subdirectory(tests/js)
   endif()
+
+  if(MSVC AND RIME_ENABLE_ASAN)
+    # MSVC's ASan runtime is a loader-time DLL (clang_rt.asan_dynamic). The
+    # test exes import it, and a run without vcvars on PATH (a raw ctest from
+    # any other shell) dies with 0xc0000135 behind a modal "DLL not found"
+    # dialog that blocks ctest until someone clicks it. Copy the DLL next to
+    # the test binaries so the exe-directory search always finds it.
+    find_file(RIME_ASAN_RUNTIME_DLL
+      NAMES clang_rt.asan_dynamic-x86_64.dll clang_rt.asan_dynamic-i386.dll
+      HINTS "$ENV{VCToolsInstallDir}/bin/Hostx64/x64" "$ENV{VCToolsInstallDir}/bin/Hostx86/x86"
+      NO_DEFAULT_PATH)
+    if(RIME_ASAN_RUNTIME_DLL)
+      foreach(_rime_asan_dir tests/native tests/js hosts/desktop)
+        file(COPY "${RIME_ASAN_RUNTIME_DLL}" DESTINATION "${CMAKE_BINARY_DIR}/${_rime_asan_dir}")
+      endforeach()
+    else()
+      message(STATUS "MSVC ASan runtime DLL not found next to tests; loader errors may block on a dialog")
+    endif()
+  endif()
 endif()

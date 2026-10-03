@@ -1,3 +1,7 @@
+import { suppressWindowsErrorDialogs } from "./win32-error-mode";
+
+suppressWindowsErrorDialogs();
+
 const checks = ["contract:smoke", "contract:check", "matrix:check", "typecheck", "sdk:test", "native:test", "ts:quickjs"] as const;
 for (const script of checks) {
   const result = Bun.spawnSync([process.execPath, "run", script], { stdout: "inherit", stderr: "inherit" });

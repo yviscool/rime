@@ -1,6 +1,9 @@
 import { delimiter } from "node:path";
 import { existsSync, statSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { findVcvars } from "./vcvars";
+import { suppressWindowsErrorDialogs } from "./win32-error-mode";
+
+suppressWindowsErrorDialogs();
 
 // Slice/JS tests (tests/js, engine/js, engine/win32/js) build under the quickjs
 // preset and msvc-asan (QUICKJS=ON, so AddressSanitizer covers the JS binding too);
