@@ -2,9 +2,11 @@
 
 #include <windows.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -91,6 +93,19 @@ struct InputService::Impl {
   std::uint64_t next_id{1};
   std::uint64_t dropped{0};
 
+  // Physical down snapshot (one atomic per vk): the hook thread writes it,
+  // any thread reads it. Seeded from GetAsyncKeyState in thread_main right
+  // after the hooks install, before start() reports Running.
+  std::array<std::atomic<bool>, 256> physical{};
+  // BlockInput flag: read on the hook path, set from the JS thread, cleared
+  // unconditionally by stop() so shutdown can never leave the desktop
+  // blocked.
+  std::atomic<bool> blocked{false};
+  // KeyHistory ring, guarded by mutex (recorded inside enqueue, copied by
+  // key_history(); capacity 0 disables recording).
+  std::deque<KeyHistoryEntry> history;
+  std::size_t history_capacity{40};  // AHK g_MaxHistoryKeys default
+
   // Serializes send() batches against each other; stop() joins an in-flight
   // batch before unhooking so a refused-later send can never inject into a
   // desktop the hooks no longer observe.
@@ -113,6 +128,9 @@ struct InputService::Impl {
         pending.erase(pending.begin());
         ++dropped;
       }
+      // Record into the history ring before the move below: the ring keeps
+      // its own bounded capacity, independent of the delivery queue.
+      record_history(event);
       pending.push_back(std::move(event));
       // Snapshot thread_id under the same lock: it is written by thread_main
       // and cleared on shutdown, so an unlocked read races.
@@ -120,6 +138,40 @@ struct InputService::Impl {
     }
     // The delivery loop drains pending only when GetMessage returns; wake it.
     if (hook_thread != 0) PostThreadMessageW(hook_thread, kWakeMessage, 0, 0);
+  }
+
+  // Appends one history row (mutex held): key events always, mouse buttons
+  // as their VK_LBUTTON/VK_RBUTTON/VK_MBUTTON equivalents; moves and wheel
+  // are not key history. The ring keeps the newest history_capacity rows.
+  void record_history(const InputEvent& event) {
+    if (history_capacity == 0) return;
+    std::uint32_t vk = 0;
+    bool down = false;
+    if (event.kind == InputEventKind::Key) {
+      vk = event.vk;
+      down = event.key_down;
+    } else if (event.mouse_action == MouseAction::Down || event.mouse_action == MouseAction::Up) {
+      // Button numbering (1 left, 2 right, 3 middle) matches the VK codes.
+      vk = event.button;
+      down = event.mouse_action == MouseAction::Down;
+    } else {
+      return;
+    }
+    if (vk == 0 || vk > 255) return;
+    KeyHistoryEntry entry;
+    entry.vk = vk;
+    entry.scan = event.scan;
+    entry.down = down;
+    entry.injected = event.injected;
+    entry.self_injected = event.self_injected;
+    entry.timestamp_ms = event.timestamp_ms;
+    // 32-bit GetMessageTime-style clock: a backwards jump across the wrap
+    // reports 0 instead of a huge forward delta.
+    if (!history.empty() && event.timestamp_ms >= history.back().timestamp_ms) {
+      entry.elapsed_ms = event.timestamp_ms - history.back().timestamp_ms;
+    }
+    history.push_back(entry);
+    while (history.size() > history_capacity) history.pop_front();
   }
 
   void deliver_events() {
@@ -181,6 +233,13 @@ void InputService::Impl::thread_main() {
   keyboard_hook = SetWindowsHookExW(WH_KEYBOARD_LL, keyboard_proc, GetModuleHandleW(nullptr), 0);
   mouse_hook = SetWindowsHookExW(WH_MOUSE_LL, mouse_proc, GetModuleHandleW(nullptr), 0);
   const bool installed = keyboard_hook != nullptr && mouse_hook != nullptr;
+  if (installed) {
+    // Seed the physical snapshot from the live OS state before start()
+    // reports Running, so keys already held at install are not reported up.
+    for (int vk = 1; vk <= 0xFE; ++vk) {
+      physical[static_cast<std::size_t>(vk)].store((GetAsyncKeyState(vk) & 0x8000) != 0);
+    }
+  }
   {
     std::lock_guard lock(mutex);
     install_ok = installed;
@@ -246,6 +305,13 @@ LRESULT CALLBACK InputService::Impl::keyboard_proc(const int code, const WPARAM 
         event.shift = async_key_down(VK_SHIFT);
         event.super = async_key_down(VK_LWIN) || async_key_down(VK_RWIN);
         self->enqueue(event);
+        if (data->vkCode < 256) {
+          self->physical[static_cast<std::size_t>(data->vkCode)].store(down);
+        }
+        // BlockInput: the event is already recorded (history, snapshot and
+        // subscriptions above); returning 1 stops the hook chain so neither
+        // the OS nor older hooks ever see it. Self-injected batches pass.
+        if (self->blocked.load() && !event.self_injected) return 1;
       }
     }
   }
@@ -317,7 +383,21 @@ LRESULT CALLBACK InputService::Impl::mouse_proc(const int code, const WPARAM wpa
         default:
           break;
       }
-      if (valid) self->enqueue(event);
+      if (valid) {
+        self->enqueue(event);
+        // Button transitions maintain the physical snapshot (the button
+        // numbering matches the VK_LBUTTON/VK_RBUTTON/VK_MBUTTON codes);
+        // moves and wheel never change a key's down state.
+        if (event.mouse_action == MouseAction::Down || event.mouse_action == MouseAction::Up) {
+          if (event.button >= 1 && event.button <= 3) {
+            self->physical[static_cast<std::size_t>(event.button)]
+                .store(event.mouse_action == MouseAction::Down);
+          }
+        }
+        // BlockInput: recorded above, then swallowed for moves, wheel and
+        // buttons alike; self-injected input passes (same rule as keys).
+        if (self->blocked.load() && !event.self_injected) return 1;
+      }
     }
   }
   return CallNextHookEx(nullptr, code, wparam, lparam);
@@ -371,6 +451,9 @@ rime::core::Error InputService::start() {
 }
 
 rime::core::Error InputService::stop() {
+  // Unconditional: even an early-return path must not leave the desktop
+  // blocked (the hooks that enforce the flag are about to go away anyway).
+  impl_->blocked.store(false);
   std::unique_lock lock(impl_->mutex);
   if (impl_->state == InputServiceState::Stopped) return rime::core::Error::none();
   if (impl_->state == InputServiceState::Created) {
@@ -606,6 +689,52 @@ ModifierState read_modifier_state() {
   // thread-queued down bit.
   state.caps_lock = (GetKeyState(VK_CAPITAL) & 1) != 0;
   return state;
+}
+
+bool read_key_state(const std::uint32_t vk, const KeyStateType type) {
+  if (vk == 0 || vk > 0xFE) return false;
+  if (type == KeyStateType::Toggle) {
+    // Toggle bit: probed to track reality even on non-pumping threads.
+    return (GetKeyState(static_cast<int>(vk)) & 1) != 0;
+  }
+  // Logical (and the no-service Physical fallback): GetAsyncKeyState, the
+  // only down-bit source that is correct on threads without a message pump
+  // (the JS thread) and the closest match to "what the OS currently has".
+  return async_key_down(static_cast<int>(vk));
+}
+
+bool InputService::physical_key_down(const std::uint32_t vk) const {
+  if (vk == 0 || vk > 0xFE) return false;
+  {
+    std::lock_guard lock(impl_->mutex);
+    if (impl_->state == InputServiceState::Running) {
+      return impl_->physical[static_cast<std::size_t>(vk)].load();
+    }
+  }
+  // Not running: no hook maintains the snapshot, read the OS directly.
+  return async_key_down(static_cast<int>(vk));
+}
+
+void InputService::set_blocked(const bool blocked) { impl_->blocked.store(blocked); }
+
+bool InputService::blocked() const { return impl_->blocked.load(); }
+
+std::vector<KeyHistoryEntry> InputService::key_history() const {
+  std::lock_guard lock(impl_->mutex);
+  return std::vector<KeyHistoryEntry>(impl_->history.begin(), impl_->history.end());
+}
+
+void InputService::set_key_history_capacity(const std::size_t capacity) {
+  std::lock_guard lock(impl_->mutex);
+  // The JS layer rejects out-of-range values with a TypeError; clamp here
+  // so native callers cannot grow the ring past AHK's 500-row ceiling.
+  impl_->history_capacity = capacity > 500 ? 500 : capacity;
+  while (impl_->history.size() > impl_->history_capacity) impl_->history.pop_front();
+}
+
+std::size_t InputService::key_history_capacity() const {
+  std::lock_guard lock(impl_->mutex);
+  return impl_->history_capacity;
 }
 
 }  // namespace rime::win32

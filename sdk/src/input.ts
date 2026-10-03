@@ -148,6 +148,56 @@ export interface MouseMoveOptions {
 }
 
 /**
+ * Key-state mode for `getKeyState` (AHK `GetKeyState`'s mode argument): the
+ * first character decides — `L` logical (GetAsyncKeyState), `P` physical
+ * (the hook snapshot; the free-function fallback is logical), `T` toggle
+ * (CapsLock/NumLock LED). Case-insensitive; any other spelling throws.
+ */
+export type KeyStateMode = string;
+
+/** Options for `keyWait` (AHK KeyWait's wait state plus the house wait options). */
+export interface KeyWaitOptions extends ActionOptions {
+  /** Wait for a press instead of the AHK default: release. */
+  down?: boolean;
+  /** `physical` (default, the hook snapshot) or `logical` (GetAsyncKeyState). */
+  mode?: "physical" | "logical";
+}
+
+/** Options for `blockInput` (a cancellation binding releases the block). */
+export interface BlockInputOptions {
+  /** When the bound cancellation fires, the block releases itself. */
+  cancellationId?: number;
+}
+
+/** Options for `keyHistory` (AHK's KeyHistory ring-size argument). */
+export interface KeyHistoryOptions {
+  /** Resize the recording ring, 0..500 (default 40, AHK's `g_MaxHistoryKeys`). */
+  maxEvents?: number;
+}
+
+/** One recorded key-history row (AHK KeyHistoryItem without the target column). */
+export interface KeyHistoryRow {
+  /** VK code; mouse-button rows use VK_LBUTTON/VK_RBUTTON/VK_MBUTTON. */
+  vk: number;
+  scan: number;
+  down: boolean;
+  injected: boolean;
+  /** True only for input this process sent through `send()`/`input.mouse`. */
+  selfInjected: boolean;
+  /** Hook timestamp in ms since epoch. */
+  timestamp: number;
+  /** Delta to the previous recorded row, ms (0 for the first row). */
+  elapsed: number;
+}
+
+/** Report from `keyHistory`; `events` is oldest-first. */
+export interface KeyHistoryReport {
+  capacity: number;
+  count: number;
+  events: KeyHistoryRow[];
+}
+
+/**
  * Action template bound to a chord. The runtime validates it at bind time
  * and rebuilds it into a fresh Action (new id, fresh deadline, source
  * `chord/rime:input`) on every matching key-down, then queues it through the
@@ -223,6 +273,40 @@ export interface InputBridge {
    * null window/control when nothing is under the cursor (desktop).
    */
   mouseGetPos(options?: NativeActionOptions): Promise<MouseGetPosResult>;
+  /**
+   * Reads one key's state (`GetKeyState`): logical via GetAsyncKeyState,
+   * physical via the hook snapshot, toggle via the LED bit. Synchronous:
+   * TypeError for a bad key name/mode (validated before the gate); throws
+   * Error naming `windows.input.read` when the capability is missing.
+   */
+  getKeyState(keyName: string, mode?: KeyStateMode): boolean;
+  /**
+   * Waits for a key to reach a state (`KeyWait`): release by default,
+   * `down: true` for a press, physical by default. Resolves `true` once
+   * satisfied; rejects `{ code: "timeout" }` after `deadlineMs` (default
+   * 5000 — AHK waits forever, the bounded wait is the house rule),
+   * `"cancelled"` when the bound cancellation fires, or
+   * `"capability_denied"` naming `windows.input.read`. Unknown keys, options
+   * and modes throw synchronously.
+   */
+  keyWait(keyName: string, options?: KeyWaitOptions): Promise<true>;
+  /**
+   * Turns input blocking on/off (`BlockInput`): while on, the hook swallows
+   * foreign input and lets this process's own injections through. Returns
+   * whether input is blocked afterwards (`false` when the input service is
+   * not running). Synchronous: TypeError for a bad mode/options; throws
+   * Error naming `windows.input.inject` when the capability is missing.
+   * Shutdown always clears the block — no path leaves the desktop blocked.
+   */
+  blockInput(mode: "on" | "off", options?: BlockInputOptions): boolean;
+  /**
+   * Reads the hook's key-history ring (`KeyHistory`): `{ capacity, count,
+   * events }` oldest-first; `options.maxEvents` resizes the ring after the
+   * gate (a denied call never mutates it). Synchronous: TypeError for a
+   * bad arity/maxEvents; throws Error naming `windows.input.read` when the
+   * capability is missing. No GUI window and no target-column deviation.
+   */
+  keyHistory(options?: KeyHistoryOptions): KeyHistoryReport;
 }
 
 /**

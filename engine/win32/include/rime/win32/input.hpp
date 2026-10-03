@@ -91,6 +91,31 @@ struct ModifierState {
 // any thread and directly unit-testable, no service instance required.
 ModifierState read_modifier_state();
 
+// One key's state behind getKeyState/keyWait (AHK GetKeyState's P/L/T
+// modes). Toggle reads the GetKeyState toggle bit (the CapsLock/NumLock LED,
+// probed to track reality even on non-pumping threads). Logical reads
+// GetAsyncKeyState: the JS thread runs without a Win32 message pump, so
+// GetKeyState's thread-queued down bit reads stale there (probed: a fresh
+// non-pumping thread reports "up" while a key is held). Physical behaves
+// like Logical in this free function; InputService::physical_key_down
+// overrides it with the hook-maintained snapshot while the service runs.
+enum class KeyStateType : std::uint8_t { Physical, Logical, Toggle };
+
+bool read_key_state(std::uint32_t vk, KeyStateType type);
+
+// One recorded key-history row (AHK KeyHistoryItem without the target-window
+// column: the runtime has no per-event foreground tracking on the hook
+// path). elapsed_ms is the delta to the previous recorded event.
+struct KeyHistoryEntry {
+  std::uint32_t vk{0};
+  std::uint32_t scan{0};
+  bool down{false};
+  bool injected{false};
+  bool self_injected{false};
+  std::uint64_t timestamp_ms{0};
+  std::uint64_t elapsed_ms{0};
+};
+
 enum class InputServiceState : std::uint8_t { Created, Running, Stopping, Stopped };
 
 // Owns a dedicated hook thread that pumps WH_KEYBOARD_LL/WH_MOUSE_LL and
@@ -137,6 +162,28 @@ class InputService final {
   // buttons translate through SM_SWAPBUTTON like AHK v2. Refuses with
   // InvalidContract for an empty batch or buttons outside 1..3.
   rime::core::Error send_mouse(const std::vector<SendMouseStep>& steps);
+
+  // Hook-maintained physical down snapshot (AHK g_PhysicalKeyState): seeded
+  // from GetAsyncKeyState at hook install, then updated by every key and
+  // mouse-button event the hook sees - blocked events included, because the
+  // hook records before it swallows. Falls back to GetAsyncKeyState while
+  // the service is not running. Any thread.
+  [[nodiscard]] bool physical_key_down(std::uint32_t vk) const;
+
+  // BlockInput switch: while blocked, the hooks swallow every non-self event
+  // after recording it (history, subscriptions and the physical snapshot
+  // still observe it; the OS and other processes never do). Self-injected
+  // batches bypass the block so the script keeps working. stop() always
+  // clears the flag, so a shutdown can never leave the desktop blocked.
+  void set_blocked(bool blocked);
+  [[nodiscard]] bool blocked() const;
+
+  // KeyHistory ring (newest kept, capacity 0 disables recording). Resizing
+  // trims immediately, mirroring AHK's KeyHistory argument (0..500; the JS
+  // layer enforces the range, the service clamps defensively). Any thread.
+  [[nodiscard]] std::vector<KeyHistoryEntry> key_history() const;
+  void set_key_history_capacity(std::size_t capacity);
+  [[nodiscard]] std::size_t key_history_capacity() const;
 
  private:
   struct Impl;

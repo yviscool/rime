@@ -411,14 +411,14 @@
       "name": "windows.input.inject",
       "status": "implemented",
       "declared": "engine/win32/js/src/input_module.cpp:728",
-      "checked": ["engine/action/src/kernel.cpp:97"],
+      "checked": ["engine/action/src/kernel.cpp:97", "engine/win32/js/src/input_module.cpp:1297"],
       "actions": ["input.send", "input.mouse"]
     },
     {
       "name": "windows.input.read",
       "status": "implemented",
       "declared": "engine/win32/js/src/input_module.cpp:912",
-      "checked": ["engine/win32/js/src/input_module.cpp:912"],
+      "checked": ["engine/win32/js/src/input_module.cpp:912", "engine/win32/js/src/input_module.cpp:1073", "engine/win32/js/src/input_module.cpp:1111", "engine/win32/js/src/input_module.cpp:1357"],
       "actions": []
     },
     {
@@ -516,6 +516,21 @@
       "api": "input.mouseGetPos()",
       "capability": "windows.input.read",
       "site": "engine/win32/js/src/input_module.cpp:912"
+    },
+    {
+      "api": "input.getKeyState(keyName, mode)",
+      "capability": "windows.input.read",
+      "site": "engine/win32/js/src/input_module.cpp:1073"
+    },
+    {
+      "api": "input.keyWait(keyName, options)",
+      "capability": "windows.input.read",
+      "site": "engine/win32/js/src/input_module.cpp:1111"
+    },
+    {
+      "api": "input.keyHistory(options)",
+      "capability": "windows.input.read",
+      "site": "engine/win32/js/src/input_module.cpp:1357"
     },
     {
       "api": "clipboard.read()",

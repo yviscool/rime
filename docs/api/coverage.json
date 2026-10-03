@@ -15,12 +15,12 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
-      "async": "async",
+      "status": "implemented",
+      "async": "sync",
       "capability": "windows.input.inject",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "CallbackCreate",
@@ -1542,11 +1542,11 @@
         "rime-research/AutoHotkey-alpha/source/window.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/runtime-language",
-      "status": "contract-only",
+      "tsModule": "@rime/input",
+      "status": "implemented",
       "async": "sync",
-      "capability": "runtime",
-      "contractTest": "missing",
+      "capability": "windows.input.read",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp",
       "lane": "js",
       "cancellation": "none"
     },
@@ -1972,12 +1972,12 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.input.inject",
-      "contractTest": "missing",
-      "lane": "ui",
-      "cancellation": "deadline+AbortSignal"
+      "status": "implemented",
+      "async": "sync",
+      "capability": "windows.input.read",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp",
+      "lane": "js",
+      "cancellation": "none"
     },
     {
       "ahkName": "KeyWait",
@@ -1990,11 +1990,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/wait.cpp"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
-      "capability": "windows.input.inject",
-      "contractTest": "missing",
-      "lane": "ui",
+      "capability": "windows.input.read",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {

@@ -41,6 +41,30 @@ void send_vk(const WORD virtual_key) {
   assert(sent == 2);
 }
 
+// One raw transition with no paired counterpart: the block slice needs to
+// hold a key down across polls. Raw SendInput carries no self marker, so
+// the hook treats it as foreign input.
+void send_key_state(const WORD virtual_key, const bool down) {
+  INPUT input{};
+  input.type = INPUT_KEYBOARD;
+  input.ki.wVk = virtual_key;
+  if (!down) input.ki.dwFlags = KEYEVENTF_KEYUP;
+  // NOTE: hoisted out of assert() so the SendInput side effect still runs
+  // under NDEBUG where assert() is compiled out.
+  const UINT sent = SendInput(1, &input, sizeof(INPUT));
+  assert(sent == 1);
+}
+
+template <typename Predicate>
+bool wait_for(Predicate predicate, const std::chrono::milliseconds timeout = 3s) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (predicate()) return true;
+    std::this_thread::sleep_for(10ms);
+  }
+  return predicate();
+}
+
 void send_mouse_to(const int x, const int y) {
   const int width = GetSystemMetrics(SM_CXSCREEN);
   const int height = GetSystemMetrics(SM_CYSCREEN);
@@ -489,13 +513,26 @@ int main() {
   // NDEBUG compiles the assertion out.
   const BOOL got_mouse_origin = GetCursorPos(&mouse_origin);
   if (got_mouse_origin == FALSE) return 1;
+  // The move target must stay inside the smallest supported desktop: CI runs
+  // 1024x768 with the taskbar top at y=720, and SM_CYSCREEN there can claim a
+  // taller mode than the real session surface (it once reported >789 while the
+  // desktop ended at 768), so the base point is fixed below y=720 and the
+  // clamp below it is defense in depth only.
+  const int screen_width = GetSystemMetrics(SM_CXSCREEN);
+  const int screen_height = GetSystemMetrics(SM_CYSCREEN);
+  assert(screen_width > 1 && screen_height > 1);
+  const int mouse_target_x = 456 < screen_width ? 456 : screen_width - 1;
+  const int mouse_target_y = 650 < screen_height ? 650 : screen_height - 1;
+  const std::string mouse_target_js = "{ action: 'move', x: " + std::to_string(mouse_target_x) +
+                                      ", y: " + std::to_string(mouse_target_y) + " }";
   run(runtime,
       "import { input } from 'rime:input';\n"
       "globalThis.mouseResult = null;\n"
       "globalThis.mouseError = null;\n"
-      "input.mouse({ steps: [{ action: 'move', x: 456, y: 789 }] })\n"
-      "  .then(r => { globalThis.mouseResult = r; },\n"
-      "        e => { globalThis.mouseError = String(e); });",
+      "input.mouse({ steps: [" +
+          mouse_target_js + "] })\n"
+                        "  .then(r => { globalThis.mouseResult = r; },\n"
+                        "        e => { globalThis.mouseError = String(e); });",
       "input-mouse-move.mjs");
   assert(runtime.settle(5000ms).ok());
   run(runtime,
@@ -506,8 +543,10 @@ int main() {
       "globalThis.mouseSeen = 'pending';\n"
       "waitFor(() => events.some(e => e.kind === 'mouse' && e.action === 'move' &&\n"
       "                            e.selfInjected === true &&\n"
-      "                            Math.abs(e.x - 456) <= 1 && Math.abs(e.y - 789) <= 1), 3000)\n"
-      "  .then(v => { globalThis.mouseSeen = v; });",
+      "                            Math.abs(e.x - " +
+          std::to_string(mouse_target_x) + ") <= 1 && Math.abs(e.y - " + std::to_string(mouse_target_y) +
+          ") <= 1), 3000)\n"
+          "  .then(v => { globalThis.mouseSeen = v; });",
       "input-mouse-move-check.mjs");
   assert(runtime.settle(5000ms).ok());
   run(runtime,
@@ -515,7 +554,7 @@ int main() {
       "  throw new Error('self mouse move did not reach subscribe');",
       "input-mouse-seen.mjs");
 
-  // mouseGetPos: the cursor is still at 456,789 from the move above; the
+  // mouseGetPos: the cursor is still at the clamped move target above; the
   // read is gated by windows.input.read and validates options like every
   // other async native call.
   run(runtime,
@@ -531,16 +570,47 @@ int main() {
       "try { input.mouseGetPos({}, {}); } catch (e) { globalThis.posArity = (e instanceof TypeError); }",
       "input-mouse-getpos.mjs");
   assert(runtime.settle(5000ms).ok());
+  // The desktop is interactive: the physical cursor can be moved between our
+  // move and the read (it happened while the user was browsing). Re-issue the
+  // move and re-read on a bounded poll; only a move that never lands (a real
+  // fault) exhausts the attempts and fails.
   run(runtime,
       "if (globalThis.posError)\n"
       "  throw new Error('getPos failed: ' + JSON.stringify(globalThis.posError));\n"
       "if (!globalThis.posTypeError) throw new Error('getPos(42) must throw TypeError');\n"
       "if (!globalThis.posArity) throw new Error('getPos arity must throw TypeError');\n"
-      "const pos = globalThis.posResult;\n"
-      "if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number')\n"
-      "  throw new Error('getPos must return numeric x/y: ' + JSON.stringify(pos));\n"
-      "if (pos.x < 455 || pos.x > 457 || pos.y < 788 || pos.y > 790)\n"
-      "  throw new Error('getPos x/y must match the cursor: ' + JSON.stringify(pos));\n"
+      "if (!globalThis.posResult || typeof globalThis.posResult.x !== 'number' ||\n"
+      "    typeof globalThis.posResult.y !== 'number')\n"
+      "  throw new Error('getPos must return numeric x/y: ' +\n"
+      "                  JSON.stringify(globalThis.posResult));\n"
+      "const inRange = (p) => p !== null && typeof p.x === 'number' &&\n"
+      "    p.x >= " +
+      std::to_string(mouse_target_x - 1) + " && p.x <= " + std::to_string(mouse_target_x + 1) +
+      " &&\n    p.y >= " + std::to_string(mouse_target_y - 1) + " && p.y <= " +
+      std::to_string(mouse_target_y + 1) + ";\n"
+      "globalThis.posGood = inRange(globalThis.posResult) ? globalThis.posResult : null;\n"
+      "globalThis.posTries = 0;\n"
+      "globalThis.waitFor(() => {\n"
+      "  if (globalThis.posError || globalThis.posGood) return true;\n"
+      "  if (globalThis.posTries >= 15) return true;\n"
+      "  globalThis.posTries += 1;\n"
+      "  input.mouse({ steps: [{ action: 'move', x: " +
+      std::to_string(mouse_target_x) + ", y: " + std::to_string(mouse_target_y) + " }] })\n"
+      "    .then(() => input.mouseGetPos())\n"
+      "    .then(p => { globalThis.posResult = p;\n"
+      "                 if (inRange(p) && !globalThis.posGood) globalThis.posGood = p; },\n"
+      "          e => { globalThis.posError = e; });\n"
+      "  return false;\n"
+      "}, 8000).then(v => { globalThis.posSettled = v; });",
+      "input-mouse-getpos-check.mjs");
+  assert(runtime.settle(9500ms).ok());
+  run(runtime,
+      "if (globalThis.posError)\n"
+      "  throw new Error('getPos failed: ' + JSON.stringify(globalThis.posError));\n"
+      "if (!globalThis.posGood)\n"
+      "  throw new Error('getPos x/y must match the cursor: ' +\n"
+      "                  JSON.stringify(globalThis.posResult));\n"
+      "const pos = globalThis.posGood;\n"
       "if (pos.window !== null && (typeof pos.window !== 'object' ||\n"
       "    typeof pos.window.id !== 'number'))\n"
       "  throw new Error('window must be an object with an id or null');\n"
@@ -548,7 +618,7 @@ int main() {
       "    typeof pos.control.className !== 'string' ||\n"
       "    typeof pos.control.classNN !== 'string'))\n"
       "  throw new Error('control must carry className/classNN');",
-      "input-mouse-getpos-check.mjs");
+      "input-mouse-getpos-final.mjs");
   // NOTE: hoisted out of assert(): SetCursorPos has a side effect (moves the
   // cursor) that must run even when NDEBUG compiles assert() out.
   const BOOL restored_mouse = SetCursorPos(mouse_origin.x, mouse_origin.y);
@@ -597,6 +667,261 @@ int main() {
       "if (globalThis.stable !== false) throw new Error('events arrived after unsubscribe');",
       "input-frozen-check.mjs");
 
+  // --- M2-B: getKeyState / keyWait / blockInput / keyHistory ---
+
+  // getKeyState: argument validation is a synchronous TypeError, the toggle
+  // mode agrees with modifiers().capsLock (both read the GetKeyState toggle
+  // bit), and the default mode returns a boolean.
+  run(runtime,
+      "import { input } from 'rime:input';\n"
+      "globalThis.stateErrors = {};\n"
+      "const expectState = (name, fn) => {\n"
+      "  try { fn(); } catch (e) { globalThis.stateErrors[name] = e instanceof TypeError; }\n"
+      "};\n"
+      "expectState('unknownKey', () => input.getKeyState('notakey'));\n"
+      "expectState('emptyKey', () => input.getKeyState(''));\n"
+      "expectState('arity', () => input.getKeyState());\n"
+      "expectState('modeNotString', () => input.getKeyState('a', 42));\n"
+      "expectState('modeUnknown', () => input.getKeyState('a', 'x'));\n"
+      "expectState('modeEmpty', () => input.getKeyState('a', ''));\n"
+      "globalThis.capsLikeMods =\n"
+      "    input.getKeyState('capslock', 't') === input.modifiers().capsLock;\n"
+      "globalThis.stateType = typeof input.getKeyState('f24');\n",
+      "input-getkeystate.mjs");
+  run(runtime,
+      "const errors = globalThis.stateErrors;\n"
+      "for (const key of ['unknownKey', 'emptyKey', 'arity', 'modeNotString',\n"
+      "                   'modeUnknown', 'modeEmpty']) {\n"
+      "  if (!errors[key]) throw new Error('expected a TypeError for getKeyState ' + key);\n"
+      "}\n"
+      "if (!globalThis.capsLikeMods)\n"
+      "  throw new Error('toggle mode must agree with modifiers().capsLock');\n"
+      "if (globalThis.stateType !== 'boolean')\n"
+      "  throw new Error('getKeyState must return a boolean');",
+      "input-getkeystate-check.mjs");
+
+  // A real hold: physical and logical both read the held F24 as down, and
+  // both clear again after the release. waitFor polls on the JS lane, so
+  // this also exercises reading while the lane is alive.
+  send_key_state(VK_F24, true);
+  run(runtime,
+      "globalThis.heldState = 'pending';\n"
+      "waitFor(() => input.getKeyState('f24', 'p') && input.getKeyState('f24', 'l'), 3000)\n"
+      "  .then(v => { globalThis.heldState = v; });",
+      "input-getkeystate-held.mjs");
+  assert(runtime.settle(5000ms).ok());
+  run(runtime,
+      "if (globalThis.heldState !== true)\n"
+      "  throw new Error('held F24 must read down in physical and logical modes');",
+      "input-getkeystate-held-check.mjs");
+  send_key_state(VK_F24, false);
+  run(runtime,
+      "globalThis.releasedState = 'pending';\n"
+      "waitFor(() => !input.getKeyState('f24', 'p') && !input.getKeyState('f24', 'l'), 3000)\n"
+      "  .then(v => { globalThis.releasedState = v; });",
+      "input-getkeystate-released.mjs");
+  assert(runtime.settle(5000ms).ok());
+  run(runtime,
+      "if (globalThis.releasedState !== true)\n"
+      "  throw new Error('released F24 must read up in physical and logical modes');",
+      "input-getkeystate-released-check.mjs");
+
+  // keyWait: a released key resolves true on the first poll, a press that
+  // never arrives rejects timeout after its budget, a bound cancellation
+  // rejects cancelled, and option mistakes throw synchronously. Defaults
+  // follow AHK: release wait, physical mode, 5s budget.
+  run(runtime,
+      "import { input } from 'rime:input';\n"
+      "import { runtime } from 'rime:runtime';\n"
+      "globalThis.waitOut = {};\n"
+      "input.keyWait('f24')\n"
+      "  .then(v => { globalThis.waitOut.released = v; },\n"
+      "        e => { globalThis.waitOut.released = e.code; });\n"
+      "input.keyWait('f24', { down: true, deadlineMs: 200 })\n"
+      "  .then(() => { globalThis.waitOut.timeout = 'resolved'; },\n"
+      "        e => { globalThis.waitOut.timeout = e.code; });\n"
+      "const cid = runtime.cancellation();\n"
+      "input.keyWait('f24', { down: true, deadlineMs: 30000, cancellationId: cid })\n"
+      "  .then(() => { globalThis.waitOut.cancel = 'resolved'; },\n"
+      "        e => { globalThis.waitOut.cancel = e.code; });\n"
+      "runtime.cancel(cid);\n"
+      "globalThis.waitErrors = {};\n"
+      "const expectWait = (name, fn) => {\n"
+      "  try { fn(); } catch (e) { globalThis.waitErrors[name] = e instanceof TypeError; }\n"
+      "};\n"
+      "expectWait('unknownKey', () => input.keyWait('notakey'));\n"
+      "expectWait('arity', () => input.keyWait());\n"
+      "expectWait('optionsNotObject', () => input.keyWait('f24', 42));\n"
+      "expectWait('downNotBool', () => input.keyWait('f24', { down: 'yes' }));\n"
+      "expectWait('modeUnknown', () => input.keyWait('f24', { mode: 'nope' }));\n",
+      "input-keywait.mjs");
+  assert(runtime.settle(5000ms).ok());
+  run(runtime,
+      "const out = globalThis.waitOut;\n"
+      "if (out.released !== true)\n"
+      "  throw new Error('keyWait on a released key must resolve true, got: ' + out.released);\n"
+      "if (out.timeout !== 'timeout')\n"
+      "  throw new Error('keyWait deadline must reject with timeout, got: ' + out.timeout);\n"
+      "if (out.cancel !== 'cancelled')\n"
+      "  throw new Error('keyWait cancel must reject with cancelled, got: ' + out.cancel);\n"
+      "const errors = globalThis.waitErrors;\n"
+      "for (const key of ['unknownKey', 'arity', 'optionsNotObject', 'downNotBool',\n"
+      "                   'modeUnknown']) {\n"
+      "  if (!errors[key]) throw new Error('expected a TypeError for keyWait ' + key);\n"
+      "}",
+      "input-keywait-check.mjs");
+
+  // Real satisfaction: down-wait resolves while the key is held; the
+  // release wait is armed first, then this thread releases the key and the
+  // worker poll observes the transition.
+  send_key_state(VK_F24, true);
+  run(runtime,
+      "globalThis.waitHeld = null;\n"
+      "input.keyWait('f24', { down: true }).then(v => { globalThis.waitHeld = v; });",
+      "input-keywait-held.mjs");
+  assert(runtime.settle(5000ms).ok());
+  run(runtime,
+      "if (globalThis.waitHeld !== true)\n"
+      "  throw new Error('keyWait down must resolve true while held');\n"
+      "globalThis.waitRelease = null;\n"
+      "input.keyWait('f24').then(v => { globalThis.waitRelease = v; });",
+      "input-keywait-release.mjs");
+  send_key_state(VK_F24, false);
+  assert(runtime.settle(5000ms).ok());
+  run(runtime,
+      "if (globalThis.waitRelease !== true)\n"
+      "  throw new Error('keyWait release must resolve true after the key goes up');",
+      "input-keywait-release-check.mjs");
+
+  // blockInput: mode validation is a synchronous TypeError; the real block
+  // keeps foreign input away from the OS while the hook still records it
+  // for subscribers, lets self batches through, releases the flag when a
+  // bound cancellation fires, and 'off' restores delivery (false once the
+  // guard already released).
+  run(runtime,
+      "import { input } from 'rime:input';\n"
+      "globalThis.blockEvents = [];\n"
+      "globalThis.sidBlock = input.subscribe(ev => globalThis.blockEvents.push(ev));\n"
+      "globalThis.blockOut = {};\n"
+      "try { input.blockInput('sideways'); }\n"
+      "catch (e) { globalThis.blockOut.typeError = (e instanceof TypeError); }\n"
+      "try { input.blockInput(); }\n"
+      "catch (e) { globalThis.blockOut.arity = (e instanceof TypeError); }\n"
+      "globalThis.blockOut.on = input.blockInput('on');\n",
+      "input-block.mjs");
+  run(runtime,
+      "if (!globalThis.blockOut.typeError)\n"
+      "  throw new Error('blockInput unknown mode must throw TypeError');\n"
+      "if (!globalThis.blockOut.arity)\n"
+      "  throw new Error('blockInput arity must throw TypeError');\n"
+      "if (globalThis.blockOut.on !== true)\n"
+      "  throw new Error('blockInput on must return true while running');",
+      "input-block-check.mjs");
+  // Foreign hold while blocked: SendInput returns after the hook verdict,
+  // so the OS state must stay up...
+  send_key_state(VK_F24, true);
+  std::this_thread::sleep_for(250ms);
+  {
+    const short blocked_state = GetAsyncKeyState(VK_F24);
+    assert((blocked_state & 0x8000) == 0);
+  }
+  // ...while the subscription still records the event (enqueue before
+  // swallow) and the physical snapshot tracks it.
+  run(runtime,
+      "globalThis.blockSeen = 'pending';\n"
+      "waitFor(() => globalThis.blockEvents.some(\n"
+      "             e => e.kind === 'key' && e.vk === 135 && e.down), 3000)\n"
+      "  .then(v => { globalThis.blockSeen = v; });",
+      "input-block-seen.mjs");
+  assert(runtime.settle(5000ms).ok());
+  run(runtime,
+      "if (globalThis.blockSeen !== true)\n"
+      "  throw new Error('blocked foreign input must still reach subscribe');",
+      "input-block-seen-check.mjs");
+  assert(service.physical_key_down(VK_F24));
+  // Self-injected input bypasses the block in both directions.
+  assert(service.send({{VK_F24, true}}).ok());
+  assert(wait_for([&] { return (GetAsyncKeyState(VK_F24) & 0x8000) != 0; }));
+  assert(service.send({{VK_F24, false}}).ok());
+  assert(wait_for([&] { return (GetAsyncKeyState(VK_F24) & 0x8000) == 0; }));
+  // The foreign release is swallowed too, so the snapshot clears.
+  send_key_state(VK_F24, false);
+  assert(wait_for([&] { return !service.physical_key_down(VK_F24); }));
+  // A bound cancellation releases the block from the timer guard.
+  run(runtime,
+      "import { input } from 'rime:input';\n"
+      "import { runtime } from 'rime:runtime';\n"
+      "globalThis.blockCid = runtime.cancellation();\n"
+      "globalThis.blockOut.guardOn =\n"
+      "    input.blockInput('on', { cancellationId: globalThis.blockCid });\n"
+      "runtime.cancel(globalThis.blockCid);",
+      "input-block-cancel.mjs");
+  assert(wait_for([&] { return !service.blocked(); }, 5000ms));
+  // 'off' reports false once the guard already released, then delivery is
+  // observable again with a plain foreign tap.
+  run(runtime,
+      "globalThis.blockOut.off = input.blockInput('off');\n"
+      "input.unsubscribe(globalThis.sidBlock);",
+      "input-block-off.mjs");
+  run(runtime,
+      "if (globalThis.blockOut.guardOn !== true)\n"
+      "  throw new Error('blockInput with a cancellation id must return true');\n"
+      "if (globalThis.blockOut.off !== false)\n"
+      "  throw new Error('blockInput off must return false once released');",
+      "input-block-off-check.mjs");
+  send_key_state(VK_F24, true);
+  assert(wait_for([&] { return (GetAsyncKeyState(VK_F24) & 0x8000) != 0; }));
+  send_key_state(VK_F24, false);
+  assert(wait_for([&] { return (GetAsyncKeyState(VK_F24) & 0x8000) == 0; }));
+
+  // keyHistory: maxEvents validation (0..500 integers), then a real report
+  // whose capacity resize trims the ring - six fresh F24 events against
+  // capacity 4 leave exactly the four newest rows.
+  run(runtime,
+      "import { input } from 'rime:input';\n"
+      "globalThis.histErrors = {};\n"
+      "const expectHist = (name, fn) => {\n"
+      "  try { fn(); } catch (e) { globalThis.histErrors[name] = e instanceof TypeError; }\n"
+      "};\n"
+      "expectHist('range', () => input.keyHistory({ maxEvents: 501 }));\n"
+      "expectHist('negative', () => input.keyHistory({ maxEvents: -1 }));\n"
+      "expectHist('fraction', () => input.keyHistory({ maxEvents: 1.5 }));\n"
+      "expectHist('notNumber', () => input.keyHistory({ maxEvents: 'x' }));\n"
+      "expectHist('optionsNotObject', () => input.keyHistory('x'));\n"
+      "expectHist('arity', () => input.keyHistory({}, {}));\n"
+      "globalThis.histResized = input.keyHistory({ maxEvents: 4 }).capacity;\n",
+      "input-keyhistory.mjs");
+  run(runtime,
+      "const errors = globalThis.histErrors;\n"
+      "for (const key of ['range', 'negative', 'fraction', 'notNumber',\n"
+      "                   'optionsNotObject', 'arity']) {\n"
+      "  if (!errors[key]) throw new Error('expected a TypeError for keyHistory ' + key);\n"
+      "}\n"
+      "if (globalThis.histResized !== 4)\n"
+      "  throw new Error('keyHistory must report the resized capacity: ' +\n"
+      "                  globalThis.histResized);",
+      "input-keyhistory-check.mjs");
+  for (int tap = 0; tap < 3; ++tap) send_vk(VK_F24);
+  run(runtime,
+      "globalThis.histReport = input.keyHistory();",
+      "input-keyhistory-report.mjs");
+  run(runtime,
+      "const report = globalThis.histReport;\n"
+      "if (report.capacity !== 4)\n"
+      "  throw new Error('capacity must stay 4: ' + report.capacity);\n"
+      "if (report.count !== 4 || report.events.length !== 4)\n"
+      "  throw new Error('six events against capacity 4 must leave four rows, got ' +\n"
+      "                  report.count);\n"
+      "for (const row of report.events) {\n"
+      "  if (row.vk !== 135) throw new Error('history must hold only the newest F24 rows');\n"
+      "  if (typeof row.down !== 'boolean' || typeof row.injected !== 'boolean' ||\n"
+      "      typeof row.selfInjected !== 'boolean')\n"
+      "    throw new Error('history row flags must be booleans');\n"
+      "  if (typeof row.timestamp !== 'number' || typeof row.elapsed !== 'number')\n"
+      "    throw new Error('history row timing must be numeric');\n"
+      "}",
+      "input-keyhistory-report-check.mjs");
+
   // Lifetime: a live subscription may outlive the runtime; the host event
   // queue closes on teardown so producers become no-ops.
   run(runtime, "globalThis.sid2 = input.subscribe(() => {});", "input-resubscribe.mjs");
@@ -643,7 +968,20 @@ int main() {
         "globalThis.deniedPos = null;\n"
         "input.mouseGetPos().then(\n"
         "  () => { globalThis.deniedPos = 'resolved'; },\n"
-        "  e => { globalThis.deniedPos = { code: e.code, message: e.message }; });",
+        "  e => { globalThis.deniedPos = { code: e.code, message: e.message }; });\n"
+        "globalThis.deniedState = null;\n"
+        "try { input.getKeyState('f24'); }\n"
+        "catch (e) { globalThis.deniedState = e.message; }\n"
+        "globalThis.deniedHistory = null;\n"
+        "try { input.keyHistory(); }\n"
+        "catch (e) { globalThis.deniedHistory = e.message; }\n"
+        "globalThis.deniedBlock = null;\n"
+        "try { input.blockInput('on'); }\n"
+        "catch (e) { globalThis.deniedBlock = e.message; }\n"
+        "globalThis.deniedKeyWait = null;\n"
+        "input.keyWait('f24').then(\n"
+        "  () => { globalThis.deniedKeyWait = 'resolved'; },\n"
+        "  e => { globalThis.deniedKeyWait = { code: e.code, message: e.message }; });",
         "input-deny.mjs");
     assert(denied_runtime.settle(5000ms).ok());
     run(denied_runtime,
@@ -666,8 +1004,26 @@ int main() {
         "    globalThis.deniedPos.code !== 'capability_denied' ||\n"
         "    !globalThis.deniedPos.message.includes('windows.input.read'))\n"
         "  throw new Error('getPos must reject with capability_denied naming ' +\n"
-        "                  'windows.input.read: ' + JSON.stringify(globalThis.deniedPos));",
+        "                  'windows.input.read: ' + JSON.stringify(globalThis.deniedPos));\n"
+        "if (!globalThis.deniedState || !globalThis.deniedState.includes('windows.input.read'))\n"
+        "  throw new Error('getKeyState must be denied with the capability name: ' +\n"
+        "                  globalThis.deniedState);\n"
+        "if (!globalThis.deniedHistory || !globalThis.deniedHistory.includes('windows.input.read'))\n"
+        "  throw new Error('keyHistory must be denied with the capability name: ' +\n"
+        "                  globalThis.deniedHistory);\n"
+        "if (!globalThis.deniedBlock || !globalThis.deniedBlock.includes('windows.input.inject'))\n"
+        "  throw new Error('blockInput must be denied with the capability name: ' +\n"
+        "                  globalThis.deniedBlock);\n"
+        "if (!globalThis.deniedKeyWait || globalThis.deniedKeyWait === 'resolved' ||\n"
+        "    globalThis.deniedKeyWait.code !== 'capability_denied' ||\n"
+        "    !globalThis.deniedKeyWait.message.includes('windows.input.read'))\n"
+        "  throw new Error('keyWait must reject with capability_denied naming ' +\n"
+        "                  'windows.input.read: ' +\n"
+        "                  JSON.stringify(globalThis.deniedKeyWait));",
         "input-deny-check.mjs");
+    // The denied blockInput must stop at the capability gate: the desktop
+    // is never left blocked by a rejected call.
+    assert(!service.blocked());
     assert(denied_runtime.stop().ok());
   }
 

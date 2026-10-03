@@ -15,9 +15,11 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace rime::win32 {
 namespace {
@@ -941,6 +943,444 @@ JSValue input_mouse_get_pos(JSContext* context, JSValueConst, int argc, JSValueC
       options.cancellation_id);
 }
 
+// Resolves a state-read key name (getKeyState/keyWait/keyHistory spellings)
+// to a virtual key: chord tokens (letters, digits, f1..f24, navigation and
+// lock names), modifier names, the mouse buttons, and AHK's explicit vkXX
+// hex form (TextToVK's aAllowExplicitVK spelling). Lowercased first (AHK
+// key names are case-insensitive); unknown names fail with an error string
+// instead of guessing a key.
+bool state_key(const std::string& token, std::uint32_t& vk, std::string& error) {
+  if (token.empty()) {
+    error = "key name must not be empty";
+    return false;
+  }
+  const std::string key = ascii_lower(token);
+  if (chord_key(key, vk, error)) return true;
+  if (key.size() >= 2 && key[0] == 'v' && key[1] == 'k') {
+    // Explicit vk form:1..2 hex digits, value1..254 (same range send()
+    // accepts for non-unicode steps).
+    if (key.size() >= 3 && key.size() <= 4) {
+      std::uint32_t value = 0;
+      bool hex = true;
+      for (std::size_t index = 2; index < key.size(); ++index) {
+        const char c = key[index];
+        std::uint32_t digit = 0;
+        if (c >= '0' && c <= '9') {
+          digit = static_cast<std::uint32_t>(c - '0');
+        } else if (c >= 'a' && c <= 'f') {
+          digit = static_cast<std::uint32_t>(c - 'a' + 10);
+        } else {
+          hex = false;
+          break;
+        }
+        value = value * 16u + digit;
+      }
+      if (hex && value >= 1 && value <= 0xFE) {
+        vk = value;
+        return true;
+      }
+    }
+    error = "invalid vk key name: " + token;
+    return false;
+  }
+  struct StateKey {
+    const char* name;
+    std::uint32_t vk;
+  };
+  static constexpr StateKey kStateKeys[] = {
+      {"ctrl", VK_CONTROL},    {"control", VK_CONTROL}, {"lctrl", VK_LCONTROL},
+      {"lcontrol", VK_LCONTROL}, {"rctrl", VK_RCONTROL}, {"rcontrol", VK_RCONTROL},
+      {"shift", VK_SHIFT},     {"lshift", VK_LSHIFT},   {"rshift", VK_RSHIFT},
+      {"alt", VK_MENU},        {"lalt", VK_LMENU},      {"ralt", VK_RMENU},
+      {"lwin", VK_LWIN},       {"rwin", VK_RWIN},
+      {"lbutton", VK_LBUTTON}, {"rbutton", VK_RBUTTON}, {"mbutton", VK_MBUTTON},
+      {"xbutton1", VK_XBUTTON1}, {"xbutton2", VK_XBUTTON2},
+  };
+  for (const auto& named : kStateKeys) {
+    if (key == named.name) {
+      vk = named.vk;
+      return true;
+    }
+  }
+  // chord_key's own message says "chord token"; a state read reports the
+  // name in its own terms (its range hint for f99-style mistakes survives).
+  if (error.rfind("unknown chord token", 0) == 0) error = "unknown key name: " + token;
+  return false;
+}
+
+// Reads the keyName argument shared by getKeyState/keyWait: a string that
+// resolves through state_key; anything else is a TypeError naming the call.
+bool parse_state_key(JSContext* context, JSValueConst value, const char* what,
+                     std::uint32_t& vk) {
+  if (!JS_IsString(value)) {
+    JS_ThrowTypeError(context, "%s(keyName): keyName must be a string", what);
+    return false;
+  }
+  const char* text = JS_ToCString(context, value);
+  if (!text) return false;
+  const std::string name(text);
+  JS_FreeCString(context, text);
+  std::string error;
+  if (!state_key(name, vk, error)) {
+    JS_ThrowTypeError(context, "%s(keyName): %s", what, error.c_str());
+    return false;
+  }
+  return true;
+}
+
+// input.getKeyState(keyName[, mode]): synchronous state read behind
+// windows.input.read. mode is AHK's first-character selection (default L):
+// L logical, P physical, T toggle - only the first character counts, like
+// AHK (script2.cpp:2264). Unknown keys/modes are TypeErrors; a missing
+// capability is a thrown Error naming windows.input.read, mirroring
+// input.modifiers() (validate arguments first, then the gate).
+JSValue input_get_key_state(JSContext* context, JSValueConst, int argc, JSValueConst* argv,
+                            int, void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "getKeyState(keyName[, mode])");
+  std::uint32_t vk = 0;
+  if (!parse_state_key(context, argv[0], "getKeyState", vk)) return JS_EXCEPTION;
+  KeyStateType type = KeyStateType::Logical;
+  if (argc == 2 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+    if (!JS_IsString(argv[1])) {
+      return JS_ThrowTypeError(context, "getKeyState(keyName, mode): mode must be a string");
+    }
+    const char* text = JS_ToCString(context, argv[1]);
+    if (!text) return JS_EXCEPTION;
+    const char first = text[0];  // '\0' (empty string) falls to default below
+    JS_FreeCString(context, text);
+    switch (first) {
+      case 'L':
+      case 'l':
+        type = KeyStateType::Logical;
+        break;
+      case 'P':
+      case 'p':
+        type = KeyStateType::Physical;
+        break;
+      case 'T':
+      case 't':
+        type = KeyStateType::Toggle;
+        break;
+      default:
+        return JS_ThrowTypeError(
+            context, "getKeyState(keyName, mode): mode must start with L, P or T");
+    }
+  }
+  if (!binding->kernel->allows("windows.input.read")) {
+    return throw_capability_error(context, "windows.input.read");
+  }
+  const bool down = type == KeyStateType::Physical
+                        ? binding->service->physical_key_down(vk)
+                        : read_key_state(vk, type);
+  return JS_NewBool(context, down ? 1 : 0);
+}
+
+constexpr std::chrono::milliseconds kKeyWaitPollInterval{25};
+
+// One keyWait loop: held by shared_ptr through the worker/timer closures,
+// exactly like the window WaitLoop (the Host outlives every armed task).
+// Exactly one terminal path runs - resolve, reject, or CancelById - and
+// each erases this token's pending/timer bookkeeping, so unload cannot
+// wedge on it.
+struct KeyWaitLoop {
+  rime::js::Host* host;
+  InputService* service;
+  rime::action::Kernel* kernel;
+  std::uint32_t vk{0};
+  bool want_down{false};
+  KeyStateType type{KeyStateType::Physical};
+  std::uint64_t token{0};
+  std::uint64_t cancellation_id{0};
+  std::int64_t deadline_unix_ms{0};  // absolute system ms since epoch
+  std::uint64_t budget_ms{0};        // the requested deadlineMs (error text)
+};
+
+// One wait step: settles the promise or re-arms the 25ms poll. Runs on the
+// worker lane; capability/cancellation are checked before every read. Like
+// windows.wait this path is exempt from Action dispatch, so there is no
+// Action Trace.
+void key_wait_step(std::shared_ptr<KeyWaitLoop> loop) {
+  rime::js::Host* host = loop->host;
+  const std::uint64_t token = loop->token;
+  std::optional<AsyncOutcome> outcome;
+  try {
+    if (!loop->kernel->allows("windows.input.read")) {
+      outcome = async_failure("capability_denied",
+                              "required capability was not granted: windows.input.read");
+    } else if (loop->cancellation_id != 0 && host->is_cancelled(loop->cancellation_id)) {
+      outcome = async_failure("cancelled", "wait cancelled");
+    } else {
+      const bool down = loop->type == KeyStateType::Physical
+                            ? loop->service->physical_key_down(loop->vk)
+                            : read_key_state(loop->vk, loop->type);
+      if (down == loop->want_down) {
+        outcome = async_success("true");
+      } else {
+        const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+        if (now_ms >= loop->deadline_unix_ms) {
+          outcome = async_failure(
+              "timeout", "key wait timed out after " + std::to_string(loop->budget_ms) + "ms");
+        }
+      }
+    }
+  } catch (const std::exception& exception) {
+    outcome = async_failure("execution_failed", exception.what());
+  } catch (...) {
+    outcome = async_failure("execution_failed", "native key wait failed");
+  }
+  if (outcome.has_value()) {
+    if (outcome->ok) {
+      host->complete_async(token, true, std::move(outcome->payload));
+    } else {
+      host->complete_async(token, false, outcome->code + ":" + outcome->payload);
+    }
+    return;
+  }
+  // Not satisfied yet: sleep on the scheduler, then poll again on the
+  // worker. A cancellation landing between checks settles the promise
+  // through CancelById; the next step observes is_cancelled and drains the
+  // timer bookkeeping through complete_async (dropped, but erasing the
+  // token).
+  host->schedule_task(token, kKeyWaitPollInterval, [loop] {
+    loop->host->schedule_worker(loop->token, [loop] { key_wait_step(loop); });
+  });
+}
+
+// input.keyWait(keyName[, options]): AHK KeyWait. Resolves true once the
+// key reaches the requested state; rejects `timeout` after deadlineMs
+// (default5000 like every entry - AHK waits forever, a bounded wait is
+// the house rule), `cancelled` when the bound cancellation fires, or
+// `capability_denied` on the first poll. Defaults mirror AHK (wait.cpp:111):
+// wait for RELEASE (options.down flips to a press wait) in PHYSICAL mode
+// (options.mode accepts 'physical'|'logical'). Unknown keys, options and
+// modes throw synchronously.
+JSValue input_key_wait(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                       void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "keyWait(keyName[, options])");
+  std::uint32_t vk = 0;
+  if (!parse_state_key(context, argv[0], "keyWait", vk)) return JS_EXCEPTION;
+  ActionOptions options;
+  bool want_down = false;                   // AHK default: wait for release
+  KeyStateType type = KeyStateType::Physical;  // AHK default: physical
+  if (argc == 2 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+    if (!JS_IsObject(argv[1])) {
+      return JS_ThrowTypeError(context, "keyWait(keyName, options): options must be an object");
+    }
+    if (!parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
+    JSValue down = JS_GetPropertyStr(context, argv[1], "down");
+    if (JS_IsException(down)) return JS_EXCEPTION;
+    if (!JS_IsUndefined(down) && !JS_IsNull(down)) {
+      if (!JS_IsBool(down)) {
+        JS_FreeValue(context, down);
+        return JS_ThrowTypeError(context, "keyWait options.down must be a boolean");
+      }
+      want_down = JS_ToBool(context, down) > 0;
+    }
+    JS_FreeValue(context, down);
+    JSValue mode = JS_GetPropertyStr(context, argv[1], "mode");
+    if (JS_IsException(mode)) return JS_EXCEPTION;
+    if (!JS_IsUndefined(mode) && !JS_IsNull(mode)) {
+      if (!JS_IsString(mode)) {
+        JS_FreeValue(context, mode);
+        return JS_ThrowTypeError(context, "keyWait options.mode must be a string");
+      }
+      const char* text = JS_ToCString(context, mode);
+      JS_FreeValue(context, mode);
+      if (!text) return JS_EXCEPTION;
+      const std::string mode_text(text);
+      JS_FreeCString(context, text);
+      if (mode_text == "physical") {
+        type = KeyStateType::Physical;
+      } else if (mode_text == "logical") {
+        type = KeyStateType::Logical;
+      } else {
+        return JS_ThrowTypeError(context, "keyWait options.mode must be 'physical' or 'logical'");
+      }
+    }
+  }
+  auto* host = host_of(context);
+  if (!host) return JS_ThrowInternalError(context, "runtime host is gone");
+  JSValue promise = JS_UNDEFINED;
+  std::uint64_t token = 0;
+  if (const auto error = host->begin_async(context, promise, token, options.cancellation_id);
+      !error.ok()) {
+    return JS_ThrowInternalError(context, "%s", error.message.c_str());
+  }
+  // deadline_ms is bounded by js_int64_strict (2^53), so now + budget stays
+  // far inside int64 milliseconds since the epoch.
+  const auto deadline_unix_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count() +
+      static_cast<std::int64_t>(options.deadline_ms);
+  auto loop = std::make_shared<KeyWaitLoop>(KeyWaitLoop{
+      host, binding->service, binding->kernel, vk, want_down, type, token,
+      options.cancellation_id, deadline_unix_ms, options.deadline_ms});
+  host->schedule_worker(token, [loop = std::move(loop)] { key_wait_step(loop); });
+  return promise;
+}
+
+constexpr std::chrono::milliseconds kBlockGuardPollInterval{50};
+
+// Released-block guard state for blockInput's cancellation option. The
+// chain runs on the timer thread only (is_cancelled and set_blocked are
+// thread-safe; no JS executes here) and lives inside the armed callback:
+// the host stops its timers before the input service can be destroyed
+// (bootstrap/runtime destruction order), and a dropped timer entry
+// releases the guard with it.
+struct BlockGuard {
+  rime::js::Host* host;
+  InputService* service;
+  std::uint64_t cancellation_id;
+};
+
+// One guard step: release the block when the bound cancellation fires or
+// stop chasing an already released block; otherwise re-arm the 50ms poll.
+// A 0 timer id means the timer service is stopping: the chain ends here.
+void block_guard_step(std::shared_ptr<BlockGuard> guard) {
+  if (guard->host->is_cancelled(guard->cancellation_id)) {
+    guard->service->set_blocked(false);
+    return;
+  }
+  if (!guard->service->blocked()) return;  // released by blockInput('off')
+  const auto timer_id = guard->host->timers().schedule(
+      kBlockGuardPollInterval, [guard] { block_guard_step(guard); });
+  if (timer_id == 0) return;  // host stopping: no new callbacks
+}
+
+// input.blockInput(mode[, options]): synchronous BlockInput switch behind
+// windows.input.inject. mode is 'on'/'off'; AHK's other modes (Send, Mouse,
+// SendAndMouse, Default, MouseMove, MouseMoveOff and the1/0 spellings)
+// are unimplemented TypeErrors. Returns whether input is blocked
+// afterwards - false when the input service is not running, since without
+// installed hooks there is nothing to swallow. options.cancellationId arms
+// a timer-thread guard that releases the block as soon as that
+// cancellation fires; an explicit 'off' stops the guard, and
+// InputService::stop() clears the flag unconditionally, so no shutdown
+// path can leave the desktop blocked.
+JSValue input_block_input(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                          void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "blockInput(mode[, options])");
+  if (!JS_IsString(argv[0])) {
+    return JS_ThrowTypeError(context, "blockInput(mode): mode must be a string");
+  }
+  const char* mode_text = JS_ToCString(context, argv[0]);
+  if (!mode_text) return JS_EXCEPTION;
+  const std::string mode(mode_text);
+  JS_FreeCString(context, mode_text);
+  if (mode != "on" && mode != "off") {
+    return JS_ThrowTypeError(context,
+                             "blockInput(mode): mode must be 'on' or 'off' "
+                             "(AHK's Send/Mouse variants are not implemented)");
+  }
+  std::uint64_t cancellation_id = 0;
+  if (argc == 2 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+    if (!JS_IsObject(argv[1])) {
+      return JS_ThrowTypeError(context, "blockInput(mode, options): options must be an object");
+    }
+    if (!optional_u64(context, argv[1], "cancellationId", cancellation_id)) return JS_EXCEPTION;
+  }
+  if (!binding->kernel->allows("windows.input.inject")) {
+    return throw_capability_error(context, "windows.input.inject");
+  }
+  const bool on = mode == "on";
+  if (on && binding->service->state() != InputServiceState::Running) {
+    // No installed hooks: setting the flag would lie about the effect.
+    return JS_NewBool(context, 0);
+  }
+  binding->service->set_blocked(on);
+  if (on && cancellation_id != 0) {
+    rime::js::Host* host = host_of(context);
+    if (host) {
+      auto guard =
+          std::make_shared<BlockGuard>(BlockGuard{host, binding->service, cancellation_id});
+      (void)host->timers().schedule(kBlockGuardPollInterval,
+                                    [guard] { block_guard_step(guard); });
+    }
+  }
+  return JS_NewBool(context, binding->service->blocked() ? 1 : 0);
+}
+
+// input.keyHistory([options]): synchronous KeyHistory report behind
+// windows.input.read. options.maxEvents (integer0..500) resizes the
+// recording ring like AHK's KeyHistory argument - a documented side effect
+// of this query - and the report returns { capacity, count, events } with
+// events oldest-first. Deviations from AHK: no GUI window (the argument-less
+// KeyHistory opens one) and no target-window column. Out-of-range values
+// are TypeErrors (AHK FR_E_ARG), a missing capability a thrown Error;
+// arguments validate before the gate, and the resize only happens after it,
+// so a denied call never mutates the ring.
+JSValue input_key_history(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                          void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc > 1) return JS_ThrowTypeError(context, "keyHistory([options])");
+  bool resize = false;
+  std::size_t capacity = 0;
+  if (argc == 1 && !JS_IsUndefined(argv[0]) && !JS_IsNull(argv[0])) {
+    if (!JS_IsObject(argv[0])) {
+      return JS_ThrowTypeError(context, "keyHistory(options): options must be an object");
+    }
+    JSValue max_events = JS_GetPropertyStr(context, argv[0], "maxEvents");
+    if (JS_IsException(max_events)) return JS_EXCEPTION;
+    if (!JS_IsUndefined(max_events) && !JS_IsNull(max_events)) {
+      std::int64_t raw = 0;
+      if (!js_int64_strict(context, max_events, raw, "options.maxEvents")) {
+        JS_FreeValue(context, max_events);
+        return JS_EXCEPTION;
+      }
+      if (raw < 0 || raw > 500) {
+        JS_FreeValue(context, max_events);
+        return JS_ThrowTypeError(context, "keyHistory options.maxEvents must be in 0..500");
+      }
+      capacity = static_cast<std::size_t>(raw);
+      resize = true;
+    }
+    JS_FreeValue(context, max_events);
+  }
+  if (!binding->kernel->allows("windows.input.read")) {
+    return throw_capability_error(context, "windows.input.read");
+  }
+  if (resize) binding->service->set_key_history_capacity(capacity);
+  const std::vector<KeyHistoryEntry> entries = binding->service->key_history();
+  json::Value events = json::Value::array();
+  for (const auto& entry : entries) {
+    json::Value row = json::Value::object();
+    row.set("vk", json::Value::number(static_cast<double>(entry.vk)));
+    row.set("scan", json::Value::number(static_cast<double>(entry.scan)));
+    row.set("down", json::Value::boolean(entry.down));
+    row.set("injected", json::Value::boolean(entry.injected));
+    row.set("selfInjected", json::Value::boolean(entry.self_injected));
+    row.set("timestamp", json::Value::number(static_cast<double>(entry.timestamp_ms)));
+    row.set("elapsed", json::Value::number(static_cast<double>(entry.elapsed_ms)));
+    events.push(std::move(row));
+  }
+  json::Value report = json::Value::object();
+  report.set("capacity",
+             json::Value::number(
+                 static_cast<double>(binding->service->key_history_capacity())));
+  report.set("count", json::Value::number(static_cast<double>(entries.size())));
+  report.set("events", std::move(events));
+  const std::string text = json::stringify(report);
+  return JS_ParseJSON(context, text.c_str(), text.size(), "<keyHistory>");
+}
+
 int input_module_init(JSContext* context, JSModuleDef* module) {
   auto* binding = binding_of(context);
   if (!binding || !binding->service || !binding->kernel) {
@@ -964,7 +1404,9 @@ int input_module_init(JSContext* context, JSModuleDef* module) {
   if (!add("subscribe", input_subscribe, 1) || !add("unsubscribe", input_unsubscribe, 1) ||
       !add("bind", input_bind, 2) || !add("unbind", input_unbind, 1) ||
       !add("send", input_send, 1) || !add("modifiers", input_modifiers, 0) ||
-      !add("mouse", input_mouse, 1) || !add("mouseGetPos", input_mouse_get_pos, 1)) {
+      !add("mouse", input_mouse, 1) || !add("mouseGetPos", input_mouse_get_pos, 1) ||
+      !add("getKeyState", input_get_key_state, 2) || !add("keyWait", input_key_wait, 2) ||
+      !add("blockInput", input_block_input, 2) || !add("keyHistory", input_key_history, 1)) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "input", input);

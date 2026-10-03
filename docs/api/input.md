@@ -1,8 +1,8 @@
 # Keyboard and Mouse API
 
-状态：`Send` 字符串语言（`Send`/`SendInput`/`SendEvent`/`SendPlay`/`SendText`，`SendMode` 经每调用 `mode` 选项承载，均映射到 `keyboard.send*` 族）、结构化注入 `input.send`、鼠标族 `mouse.move/click/drag/getPos`、修饰键快照 `input.modifiers()` 均已实现并通过 contract。`KeyWait`、`KeyHistory`、`BlockInput`、`SendMessage`、`SendLevel`、`GetKey*`/`Set*KeyState` 仍未实现。
+状态：`Send` 字符串语言（`Send`/`SendInput`/`SendEvent`/`SendPlay`/`SendText`，`SendMode` 经每调用 `mode` 选项承载，均映射到 `keyboard.send*` 族）、结构化注入 `input.send`、鼠标族 `mouse.move/click/drag/getPos`、修饰键快照 `input.modifiers()` 均已实现并通过 contract。`KeyWait`、`GetKeyState`、`BlockInput`、`KeyHistory` 已实现为 `input.keyWait`/`input.getKeyState`/`input.blockInput`/`input.keyHistory`（见"键状态与输入控制"）。`SendMessage`、`SendLevel`、`GetKeyName`、`Set*KeyState` 仍未实现。
 
-源码证据：`functions.h` 的 `Send*`/`Mouse*`/`KeyWait`；`rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp`（SendKeys ~460-830、SendKey 1035-1265、MouseClickDrag 2035-2106、MouseClick 2116、MouseMove 2355）；`script2.cpp:1308`（MouseGetPos）；`source/window.cpp:1136`（GetNonChildParent）；`lib/win.cpp:762`（ControlGetClassNN）。
+源码证据：`functions.h` 的 `Send*`/`Mouse*`/`KeyWait`；`rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp`（SendKeys ~460-830、SendKey 1035-1265、MouseClickDrag 2035-2106、MouseClick 2116、MouseMove 2355、BlockInput 4512/4520）；`script2.cpp:1308`（MouseGetPos）、`script2.cpp:2264`（GetKeyState 模式首字符）、`script2.cpp:870`（KeyHistory）、`lib/wait.cpp:111`（KeyWait 默认等释放/physical）、`hook.cpp:263-266`（hook 吞噬 return 1 先例）、`hook.h:255`+`globaldata.cpp:97`（`KeyHistoryItem` 与 `g_MaxHistoryKeys=40`）；`source/window.cpp:1136`（GetNonChildParent）；`lib/win.cpp:762`（ControlGetClassNN）。
 
 TS 面：`keyboard`/`mouse` 两个门面（`sdk/src/input.ts`），编译器为纯函数 `compileSend`（`sdk/src/send.ts`）。经 Action 管道执行：`input.send`、`input.mouse` 共用一个 executor，提交单次 `SendInput` 批次，`dwExtraInfo` 写入进程私有标记，Hook 据此标记 `selfInjected`；chord 匹配跳过 `selfInjected` 防止注入回灌热键。
 
@@ -84,6 +84,34 @@ const pos = await mouse.getPos();              // { x, y, window, control }
 
 capability 为**新增的 `windows.input.read`**（读/写分离，与 `windows.window.read`/`clipboard` 读门禁同构；注入门禁不覆盖只读观察）。缺 capability 时异步拒绝 `{ code: "capability_denied" }`，消息含 `windows.input.read`。coverage 台账原记 `windows.input.inject` 属登记期猜测，由 orchestrator 在集成时修正 `coverage.json`。测试：`tests/js/input_slice.cpp`（getPos 形状 + denied 用例）。
 
+## 键状态与输入控制 — getKeyState / keyWait / blockInput / keyHistory
+
+```js
+import { input } from "rime:input";
+
+input.getKeyState("capslock", "t");              // boolean，同步（T=toggle 首字符模式）
+await input.keyWait("F24");                      // true：默认等释放 + physical + 5s 预算
+await input.keyWait("F24", { down: true, deadlineMs: 200 }); // 超时 reject { code: "timeout" }
+input.blockInput("on", { cancellationId });      // boolean：当前是否处于 block
+input.keyHistory({ maxEvents: 40 });             // { capacity, count, events[] }，同步
+```
+
+- **键名解析**（三者共用 `state_key`）：chord 键名（字母/数字/`f1..f24`/导航与锁定名）、修饰键与鼠标键别名、AHK 的 `vkXX` 显式十六进制（1..FE，同 `TextToVK` 的 aAllowExplicitVK 拼写）；大小写不敏感（AHK 键名大小写不敏感）；未知名/空串同步 `TypeError`（"unknown key name: X"，不猜键）。
+- **`getKeyState(keyName[, mode])`**：mode 按首字符选择（同 AHK `script2.cpp:2264` 只看第一位）：`L`/`l` logical（默认）、`P`/`p` physical、`T`/`t` toggle；空串或其他首字符 → `TypeError`。三条读路：logical = `GetAsyncKeyState`；toggle = `GetKeyState(VK_CAPITAL)` 低位；physical = **Hook 维护的 256 位原子快照**——安装时以 `GetAsyncKeyState` 播种、每条 hook 事件更新（含被 block 吞噬的与自注入的事件），服务未运行时回退 `GetAsyncKeyState`。同步读，capability `windows.input.read`：**先校验参数、后门禁**（缺 capability 同步抛 `Error`，消息含 `windows.input.read`，同 `input.modifiers()` 风格）。
+- **`keyWait(keyName[, options])`**：默认与 AHK `wait.cpp:111` 一致——**等待释放 + physical**；`options.down: true` 改等按下，`options.mode: 'physical'|'logical'`，`deadlineMs`（默认 **5000**，见偏差），`cancellationId` 走既有取消总线。25ms 轮询链（`schedule_task` → `schedule_worker`，同 `windows.wait` WaitLoop 模式，不经 Action 管道故无 Action Trace）：命中 resolve `true`；预算耗尽 reject `{ code: "timeout", message: "key wait timed out after Nms" }`；绑定取消 → `cancelled`；首次轮询缺 capability → `capability_denied`。键名/`options` 类型/`mode` 拼写错误同步 `TypeError`。
+- **`blockInput(mode[, options])`**：mode 仅 `'on'`/`'off'`（含 `1`/`0`、`Send`/`Mouse` 等 AHK 变体在内一律 `TypeError`，见偏差）；capability `windows.input.inject`（参数先于门禁，被拒调用不置位）。同步返回布尔——当前是否处于 block；服务未运行时 `'on'` 返回 `false`（hook 未安装，置位即谎言）。**吞咽语义**（AHK `keyboard_mouse.cpp:4512`、hook `return 1` 先例 `hook.cpp:263-266`）：非自注入事件在**入队之后**被 hook 吞掉——订阅与物理快照照常记录，OS 侧 `GetAsyncKeyState` 保持抬起（本机探针实测：下游 hook 收不到、`SendInput` 返回时判定已生效）；本进程 `dwExtraInfo` 标记的自注入照常放行，脚本自身注入管线不受影响。**释放保证**：`options.cancellationId` 布防 50ms timer 线程守卫（cancellation 一到即 `set_blocked(false)`）；显式 `'off'` 停止守卫；`InputService::stop()` **无条件清位**（关机序第一步）——任何关停/取消路径都不可能把桌面留在 block 状态。被吞输入仍更新 `GetLastInputInfo`（探针实测，该计时来源是独立可观察面）。
+- **`keyHistory([options])`**：同步报告 `{ capacity, count, events }`（事件旧→新）。行结构 `{ vk, scan, down, injected, selfInjected, timestamp, elapsed }`（`timestamp` 为 GetTickCount 毫秒，`elapsed` 为与上一事件的间隔）。`options.maxEvents`（整数 **0..500**；越界、分数、非数 → `TypeError`）**调整记录环容量**——查询带副作用与 AHK 容量参数同源，属文档化行为；默认 40（AHK `globaldata.cpp:97 g_MaxHistoryKeys`），500 为本仓库上限。门禁 `windows.input.read`：参数校验先于门禁、**resize 只发生在门禁之后**（被拒调用不改变环）。键事件与鼠标按键入环（按钮映射 `VK_LBUTTON` 等），移动/滚轮不入环。
+
+偏差与设计选择（键状态四件套）：
+
+- `keyWait` 默认预算 5000ms（house rule：一切等待有界）；AHK `KeyWait` 无超时参数时无限等待。
+- logical 模式读 `GetAsyncKeyState` 而非 AHK 的线程队列位：JS 线程没有消息泵（本机探针实测：非泵线程 down 位失真、toggle 位正确），AHK 的线程队列语义不可移植；toggle 位与 AHK 等价。
+- `blockInput` 仅 `'on'`/`'off'`：AHK 的 `Send`/`Mouse`/`SendAndMouse`/`Default`/`MouseMove`/`MouseMoveOff` 及 `1`/`0` 拼写抛 `TypeError`（`functions.h:8` 家族暂不逐个等价实现）。
+- 自注入输入绕过 block（见上）；AHK hook 模式下自身发送的交互未逐条等价验证，此处以"本进程注入管线可用"为显式选择。
+- `keyHistory` 无 GUI 历史窗口（AHK 无参调用打开窗口）、无目标窗口列；`maxEvents` 上限 500 为本仓库扩展（AHK 无参数化容量）。
+- 四个面都是**读/控制路径而非 Action**：`getKeyState`/`keyHistory`/`blockInput` 同步、`keyWait` 轮询异步，均不经 `Context → Intent → Action IR → Action Kernel`（与 `windows.wait`、`mouseGetPos` 同构）；能力门禁、取消、超时、诊断仍齐备，只是不进 Action Trace。
+- TS 声明（`sdk/src/input.ts`、`modules.d.ts`）本阶段未更新（`sdk/src` 由并行改动持有），列为跟进项。
+
 ## 执行与错误契约总表
 
 | 入口 | 校验时机 | capability | 失败形态 |
@@ -92,6 +120,10 @@ capability 为**新增的 `windows.input.read`**（读/写分离，与 `windows.
 | `mouse.move/click/drag` | 同步参数、异步执行 | `windows.input.inject` | `TypeError` / `ActionError` |
 | `mouse.getPos` | 异步 | `windows.input.read` | `ActionError { code: "capability_denied" }` |
 | `input.send` / `input.mouse`（executor 复读） | payload 二次校验 | 声明于 executor 元数据 | `invalid_contract` → `ActionError` |
+| `input.getKeyState` | 同步 | `windows.input.read` | `TypeError`（键名/模式）/ `Error`（capability） |
+| `input.keyWait` | 同步校验、异步轮询 | `windows.input.read` | `TypeError` / 异步 `{ code: "timeout"\|"cancelled"\|"capability_denied" }` |
+| `input.blockInput` | 同步 | `windows.input.inject` | `TypeError`（mode/options）/ `Error`（capability）；服务未运行返回 `false` |
+| `input.keyHistory` | 同步（resize 在门禁后） | `windows.input.read` | `TypeError`（maxEvents/arity）/ `Error`（capability） |
 
 自注入观测：订阅回调中 `selfInjected === true` 表示本进程批次（键与鼠标均标记；WH_MOUSE_LL 实测只回报 `dwExtraInfo` 低 32 位，native 层以低半字比较，注释见 `input.cpp`）。chord 匹配跳过这类事件，外来注入照常参与。
 
@@ -103,13 +135,14 @@ capability 为**新增的 `windows.input.read`**（读/写分离，与 `windows.
 - `SendLevel`、CapsLock 预翻转（`{CapsLock}` 按普通键处理）、SendEvent/SendPlay 的批间光标预测、标题栏点击补偿、`{Click}`/`{ASC}`/`{U+}`/鼠标键注入、相对移动 `R` 标志、X1/X2/滚轮点击：不实现。
 - 绝对坐标按主屏 `SM_CXSCREEN/SM_CYSCREEN` 归一化（AHK 同为主屏-only，不带 `MOUSEEVENTF_VIRTUALDESK`）。
 - coverage 台账中 `Send`/`SendInput` 行的 `lane: ui` 与实际 worker-lane 执行不一致（orchestrator 持有台账，不在本阶段修改）。
+- M2-B 四件套（`KeyWait`/`GetKeyState`/`BlockInput`/`KeyHistory`）的逐条偏差见上文"键状态与输入控制"节；TS 声明未随本次更新（`sdk/src` 并行持有），属跟进项。
 
 ## 测试与契约
 
 - `tests/sdk/send.test.ts`：文法单元 + 门面行为（mock `rime:input`）。
-- `tests/native/input_tests.cpp`：`input.send`/`read_modifier_state`/`send_mouse` 契约与真实注入（含 Unicode 包、自标记、绝对/相对移动、down/up）。
-- `tests/js/input_slice.cpp`：bridge→executor 全链（Send 文本/Unicode、`input.mouse`、`input.modifiers`、`input.mouseGetPos`、denied 门禁）。
-- `contracts/registry/actions.json`：`input.send`/`input.mouse` 条目与 `windows.input.inject`/`windows.input.read` 门禁声明。
+- `tests/native/input_tests.cpp`：`input.send`/`read_modifier_state`/`send_mouse` 契约与真实注入（含 Unicode 包、自标记、绝对/相对移动、down/up）；M2-B：`read_key_state` 三模式对照 Win32 源、`physical_key_down` 播种与自注入跟踪、`keyHistory` 环（resize/裁剪/0 关断/500 上限）、block 吞咽（订阅可见而 `GetAsyncKeyState` 不可见、自注入放行、off 恢复、`stop()` 清位）。
+- `tests/js/input_slice.cpp`：bridge→executor 全链（Send 文本/Unicode、`input.mouse`、`input.modifiers`、`input.mouseGetPos`、denied 门禁）；M2-B：`getKeyState`（TypeError 矩阵、toggle≡`modifiers().capsLock`、按住/释放实读）、`keyWait`（即时 resolve、timeout、cancel、真实按放、TypeError、denied `capability_denied`）、`blockInput`（TypeError、被拒调用不置位、吞咽+订阅可见+自注入放行、cancellation 守卫释放、`off` 恢复投递）、`keyHistory`（TypeError 矩阵、capacity resize 后六事件剩四行、denied）。
+- `contracts/registry/actions.json`：`input.send`/`input.mouse` 条目与 `windows.input.inject`/`windows.input.read` 门禁声明；M2-B 追加两 capability 的 `checked` 行（getKeyState/keyWait/keyHistory/blockInput 门禁点）与三条 `readSurfaces` 条目。
 
 ## 订阅与 chord
 

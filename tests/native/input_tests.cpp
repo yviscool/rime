@@ -30,6 +30,20 @@ void send_vk(const WORD virtual_key) {
   assert(sent == 2);
 }
 
+// One raw transition with no paired counterpart: the block tests need to
+// hold a key down across polls. Raw SendInput carries no self marker, so
+// the hook treats it as foreign input.
+void send_key_state(const WORD virtual_key, const bool down) {
+  INPUT input{};
+  input.type = INPUT_KEYBOARD;
+  input.ki.wVk = virtual_key;
+  if (!down) input.ki.dwFlags = KEYEVENTF_KEYUP;
+  // NOTE: hoisted out of assert() so the SendInput side effect still runs
+  // under NDEBUG where assert() is compiled out.
+  const UINT sent = SendInput(1, &input, sizeof(INPUT));
+  assert(sent == 1);
+}
+
 void send_mouse_to(const int x, const int y) {
   const int width = GetSystemMetrics(SM_CXSCREEN);
   const int height = GetSystemMetrics(SM_CYSCREEN);
@@ -69,6 +83,14 @@ int main() {
   assert(service.subscribe([](const InputEvent&) {}) == 0);
   assert(!service.send({{VK_F24, true}}).ok());
   assert(!service.send_mouse({{rime::win32::SendMouseAction::Move, 0, 0, 1}}).ok());
+  // State surfaces before start: the physical snapshot falls back to
+  // GetAsyncKeyState, the history ring starts at AHK's default capacity of
+  // 40 (empty), and nothing is blocked.
+  assert(service.physical_key_down(VK_F24) ==
+         ((GetAsyncKeyState(VK_F24) & 0x8000) != 0));
+  assert(service.key_history_capacity() == 40);
+  assert(service.key_history().empty());
+  assert(!service.blocked());
   assert(service.start().ok());
   assert(!service.start().ok());  // start-once
   assert(service.state() == rime::win32::InputServiceState::Running);
@@ -217,14 +239,17 @@ int main() {
   // when NDEBUG compiles the assertion out.
   const BOOL got_origin = GetCursorPos(&batch_origin);
   if (got_origin == FALSE) return 1;
+  // NOTE: the target must stay inside the smallest supported desktop: CI runs
+  // 1024x768 (taskbar top at y=720) so y=650 clears both the tray and any
+  // overscan clamp on taller dev machines.
   assert(
-      service.send_mouse({{rime::win32::SendMouseAction::Move, 456, 789, 1}}).ok());
+      service.send_mouse({{rime::win32::SendMouseAction::Move, 456, 650, 1}}).ok());
   assert(wait_for([&] {
     std::lock_guard lock(mutex);
     for (const auto& event : events) {
       if (event.kind == InputEventKind::Mouse && event.mouse_action == MouseAction::Move &&
-          event.self_injected && event.x >= 455 && event.x <= 457 && event.y >= 788 &&
-          event.y <= 790) {
+          event.self_injected && event.x >= 455 && event.x <= 457 && event.y >= 649 &&
+          event.y <= 651) {
         return true;
       }
     }
@@ -270,9 +295,106 @@ int main() {
     return false;
   }));
   // NOTE: hoisted out of assert(): SetCursorPos has a side effect (moves the
-  // cursor) that must run even when NDEBUG compiles assert() out.
+  // cursor) that must run even when NDEBUG compiles the assertion out.
   const BOOL restored_batch = SetCursorPos(batch_origin.x, batch_origin.y);
   if (restored_batch == FALSE) return 1;
+
+  // Physical snapshot: seeded from GetAsyncKeyState at install (compared
+  // above), then updated by every event the hook sees - self batches
+  // included - and cleared again on release.
+  assert(service.physical_key_down(VK_F24) ==
+         ((GetAsyncKeyState(VK_F24) & 0x8000) != 0));
+  assert(service.send({{VK_F24, true}}).ok());
+  assert(wait_for([&] { return service.physical_key_down(VK_F24); }));
+  assert(service.send({{VK_F24, false}}).ok());
+  assert(wait_for([&] { return !service.physical_key_down(VK_F24); }));
+
+  // The free-function modes read their documented Win32 sources; the
+  // out-of-range guard rejects vk 0 and anything past 254.
+  assert(rime::win32::read_key_state(VK_F24, rime::win32::KeyStateType::Logical) ==
+         ((GetAsyncKeyState(VK_F24) & 0x8000) != 0));
+  assert(rime::win32::read_key_state(VK_F24, rime::win32::KeyStateType::Physical) ==
+         ((GetAsyncKeyState(VK_F24) & 0x8000) != 0));
+  assert(rime::win32::read_key_state(VK_CAPITAL, rime::win32::KeyStateType::Toggle) ==
+         ((GetKeyState(VK_CAPITAL) & 1) != 0));
+  assert(!rime::win32::read_key_state(0, rime::win32::KeyStateType::Logical));
+  assert(!rime::win32::read_key_state(0x1FF, rime::win32::KeyStateType::Physical));
+
+  // KeyHistory ring: resizing to 4 trims immediately; three F23 taps (six
+  // events) then keep only the newest four, which proves both recording and
+  // eviction (every remaining row is the F23 tap, nothing older survives).
+  service.set_key_history_capacity(4);
+  assert(service.key_history_capacity() == 4);
+  assert(service.key_history().size() <= 4);
+  for (int tap = 0; tap < 3; ++tap) {
+    assert(service.send({{VK_F23, true}, {VK_F23, false}}).ok());
+  }
+  assert(wait_for([&] {
+    const auto history = service.key_history();
+    return history.size() == 4 && history.back().vk == VK_F23 && !history.back().down;
+  }));
+  for (const auto& entry : service.key_history()) {
+    assert(entry.vk == VK_F23);
+    assert(entry.injected);
+    assert(entry.self_injected);
+    assert(entry.timestamp_ms > 0);
+  }
+  // Capacity 0 turns recording off and clears the ring; 501 clamps to
+  // AHK's 500-row ceiling; 40 restores the default.
+  service.set_key_history_capacity(0);
+  assert(service.key_history().empty());
+  service.set_key_history_capacity(501);
+  assert(service.key_history_capacity() == 500);
+  service.set_key_history_capacity(40);
+  assert(service.key_history_capacity() == 40);
+
+  // BlockInput: foreign input is recorded by the hook (snapshot and
+  // subscription both see it) but never reaches the OS - probed on this
+  // build: a swallowed key leaves GetAsyncKeyState up and stops the hook
+  // chain - while self-injected batches bypass the block.
+  std::size_t events_before_block = 0;
+  {
+    std::lock_guard lock(mutex);
+    events_before_block = events.size();
+  }
+  service.set_blocked(true);
+  assert(service.blocked());
+  send_key_state(VK_F24, true);
+  // The hook saw the blocked press...
+  assert(wait_for([&] { return service.physical_key_down(VK_F24); }));
+  // ...the subscription recorded it (enqueue before swallow)...
+  assert(wait_for([&] {
+    std::lock_guard lock(mutex);
+    if (events.size() <= events_before_block) return false;
+    for (std::size_t index = events_before_block; index < events.size(); ++index) {
+      const auto& event = events[index];
+      if (event.kind == InputEventKind::Key && event.vk == VK_F24 && event.key_down) {
+        return true;
+      }
+    }
+    return false;
+  }));
+  // ...and the OS never did. SendInput has already returned, so the hook
+  // verdict is settled: the state must read up while the key is held.
+  {
+    const short blocked_state = GetAsyncKeyState(VK_F24);
+    assert((blocked_state & 0x8000) == 0);
+  }
+  // Self-injected input passes the block in both directions.
+  assert(service.send({{VK_F24, true}}).ok());
+  assert(wait_for([&] { return (GetAsyncKeyState(VK_F24) & 0x8000) != 0; }));
+  assert(service.send({{VK_F24, false}}).ok());
+  assert(wait_for([&] { return (GetAsyncKeyState(VK_F24) & 0x8000) == 0; }));
+  // The foreign release is swallowed too, so the snapshot clears.
+  send_key_state(VK_F24, false);
+  assert(wait_for([&] { return !service.physical_key_down(VK_F24); }));
+  // Releasing the block restores delivery.
+  service.set_blocked(false);
+  assert(!service.blocked());
+  send_key_state(VK_F24, true);
+  assert(wait_for([&] { return (GetAsyncKeyState(VK_F24) & 0x8000) != 0; }));
+  send_key_state(VK_F24, false);
+  assert(wait_for([&] { return (GetAsyncKeyState(VK_F24) & 0x8000) == 0; }));
 
   // Unsubscribe closes the subscription; later events are not recorded.
   assert(service.unsubscribe(subscription));
@@ -291,16 +413,28 @@ int main() {
     assert(events.size() == recorded);
   }
 
-  // Stop is repeatable; new subscriptions are refused afterwards.
+  // Stop is repeatable; new subscriptions are refused afterwards. A stop
+  // also clears the block flag unconditionally, so shutdown can never
+  // leave the desktop without keyboard/mouse input.
+  service.set_blocked(true);
+  assert(service.blocked());
   assert(service.stop().ok());
   assert(service.stop().ok());
+  assert(!service.blocked());
   assert(service.state() == rime::win32::InputServiceState::Stopped);
   assert(service.subscribe([](const InputEvent&) {}) == 0);
   assert(!service.send({{VK_F24, true}}).ok());
 
-  // A second service takes over after the first stopped.
+  // A second service takes over after the first stopped. Fresh instance:
+  // no stale block, history back at the default capacity, and the seeded
+  // snapshot agrees with the live OS state.
   InputService second;
   assert(second.start().ok());
+  assert(!second.blocked());
+  assert(second.key_history_capacity() == 40);
+  assert(second.key_history().empty());
+  assert(second.physical_key_down(VK_F24) ==
+         ((GetAsyncKeyState(VK_F24) & 0x8000) != 0));
 
   // While it runs, a concurrent service is refused.
   InputService third;
