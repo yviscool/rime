@@ -190,6 +190,16 @@ class InputService final {
   void set_blocked(bool blocked);
   [[nodiscard]] bool blocked() const;
 
+  // Lock-key force behind AHK Set*LockState's AlwaysOn/AlwaysOff: state +1
+  // (always on) or -1 (always off) makes the low-level keyboard hook swallow
+  // every foreign press and release of `vk`, after recording it exactly like
+  // set_blocked does, so the toggle cannot move - while this process's own
+  // injected taps pass, which is how the state gets written in the first
+  // place. 0 releases the force. Only VK_CAPITAL, VK_NUMLOCK and VK_SCROLL
+  // are ever armed (the JS module validates first), and stop() clears them
+  // like blocked so shutdown can never leave a key force-locked. Any thread.
+  void set_force_toggle(std::uint32_t vk, std::int8_t state);
+
   // KeyHistory ring (newest kept, capacity 0 disables recording). Resizing
   // trims immediately, mirroring AHK's KeyHistory argument (0..500; the JS
   // layer enforces the range, the service clamps defensively). Any thread.

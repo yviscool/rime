@@ -102,6 +102,12 @@ struct InputService::Impl {
   // unconditionally by stop() so shutdown can never leave the desktop
   // blocked.
   std::atomic<bool> blocked{false};
+  // Lock-key force (AHK g_ForceKeyLock family, script2.cpp:1768 SetToggleState):
+  // 0 neutral, +1 always-on, -1 always-off. Set from the JS thread, read inside
+  // the low-level keyboard hook; only VK_CAPITAL/VK_NUMLOCK/VK_SCROLL are ever
+  // armed (the JS module validates first). stop() clears it like blocked so
+  // shutdown can never leave a key force-locked.
+  std::array<std::atomic<std::int8_t>, 256> force_toggle{};
   // KeyHistory ring, guarded by mutex (recorded inside enqueue, copied by
   // key_history(); capacity 0 disables recording).
   std::deque<KeyHistoryEntry> history;
@@ -366,6 +372,17 @@ LRESULT CALLBACK InputService::Impl::keyboard_proc(const int code, const WPARAM 
         if (data->vkCode < 256) {
           self->physical[static_cast<std::size_t>(data->vkCode)].store(down);
         }
+        // Lock-key force: while a direction is armed the key stays hidden
+        // from the OS - the event is already recorded (history, snapshot and
+        // subscriptions above), and both the press and the release are
+        // swallowed like BlockInput, so a physical press can never move the
+        // toggle. Self-injected batches pass: that is the path setLockState
+        // uses to write the state (AHK pForceToggle -> SuppressThisKey,
+        // hook.cpp:1904-1908).
+        if (!event.self_injected && data->vkCode < 256 &&
+            self->force_toggle[data->vkCode].load(std::memory_order_acquire) != 0) {
+          return 1;  // swallowed like BlockInput: recorded above, invisible to the OS
+        }
         // BlockInput: the event is already recorded (history, snapshot and
         // subscriptions above); returning 1 stops the hook chain so neither
         // the OS nor older hooks ever see it. Self-injected batches pass.
@@ -512,6 +529,12 @@ rime::core::Error InputService::stop() {
   // Unconditional: even an early-return path must not leave the desktop
   // blocked (the hooks that enforce the flag are about to go away anyway).
   impl_->blocked.store(false);
+  // Same rule for the lock-key force: only the three lock keys are ever
+  // armed, so clearing just them is equivalent to a full sweep and leaves no
+  // key forced after shutdown.
+  for (const std::uint32_t vk : {0x14u, 0x90u, 0x91u}) {
+    impl_->force_toggle[vk].store(0, std::memory_order_release);
+  }
   std::unique_lock lock(impl_->mutex);
   if (impl_->state == InputServiceState::Stopped) return rime::core::Error::none();
   if (impl_->state == InputServiceState::Created) {
@@ -846,6 +869,10 @@ bool InputService::physical_key_down(const std::uint32_t vk) const {
 void InputService::set_blocked(const bool blocked) { impl_->blocked.store(blocked); }
 
 bool InputService::blocked() const { return impl_->blocked.load(); }
+
+void InputService::set_force_toggle(const std::uint32_t vk, const std::int8_t state) {
+  if (vk < 256) impl_->force_toggle[vk].store(state, std::memory_order_release);
+}
 
 std::vector<KeyHistoryEntry> InputService::key_history() const {
   std::lock_guard lock(impl_->mutex);

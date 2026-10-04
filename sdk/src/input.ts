@@ -155,6 +155,16 @@ export interface MouseMoveOptions {
  */
 export type KeyStateMode = string;
 
+/** The lock keys `keyboard.setLockState` accepts (AHK ships one built-in per key). */
+export type LockKeyName = "capslock" | "numlock" | "scrolllock";
+
+/**
+ * `keyboard.setLockState` words: `on`/`off` set the toggle now, `alwaysOn`/
+ * `alwaysOff` additionally arm the hook force (foreign presses cannot move
+ * the toggle), `""`/omitted only clears the force without tapping.
+ */
+export type LockStateWord = "on" | "off" | "alwaysOn" | "alwaysOff" | "";
+
 /** Options for `keyWait` (AHK KeyWait's wait state plus the house wait options). */
 export interface KeyWaitOptions extends ActionOptions {
   /** Wait for a press instead of the AHK default: release. */
@@ -487,6 +497,20 @@ export interface InputBridge {
    * Shutdown always clears the block — no path leaves the desktop blocked.
    */
   blockInput(mode: "on" | "off", options?: BlockInputOptions): boolean;
+
+  /**
+   * Arms or clears the persistent force behind `keyboard.setLockState`'s
+   * `alwaysOn`/`alwaysOff` (`input.setLockForce`): `on`/`off` establish an
+   * enforced direction — the low-level hook swallows foreign presses and
+   * releases of that key so its toggle cannot move (this process's own
+   * injected taps pass, which is how the state gets set) — and keep the
+   * keyboard hook installed; `neutral` clears the force and is ungated,
+   * mirroring `installKeybdHook`'s un-gated removal. Establishing requires
+   * `windows.hook.global`. Synchronous: TypeError for a key other than
+   * capslock/numlock/scrolllock or a bad force word; throws Error naming
+   * `windows.hook.global` when establishing without it.
+   */
+  setLockForce(keyName: string, force: "on" | "off" | "neutral"): void;
   /**
    * Reads the hook's key-history ring (`KeyHistory`): `{ capacity, count,
    * events }` oldest-first; `options.maxEvents` resizes the ring after the
@@ -784,6 +808,68 @@ export const keyboard = {
   /** AHK `SendText`: every non-control char becomes a KEYEVENTF_UNICODE packet (layout-independent). */
   sendText(keys: string, options?: Omit<KeyboardSendOptions, "mode">): Promise<{ sent: number }> {
     return runSend(keys, { ...options, mode: "text" });
+  },
+  /**
+   * Sets a lock key's toggle state (AHK `SetCapsLockState`/`SetNumLockState`/
+   * `SetScrollLockState`): `on`/`off` clear any Always* force first and
+   * inject a self-tagged key tap when the LED differs (released first while
+   * the key is held, `keyboard_mouse.cpp:2976-2990`); `alwaysOn`/`alwaysOff`
+   * arm the hook force BEFORE the tap (AHK's order, `script2.cpp:1784-1794`)
+   * so foreign presses can no longer move the toggle; `""` or an omitted
+   * state only clears the force and never taps. Resolves `{ changed }` —
+   * `true` when a tap was injected; the toggle settles asynchronously, so
+   * read it back with `getKeyState(key, "t")`.
+   *
+   * Deliberate deviations from AHK: no Shift tap fallback for the "CapsLock
+   * turns off only with Shift" OS setting (`keyboard_mouse.cpp:2997-3007`)
+   * and no post-tap message-pump sleep (`keyboard_mouse.cpp:2984`) — callers
+   * poll the settled state instead.
+   *
+   * Argument errors are synchronous TypeErrors, and the capability checks
+   * (`windows.input.read` for the LED read, `windows.input.inject` for the
+   * tap, `windows.hook.global` when arming Always*) throw synchronously
+   * before anything is armed or injected.
+   */
+  setLockState(keyName: LockKeyName, state?: LockStateWord): Promise<{ changed: boolean }> {
+    if (typeof keyName !== "string") {
+      throw new TypeError(
+        `keyboard.setLockState(keyName): keyName must be a string, got ${String(keyName)}`,
+      );
+    }
+    const key = keyName.toLowerCase();
+    if (key !== "capslock" && key !== "numlock" && key !== "scrolllock") {
+      throw new TypeError(
+        `keyboard.setLockState(keyName): keyName must be capslock, numlock or scrolllock, got ${keyName}`,
+      );
+    }
+    if (state !== undefined && state !== null && typeof state !== "string") {
+      throw new TypeError(
+        `keyboard.setLockState(state): state must be a string, got ${String(state)}`,
+      );
+    }
+    const word = (state ?? "").toLowerCase();
+    if (word !== "" && word !== "on" && word !== "off" && word !== "alwayson" && word !== "alwaysoff") {
+      throw new TypeError(
+        `keyboard.setLockState(state): state must be "on"|"off"|"alwaysOn"|"alwaysOff", got ${String(state)}`,
+      );
+    }
+    // Force first, always: On/Off override a prior Always* (AHK's rule) and
+    // Always* must be armed before the tap it may inject. "neutral" (or the
+    // omitted/"" form) is an ungated release.
+    if (word === "alwayson") input.setLockForce(key, "on");
+    else if (word === "alwaysoff") input.setLockForce(key, "off");
+    else input.setLockForce(key, "neutral");
+    const want =
+      word === "on" || word === "alwayson" ? true : word === "off" || word === "alwaysoff" ? false : null;
+    if (want === null) return Promise.resolve({ changed: false });
+    if (input.getKeyState(key, "t") === want) return Promise.resolve({ changed: false });
+    const vk = input.getKeyVK(key);
+    const steps: SendKeyStep[] = [];
+    // A tap cannot flip the LED while the key is held down unless it is
+    // released first (AHK's KEYUP-then-DOWNANDUP, keyboard_mouse.cpp:2976).
+    if (input.getKeyState(key, "l")) steps.push({ vk, down: false });
+    steps.push({ vk, down: true }, { vk, down: false });
+    return input.send(steps).then(() => ({ changed: true }));
   },
   /**
    * Live per-side modifier snapshot. Synchronous; throws Error naming

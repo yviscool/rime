@@ -55,6 +55,32 @@ void send_key_state(const WORD virtual_key, const bool down) {
   assert(sent == 1);
 }
 
+// One foreign lock-key tap: dwExtraInfo stays 0, so the hook sees an
+// injected event that is NOT our own - exactly the input an armed
+// setLockForce must swallow, and the input that must flip the toggle again
+// once it is neutral. Scan code and the extended bit mirror the production
+// injector (engine/win32/src/input.cpp send()) so the tap lands like the
+// real key, minus the self marker.
+void send_foreign_key(const WORD virtual_key) {
+  const WORD scan = static_cast<WORD>(MapVirtualKeyW(virtual_key, MAPVK_VK_TO_VSC));
+  const DWORD extended =
+      (virtual_key == VK_NUMLOCK || virtual_key == VK_SCROLL)
+          ? static_cast<DWORD>(KEYEVENTF_EXTENDEDKEY)
+          : 0u;
+  INPUT inputs[2]{};
+  inputs[0].type = INPUT_KEYBOARD;
+  inputs[0].ki.wVk = virtual_key;
+  inputs[0].ki.wScan = scan;
+  inputs[0].ki.dwFlags = extended;
+  inputs[0].ki.dwExtraInfo = 0;
+  inputs[1] = inputs[0];
+  inputs[1].ki.dwFlags = extended | KEYEVENTF_KEYUP;
+  // NOTE: hoisted out of assert() so the SendInput side effect still runs
+  // under NDEBUG where assert() is compiled out.
+  const UINT sent = SendInput(2, inputs, sizeof(INPUT));
+  assert(sent == 2);
+}
+
 template <typename Predicate>
 bool wait_for(Predicate predicate, const std::chrono::milliseconds timeout = 3s) {
   const auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -1124,11 +1150,434 @@ int main() {
       "}",
       "input-keyhistory-report-check.mjs");
 
+  // --- M3: setLockState / setLockForce ---
+
+  // Every step below flips one of the three lock toggles. Snapshot them here
+  // (the same read getKeyState(key, 't') does); each section pulls its own
+  // key back once it finishes and the segment's last run block pulls all
+  // three once more, so a failure in a later section cannot leave an earlier
+  // key turned.
+  const bool caps_original =
+      rime::win32::read_key_state(VK_CAPITAL, rime::win32::KeyStateType::Toggle);
+  const bool numlock_original =
+      rime::win32::read_key_state(VK_NUMLOCK, rime::win32::KeyStateType::Toggle);
+  const bool scrolllock_original =
+      rime::win32::read_key_state(VK_SCROLL, rime::win32::KeyStateType::Toggle);
+
+  // keyboard.setLockState lives in the sdk, which is TypeScript this slice
+  // cannot load (no file root, no transpile step), so the facade body below
+  // mirrors sdk/src/input.ts verbatim - force first, then read, then the
+  // self-injected tap - and runs against the real rime:input exports. What
+  // this slice proves is the native contract that body drives: setLockForce's
+  // gate order, the self-injected pass-through and the force's suppression.
+  // The sdk copy itself belongs to tests/sdk.
+  const std::string lock_mirror =
+      "globalThis.keyboard = {\n"
+      "  setLockState(keyName, state) {\n"
+      "    if (typeof keyName !== 'string') {\n"
+      "      throw new TypeError('keyboard.setLockState(keyName): keyName must be a string, ' +\n"
+      "                          'got ' + String(keyName));\n"
+      "    }\n"
+      "    const key = keyName.toLowerCase();\n"
+      "    if (key !== 'capslock' && key !== 'numlock' && key !== 'scrolllock') {\n"
+      "      throw new TypeError('keyboard.setLockState(keyName): keyName must be capslock, ' +\n"
+      "                          'numlock or scrolllock, got ' + keyName);\n"
+      "    }\n"
+      "    if (state !== undefined && state !== null && typeof state !== 'string') {\n"
+      "      throw new TypeError('keyboard.setLockState(state): state must be a string, ' +\n"
+      "                          'got ' + String(state));\n"
+      "    }\n"
+      "    const word = (state ?? '').toLowerCase();\n"
+      "    if (word !== '' && word !== 'on' && word !== 'off' && word !== 'alwayson' &&\n"
+      "        word !== 'alwaysoff') {\n"
+      "      throw new TypeError('keyboard.setLockState(state): state must be ' +\n"
+      "                          '\"on\"|\"off\"|\"alwaysOn\"|\"alwaysOff\", got ' + String(state));\n"
+      "    }\n"
+      "    if (word === 'alwayson') input.setLockForce(key, 'on');\n"
+      "    else if (word === 'alwaysoff') input.setLockForce(key, 'off');\n"
+      "    else input.setLockForce(key, 'neutral');\n"
+      "    const want = word === 'on' || word === 'alwayson' ? true\n"
+      "               : word === 'off' || word === 'alwaysoff' ? false : null;\n"
+      "    if (want === null) return Promise.resolve({ changed: false });\n"
+      "    if (input.getKeyState(key, 't') === want) {\n"
+      "      return Promise.resolve({ changed: false });\n"
+      "    }\n"
+      "    const vk = input.getKeyVK(key);\n"
+      "    const steps = [];\n"
+      "    if (input.getKeyState(key, 'l')) steps.push({ vk, down: false });\n"
+      "    steps.push({ vk, down: true }, { vk, down: false });\n"
+      "    return input.send(steps).then(() => ({ changed: true }));\n"
+      "  }\n"
+      "};\n";
+
+  // One key's pull-back: setLockState(word) is the path the sdk uses, so it
+  // also clears any armed force (neutral first) before it taps; the C++ read
+  // then proves the LED really settled on the snapshot value.
+  const auto restore_lock = [&](const char* key, const std::uint32_t vk, const bool original,
+                                const char* filename) {
+    run(runtime,
+        "import { input } from 'rime:input';\n" + lock_mirror +
+            "globalThis.lockRestore = null;\n"
+            "globalThis.lockRestoreError = null;\n"
+            "(async () => {\n"
+            "  globalThis.lockRestore =\n"
+            "      await keyboard.setLockState('" +
+            key + "', " + (original ? "'on'" : "'off'") + ");\n"
+            "})().then(() => {}, e => { globalThis.lockRestoreError = String(e); });",
+        filename);
+    assert(runtime.settle(15000ms).ok());
+    run(runtime,
+        "if (globalThis.lockRestoreError)\n"
+        "  throw new Error('setLockState restore failed: ' + globalThis.lockRestoreError);\n",
+        std::string(filename) + "-check");
+    assert(wait_for([&] {
+      return rime::win32::read_key_state(vk, rime::win32::KeyStateType::Toggle) == original;
+    }));
+  };
+
+  // Argument contract: the facade throws synchronously for a bad key or word,
+  // and the native setLockForce throws TypeErrors of its own for a non-lock
+  // key, an unknown force word, a wrong arity or a non-string argument.
+  // Nothing here arms a force or moves a toggle.
+  run(runtime,
+      "import { input } from 'rime:input';\n" + lock_mirror +
+      "globalThis.lockErrors = {};\n"
+      "globalThis.forceErrors = {};\n"
+      "globalThis.expectLock = (name, fn) => {\n"
+      "  try { fn(); } catch (e) { globalThis.lockErrors[name] = e instanceof TypeError; }\n"
+      "};\n"
+      "globalThis.expectForce = (name, fn) => {\n"
+      "  try { fn(); } catch (e) { globalThis.forceErrors[name] = e instanceof TypeError; }\n"
+      "};\n"
+      "expectLock('keyLetter', () => keyboard.setLockState('a', 'on'));\n"
+      "expectLock('keyNumber', () => keyboard.setLockState(42));\n"
+      "expectLock('badWord', () => keyboard.setLockState('capslock', 'sometimes'));\n"
+      "expectLock('badState', () => keyboard.setLockState('capslock', 5));\n"
+      "expectForce('badWord', () => input.setLockForce('capslock', 'sometimes'));\n"
+      "expectForce('letterKey', () => input.setLockForce('a', 'on'));\n"
+      "expectForce('fnKey', () => input.setLockForce('f1', 'off'));\n"
+      "expectForce('unknownKey', () => input.setLockForce('notakey', 'on'));\n"
+      "expectForce('shortArity', () => input.setLockForce('capslock'));\n"
+      "expectForce('longArity', () => input.setLockForce('capslock', 'on', 1));\n"
+      "expectForce('keyNotString', () => input.setLockForce(42, 'on'));\n"
+      "expectForce('forceNotString', () => input.setLockForce('capslock', 5));\n"
+      "globalThis.forceExport = typeof input.setLockForce === 'function';\n",
+      "input-setlock-validate.mjs");
+  run(runtime,
+      "for (const key of ['keyLetter', 'keyNumber', 'badWord', 'badState']) {\n"
+      "  if (!globalThis.lockErrors[key])\n"
+      "    throw new Error('expected a TypeError for setLockState ' + key);\n"
+      "}\n"
+      "for (const key of ['badWord', 'letterKey', 'fnKey', 'unknownKey', 'shortArity',\n"
+      "                   'longArity', 'keyNotString', 'forceNotString']) {\n"
+      "  if (!globalThis.forceErrors[key])\n"
+      "    throw new Error('expected a TypeError for setLockForce ' + key);\n"
+      "}\n"
+      "if (!globalThis.forceExport)\n"
+      "  throw new Error('input.setLockForce must be exported');\n",
+      "input-setlock-validate-check.mjs");
+
+  // on/off and the changed flag (capslock): a tap only happens when the LED
+  // differs, so the second identical call must report unchanged; the mixed
+  // case spelling proves key names stay case-insensitive. The toggle settles
+  // asynchronously, hence the poll after every tap.
+  run(runtime,
+      "import { input } from 'rime:input';\n" + lock_mirror +
+      "globalThis.capsFlow = null;\n"
+      "globalThis.capsFlowError = null;\n"
+      "(async () => {\n"
+      "  const out = {};\n"
+      "  out.flat = await keyboard.setLockState('capslock', 'off');\n"
+      "  out.flatSettled =\n"
+      "      await waitFor(() => input.getKeyState('capslock', 't') === false, 3000);\n"
+      "  out.on = await keyboard.setLockState('capslock', 'on');\n"
+      "  out.onSettled =\n"
+      "      await waitFor(() => input.getKeyState('capslock', 't') === true, 3000);\n"
+      "  out.onAgain = await keyboard.setLockState('capslock', 'on');\n"
+      "  out.off = await keyboard.setLockState('capslock', 'off');\n"
+      "  out.offSettled =\n"
+      "      await waitFor(() => input.getKeyState('capslock', 't') === false, 3000);\n"
+      "  out.mixedCase = await keyboard.setLockState('CapsLock', 'on');\n"
+      "  out.mixedSettled =\n"
+      "      await waitFor(() => input.getKeyState('capslock', 't') === true, 3000);\n"
+      "  out.mixedAgain = await keyboard.setLockState('CapsLock', 'on');\n"
+      "  return out;\n"
+      "})().then(v => { globalThis.capsFlow = v; },\n"
+      "          e => { globalThis.capsFlowError = String(e); });",
+      "input-setlock-caps.mjs");
+  assert(runtime.settle(25000ms).ok());
+  run(runtime,
+      "if (globalThis.capsFlowError)\n"
+      "  throw new Error('capslock flow failed: ' + globalThis.capsFlowError);\n"
+      "const caps = globalThis.capsFlow;\n"
+      "if (!caps) throw new Error('capslock flow never settled');\n"
+      "if (typeof caps.flat.changed !== 'boolean')\n"
+      "  throw new Error('setLockState must resolve { changed: boolean }');\n"
+      "if (caps.flatSettled !== true) throw new Error('capslock must settle to off');\n"
+      "if (caps.on.changed !== true)\n"
+      "  throw new Error('first on must report changed: ' + JSON.stringify(caps.on));\n"
+      "if (caps.onSettled !== true) throw new Error('capslock must settle to on');\n"
+      "if (caps.onAgain.changed !== false)\n"
+      "  throw new Error('second on must report unchanged: ' + JSON.stringify(caps.onAgain));\n"
+      "if (caps.off.changed !== true)\n"
+      "  throw new Error('off must report changed: ' + JSON.stringify(caps.off));\n"
+      "if (caps.offSettled !== true) throw new Error('capslock must settle back to off');\n"
+      "if (caps.mixedCase.changed !== true)\n"
+      "  throw new Error('the CapsLock spelling must be accepted: ' +\n"
+      "                  JSON.stringify(caps.mixedCase));\n"
+      "if (caps.mixedSettled !== true) throw new Error('capslock must settle to on');\n"
+      "if (caps.mixedAgain.changed !== false)\n"
+      "  throw new Error('the second CapsLock on must be unchanged');\n",
+      "input-setlock-caps-check.mjs");
+  restore_lock("capslock", VK_CAPITAL, caps_original, "input-setlock-caps-restore.mjs");
+
+  // Held key (scrolllock): a lock key that is down cannot move its LED until
+  // the injected steps release it first (AHK's KEYUP-then-DOWNANDUP,
+  // keyboard_mouse.cpp:2976-2990). The foreign press itself toggled the LED,
+  // so the target is whatever the toggle is not after it lands - which makes
+  // changed===true deterministic.
+  send_key_state(VK_SCROLL, true);
+  run(runtime,
+      "import { input } from 'rime:input';\n" + lock_mirror +
+      "globalThis.heldLock = null;\n"
+      "globalThis.heldLockError = null;\n"
+      "(async () => {\n"
+      "  const out = {};\n"
+      "  out.held = await waitFor(() => input.getKeyState('scrolllock', 'l'), 3000);\n"
+      "  const target = !input.getKeyState('scrolllock', 't');\n"
+      "  out.target = target;\n"
+      "  out.result = await keyboard.setLockState('scrolllock', target ? 'on' : 'off');\n"
+      "  out.settled = await waitFor(\n"
+      "      () => input.getKeyState('scrolllock', 't') === out.target, 3000);\n"
+      "  out.up = await waitFor(() => !input.getKeyState('scrolllock', 'l'), 3000);\n"
+      "  return out;\n"
+      "})().then(v => { globalThis.heldLock = v; },\n"
+      "          e => { globalThis.heldLockError = String(e); });",
+      "input-setlock-held.mjs");
+  assert(runtime.settle(25000ms).ok());
+  // Release before asserting so a failed tap can never leave the key stuck
+  // down on this machine.
+  send_key_state(VK_SCROLL, false);
+  run(runtime,
+      "if (globalThis.heldLockError)\n"
+      "  throw new Error('held scrolllock flow failed: ' + globalThis.heldLockError);\n"
+      "const held = globalThis.heldLock;\n"
+      "if (!held) throw new Error('held scrolllock flow never settled');\n"
+      "if (!held.held) throw new Error('scrolllock must read down while it is held');\n"
+      "if (held.result.changed !== true)\n"
+      "  throw new Error('a held lock key tap must report changed: ' +\n"
+      "                  JSON.stringify(held.result));\n"
+      "if (!held.settled)\n"
+      "  throw new Error('the release-then-tap sequence must flip the toggle');\n"
+      "if (!held.up)\n"
+      "  throw new Error('the injected steps must release the key first');\n",
+      "input-setlock-held-check.mjs");
+  restore_lock("scrolllock", VK_SCROLL, scrolllock_original,
+               "input-setlock-held-restore.mjs");
+
+  // alwaysOn + suppression end to end (numlock): arm the force, prove a
+  // foreign tap cannot move the toggle, release it through the "" form and
+  // prove the next foreign tap can - so the suppression really came from the
+  // force and not from something else.
+  run(runtime,
+      "import { input } from 'rime:input';\n" + lock_mirror +
+      "globalThis.numArm = null;\n"
+      "globalThis.numArmError = null;\n"
+      "(async () => {\n"
+      "  const out = {};\n"
+      "  out.arm = await keyboard.setLockState('numlock', 'alwaysOn');\n"
+      "  out.on = await waitFor(() => input.getKeyState('numlock', 't') === true, 3000);\n"
+      "  return out;\n"
+      "})().then(v => { globalThis.numArm = v; },\n"
+      "          e => { globalThis.numArmError = String(e); });",
+      "input-setlock-numlock-arm.mjs");
+  assert(runtime.settle(25000ms).ok());
+  run(runtime,
+      "if (globalThis.numArmError)\n"
+      "  throw new Error('numlock alwaysOn failed: ' + globalThis.numArmError);\n"
+      "if (!globalThis.numArm || globalThis.numArm.on !== true)\n"
+      "  throw new Error('numlock must settle to on under alwaysOn');\n",
+      "input-setlock-numlock-arm-check.mjs");
+  send_foreign_key(VK_NUMLOCK);
+  std::this_thread::sleep_for(400ms);
+  run(runtime,
+      "globalThis.numSwallowed = input.getKeyState('numlock', 't');\n"
+      "keyboard.setLockState('numlock', '');\n",
+      "input-setlock-numlock-neutral.mjs");
+  run(runtime,
+      "if (globalThis.numSwallowed !== true)\n"
+      "  throw new Error('alwaysOn must swallow a foreign tap, toggle was ' +\n"
+      "                  globalThis.numSwallowed);\n",
+      "input-setlock-numlock-swallow-check.mjs");
+  send_foreign_key(VK_NUMLOCK);
+  run(runtime,
+      "globalThis.numReleased = 'pending';\n"
+      "waitFor(() => input.getKeyState('numlock', 't') === false, 3000)\n"
+      "  .then(v => { globalThis.numReleased = v; });",
+      "input-setlock-numlock-release.mjs");
+  assert(runtime.settle(5000ms).ok());
+  run(runtime,
+      "if (globalThis.numReleased !== true)\n"
+      "  throw new Error('a neutral numlock must flip on a foreign tap');\n",
+      "input-setlock-numlock-release-check.mjs");
+  restore_lock("numlock", VK_NUMLOCK, numlock_original, "input-setlock-numlock-restore.mjs");
+
+  // alwaysOff (scrolllock), the mirror image: armed, a foreign tap cannot
+  // turn the LED on; neutral, the next one can.
+  run(runtime,
+      "import { input } from 'rime:input';\n" + lock_mirror +
+      "globalThis.scrollArm = null;\n"
+      "globalThis.scrollArmError = null;\n"
+      "(async () => {\n"
+      "  const out = {};\n"
+      "  out.arm = await keyboard.setLockState('scrolllock', 'alwaysOff');\n"
+      "  out.off =\n"
+      "      await waitFor(() => input.getKeyState('scrolllock', 't') === false, 3000);\n"
+      "  return out;\n"
+      "})().then(v => { globalThis.scrollArm = v; },\n"
+      "          e => { globalThis.scrollArmError = String(e); });",
+      "input-setlock-scrolllock-arm.mjs");
+  assert(runtime.settle(25000ms).ok());
+  run(runtime,
+      "if (globalThis.scrollArmError)\n"
+      "  throw new Error('scrolllock alwaysOff failed: ' + globalThis.scrollArmError);\n"
+      "if (!globalThis.scrollArm || globalThis.scrollArm.off !== true)\n"
+      "  throw new Error('scrolllock must settle to off under alwaysOff');\n",
+      "input-setlock-scrolllock-arm-check.mjs");
+  send_foreign_key(VK_SCROLL);
+  std::this_thread::sleep_for(400ms);
+  run(runtime,
+      "globalThis.scrollSwallowed = input.getKeyState('scrolllock', 't');\n"
+      "keyboard.setLockState('scrolllock', '');\n",
+      "input-setlock-scrolllock-neutral.mjs");
+  run(runtime,
+      "if (globalThis.scrollSwallowed !== false)\n"
+      "  throw new Error('alwaysOff must swallow a foreign tap, toggle was ' +\n"
+      "                  globalThis.scrollSwallowed);\n",
+      "input-setlock-scrolllock-swallow-check.mjs");
+  send_foreign_key(VK_SCROLL);
+  run(runtime,
+      "globalThis.scrollReleased = 'pending';\n"
+      "waitFor(() => input.getKeyState('scrolllock', 't') === true, 3000)\n"
+      "  .then(v => { globalThis.scrollReleased = v; });",
+      "input-setlock-scrolllock-release.mjs");
+  assert(runtime.settle(5000ms).ok());
+  run(runtime,
+      "if (globalThis.scrollReleased !== true)\n"
+      "  throw new Error('a neutral scrolllock must flip on a foreign tap');\n",
+      "input-setlock-scrolllock-release-check.mjs");
+  restore_lock("scrolllock", VK_SCROLL, scrolllock_original,
+               "input-setlock-scrolllock-restore.mjs");
+
+  // Segment tail: pull all three back once more (each is a no-op when the
+  // per-section restore already landed) and prove they read the snapshot.
+  run(runtime,
+      "import { input } from 'rime:input';\n" + lock_mirror +
+      "globalThis.finalError = null;\n"
+      "(async () => {\n"
+      "  await keyboard.setLockState('capslock', " + (caps_original ? "'on'" : "'off'") + ");\n"
+      "  await keyboard.setLockState('numlock', " + (numlock_original ? "'on'" : "'off'") +
+      ");\n"
+      "  await keyboard.setLockState('scrolllock', " +
+      (scrolllock_original ? "'on'" : "'off'") + ");\n"
+      "})().catch(e => { globalThis.finalError = String(e); });",
+      "input-setlock-final.mjs");
+  assert(runtime.settle(15000ms).ok());
+  run(runtime,
+      "if (globalThis.finalError)\n"
+      "  throw new Error('final lock restore failed: ' + globalThis.finalError);\n",
+      "input-setlock-final-check.mjs");
+  assert(wait_for([&] {
+    return rime::win32::read_key_state(VK_CAPITAL, rime::win32::KeyStateType::Toggle) ==
+               caps_original &&
+           rime::win32::read_key_state(VK_NUMLOCK, rime::win32::KeyStateType::Toggle) ==
+               numlock_original &&
+           rime::win32::read_key_state(VK_SCROLL, rime::win32::KeyStateType::Toggle) ==
+               scrolllock_original;
+  }));
+
   // Lifetime: a live subscription may outlive the runtime; the host event
   // queue closes on teardown so producers become no-ops.
   run(runtime, "globalThis.sid2 = input.subscribe(() => {});", "input-resubscribe.mjs");
   assert(runtime.stop().ok());
   assert(runtime.stop().ok());
+
+  // setLockForce's capability gate, on a runtime that holds inject+read but
+  // NOT windows.hook.global: alwaysOn/alwaysOff must fail synchronously with
+  // the capability name (the force is validated before any state read, so it
+  // fails first) while plain on/off keeps working - those need no hook gate.
+  // The toggle ends on the value the M3 segment snapshotted.
+  {
+    rime::action::Kernel gate_kernel(std::make_shared<rime::action::StaticCapabilityPolicy>(
+        std::unordered_set<std::string>{"windows.input.inject", "windows.input.read"}));
+    rime::action::Dispatcher gate_dispatcher(gate_kernel,
+                                             rime::action::default_dispatch_policy());
+    // send() still queues through the kernel, so the gate runtime needs the
+    // same executor the main runtime uses.
+    assert(gate_kernel.register_executor("input.send", input_executor).ok());
+    std::atomic<std::uint64_t> gate_next_action_id{0};
+    rime::win32::InputModuleBinding gate_binding;
+    gate_binding.service = &service;
+    gate_binding.window_service = &window_service;
+    gate_binding.kernel = &gate_kernel;
+    gate_binding.dispatcher = &gate_dispatcher;
+    gate_binding.next_action_id = &gate_next_action_id;
+    rime::js::Runtime gate_runtime;
+    assert(rime::win32::register_input_module(gate_runtime, &gate_binding).ok());
+    assert(gate_runtime.start().ok());
+    run(gate_runtime,
+        "import { input } from 'rime:input';\n"
+        "import { runtime } from 'rime:runtime';\n" + lock_mirror +
+        "globalThis.lockPoll = async (predicate, timeoutMs) => {\n"
+        "  const deadline = Date.now() + timeoutMs;\n"
+        "  while (Date.now() < deadline) {\n"
+        "    if (predicate()) return true;\n"
+        "    await runtime.delay(20, null);\n"
+        "  }\n"
+        "  return predicate();\n"
+        "};\n"
+        "globalThis.gate = {};\n"
+        "try { keyboard.setLockState('capslock', 'alwaysOn'); }\n"
+        "catch (e) { globalThis.gate.hookOn = e.message; }\n"
+        "try { keyboard.setLockState('capslock', 'alwaysOff'); }\n"
+        "catch (e) { globalThis.gate.hookOff = e.message; }\n"
+        "globalThis.gate.out = null;\n"
+        "globalThis.gate.err = null;\n"
+        "(async () => {\n"
+        "  const out = {};\n"
+        "  out.on = await keyboard.setLockState('capslock', 'on');\n"
+        "  out.settled = await globalThis.lockPoll(\n"
+        "      () => input.getKeyState('capslock', 't') === true, 3000);\n"
+        "  out.back = await keyboard.setLockState('capslock', " +
+        (caps_original ? "'on'" : "'off'") + ");\n"
+        "  out.backSettled = await globalThis.lockPoll(\n"
+        "      () => input.getKeyState('capslock', 't') === " +
+        (caps_original ? "true" : "false") + ", 3000);\n"
+        "  return out;\n"
+        "})().then(v => { globalThis.gate.out = v; },\n"
+        "          e => { globalThis.gate.err = String(e); });",
+        "input-setlock-gate.mjs");
+    assert(gate_runtime.settle(25000ms).ok());
+    run(gate_runtime,
+        "if (!globalThis.gate.hookOn ||\n"
+        "    !globalThis.gate.hookOn.includes('windows.hook.global'))\n"
+        "  throw new Error('alwaysOn must be denied with the capability name: ' +\n"
+        "                  globalThis.gate.hookOn);\n"
+        "if (!globalThis.gate.hookOff ||\n"
+        "    !globalThis.gate.hookOff.includes('windows.hook.global'))\n"
+        "  throw new Error('alwaysOff must be denied with the capability name: ' +\n"
+        "                  globalThis.gate.hookOff);\n"
+        "if (globalThis.gate.err)\n"
+        "  throw new Error('on/off must work without the hook gate: ' + globalThis.gate.err);\n"
+        "const out = globalThis.gate.out;\n"
+        "if (!out) throw new Error('the ungated on/off flow never settled');\n"
+        "if (typeof out.on.changed !== 'boolean')\n"
+        "  throw new Error('on must resolve { changed: boolean }');\n"
+        "if (out.settled !== true) throw new Error('capslock must settle to on');\n"
+        "if (out.backSettled !== true) throw new Error('the pull-back must settle');\n",
+        "input-setlock-gate-check.mjs");
+    assert(gate_runtime.stop().ok());
+  }
 
   // Capability gate: after the first runtime released the JS lane, a fresh
   // runtime with an empty policy sees subscribe and bind denied by Error
@@ -1150,7 +1599,7 @@ int main() {
     assert(rime::win32::register_input_module(denied_runtime, &denied_binding).ok());
     assert(denied_runtime.start().ok());
     run(denied_runtime,
-        "import { input } from 'rime:input';\n"
+        "import { input } from 'rime:input';\n" + lock_mirror +
         "globalThis.denied = null;\n"
         "globalThis.deniedBind = null;\n"
         "try { input.subscribe(() => {}); }\n"
@@ -1183,7 +1632,10 @@ int main() {
         "globalThis.deniedKeyWait = null;\n"
         "input.keyWait('f24').then(\n"
         "  () => { globalThis.deniedKeyWait = 'resolved'; },\n"
-        "  e => { globalThis.deniedKeyWait = { code: e.code, message: e.message }; });",
+        "  e => { globalThis.deniedKeyWait = { code: e.code, message: e.message }; });\n"
+        "globalThis.deniedLock = null;\n"
+        "try { keyboard.setLockState('capslock', 'on'); }\n"
+        "catch (e) { globalThis.deniedLock = e.message; }",
         "input-deny.mjs");
     assert(denied_runtime.settle(5000ms).ok());
     run(denied_runtime,
@@ -1221,10 +1673,16 @@ int main() {
         "    !globalThis.deniedKeyWait.message.includes('windows.input.read'))\n"
         "  throw new Error('keyWait must reject with capability_denied naming ' +\n"
         "                  'windows.input.read: ' +\n"
-        "                  JSON.stringify(globalThis.deniedKeyWait));",
+        "                  JSON.stringify(globalThis.deniedKeyWait));\n"
+        "if (!globalThis.deniedLock || !globalThis.deniedLock.includes('windows.input.read'))\n"
+        "  throw new Error('setLockState must be denied with the capability name: ' +\n"
+        "                  globalThis.deniedLock);",
         "input-deny-check.mjs");
     // The denied blockInput must stop at the capability gate: the desktop
-    // is never left blocked by a rejected call.
+    // is never left blocked by a rejected call. setLockForce is ungated for
+    // 'neutral', so the denied setLockState got as far as the LED read -
+    // nothing was armed on the way out (every force direction would need
+    // windows.hook.global, which this policy does not grant).
     assert(!service.blocked());
     assert(denied_runtime.stop().ok());
   }

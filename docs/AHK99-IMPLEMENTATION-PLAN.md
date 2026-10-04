@@ -27,12 +27,12 @@
 
 | 清单 | implemented | js-native | unsupported | 终态合计 | 剩余（`contract-only`） |
 |---|---:|---:|---:|---:|---:|
-| coverage 253 | 102 | 7 | 7 | 116 | 137 |
+| coverage 253 | 105 | 7 | 7 | 119 | 134 |
 | core-builtins 101 | 8 | 57 | 18 | 83 | 18 |
 | objects 243（成员） | 0 | 0 | 0 | 0 | 243 |
 | builtins 134（145 − 11 `excluded`） | 5 | 0 | 0 | 5 | 129 |
 
-注：已落地能力已回填（M0-M2）：`process.*` 6 项、`Send`/`SendInput`（`input.send`）、`A_Clipboard`（`clipboard.read`/`clipboard.write`）、`Click/WinActive/WinExist`、`Sleep`（`runtime.delay`）、`GetKeyState` 等；15 个 action 的真值源在 `contracts/registry/actions.json`（`automation.*` 等无独立 AHK 函数条目，其状态记录在该注册表，`matrix:check` 校验 type 集 == executor 注册集）。138 项纯语言分类已入 `core-builtins`/`coverage`（映射表 `docs/api/runtime-language.md`）。当前终态 204 / 731 ≈ 27.9%（四个 JSON，不含指令）。
+注：已落地能力已回填（M0-M2）：`process.*` 6 项、`Send`/`SendInput`（`input.send`）、`A_Clipboard`（`clipboard.read`/`clipboard.write`）、`Click/WinActive/WinExist`、`Sleep`（`runtime.delay`）、`GetKeyState` 等；15 个 action 的真值源在 `contracts/registry/actions.json`（`automation.*` 等无独立 AHK 函数条目，其状态记录在该注册表，`matrix:check` 校验 type 集 == executor 注册集）。138 项纯语言分类已入 `core-builtins`/`coverage`（映射表 `docs/api/runtime-language.md`）。当前终态 207 / 731 ≈ 28.3%（四个 JSON，不含指令）。
 
 ### 1.3 代码现状（结构事实，M0 之后）
 

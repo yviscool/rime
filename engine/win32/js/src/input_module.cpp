@@ -1148,6 +1148,69 @@ JSValue input_block_input(JSContext* context, JSValueConst, int argc, JSValueCon
   return JS_NewBool(context, binding->service->blocked() ? 1 : 0);
 }
 
+// input.setLockForce(keyName, force): the native half behind AHK Set*LockState
+// (SetCapsLockState/SetNumLockState/SetScrollLockState) - the persistent
+// direction keyboard.setLockState arms before it taps. force 'on'/'off'
+// marks the key always-on/always-off (AHK g_ForceKeyLock): from then on the
+// low-level keyboard hook swallows foreign presses and releases of that key,
+// recorded first for history, subscriptions and the physical snapshot exactly
+// like blockInput, so the toggle cannot move - while this process's own
+// injected taps pass, which is the path that writes the state. 'neutral'
+// releases the force and is ungated, mirroring installKeybdHook's un-gated
+// removal. Establishing a direction needs windows.hook.global and re-installs
+// the keyboard hook when something forced it away - a deviation from AHK,
+// which has no capability concept and simply owns its hook. keyName accepts
+// only capslock/numlock/scrolllock (state_key resolves the spelling first) and
+// force only on/off/neutral; anything else is a synchronous TypeError. AHK
+// anchors: script2.cpp:1768-1806 SetToggleState, hook.cpp:1904-1908
+// (pForceToggle -> SuppressThisKey).
+JSValue input_set_lock_force(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                             void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc != 2) return JS_ThrowTypeError(context, "setLockForce(keyName, force)");
+  if (!JS_IsString(argv[0])) {
+    return JS_ThrowTypeError(context, "setLockForce(keyName): keyName must be a string");
+  }
+  const char* key_text = JS_ToCString(context, argv[0]);
+  if (!key_text) return JS_EXCEPTION;
+  const std::string key_name(key_text);
+  JS_FreeCString(context, key_text);
+  std::uint32_t vk = 0;
+  std::string error;
+  if (!state_key(key_name, vk, error)) {
+    return JS_ThrowTypeError(context, "setLockForce(keyName): %s", error.c_str());
+  }
+  if (vk != VK_CAPITAL && vk != VK_NUMLOCK && vk != VK_SCROLL) {
+    return JS_ThrowTypeError(
+        context, "setLockForce(keyName): keyName must be capslock, numlock or scrolllock");
+  }
+  if (!JS_IsString(argv[1])) {
+    return JS_ThrowTypeError(context, "setLockForce(force): force must be 'on', 'off' or 'neutral'");
+  }
+  const char* force_text = JS_ToCString(context, argv[1]);
+  if (!force_text) return JS_EXCEPTION;
+  const std::string force = ascii_lower(force_text);
+  JS_FreeCString(context, force_text);
+  if (force != "on" && force != "off" && force != "neutral") {
+    return JS_ThrowTypeError(context, "setLockForce(force): force must be 'on', 'off' or 'neutral'");
+  }
+  if (force != "neutral") {
+    // Arming is the privileged half (it keeps a global hook swallowing key
+    // events); releasing is not, exactly like installKeybdHook(false).
+    if (!binding->kernel->allows("windows.hook.global")) {
+      return throw_capability_error(context, "windows.hook.global");
+    }
+    if (!binding->service->keyboard_hook_installed()) {
+      (void)binding->service->set_keyboard_hook(true, false);
+    }
+  }
+  binding->service->set_force_toggle(vk, force == "on" ? 1 : force == "off" ? -1 : 0);
+  return JS_UNDEFINED;
+}
+
 // input.keyHistory([options]): synchronous KeyHistory report behind
 // windows.input.read. options.maxEvents (integer0..500) resizes the
 // recording ring like AHK's KeyHistory argument - a documented side effect
@@ -1241,7 +1304,8 @@ int input_module_init(JSContext* context, JSModuleDef* module) {
       !add("getKeyState", input_get_key_state, 2) || !add("getKeySC", input_get_key_sc, 1) ||
       !add("getKeyVK", input_get_key_vk, 1) || !add("getKeyName", input_get_key_name, 1) ||
       !add("keyWait", input_key_wait, 2) ||
-       !add("blockInput", input_block_input, 2) || !add("keyHistory", input_key_history, 1)) {
+       !add("blockInput", input_block_input, 2) ||
+       !add("setLockForce", input_set_lock_force, 2) || !add("keyHistory", input_key_history, 1)) {
     return -1;
   }
   // M2-C event exports (hotkey/hotstring/hotIf/setTimer/onMessage/...) share
