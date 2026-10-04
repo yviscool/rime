@@ -3766,6 +3766,62 @@ JSValue input_policy(JSContext* context, JSValueConst, int argc, JSValueConst* a
   return snapshot;
 }
 
+// input.listHotkeys(): AHK ListHotkeys (script2.cpp:863 -> Hotkey::ListHotkeys,
+// hotkey.cpp:2170) - AHK opens a GUI window over the five columns
+// Type / Off? / Level / Running / Name and lists hotkeys only; we hand the
+// same table back as data (the keyHistory precedent: AHK also opens a window
+// there and we return a report object). Recorded deviations: the Type column
+// is gone (every registration is dispatched by the same hook stream, so there
+// is no reg / k-hook split to report), and the Off? / Running display strings
+// ("OFF", "", "PART" / "") become booleans and counts. Rows come back in
+// registration order - the vector order is first-match order - disabled rows
+// included, sorted nowhere and filtered nowhere. No capability gate: this
+// reads this script's own registration table, not input history.
+JSValue input_list_hotkeys(JSContext* context, JSValueConst, int argc, JSValueConst*, int,
+                           void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->events) return JS_ThrowInternalError(context, "rime:input is not wired");
+  EventsState* state = binding->events.get();
+  if (!state || state->closed) {
+    return JS_ThrowInternalError(context, "rime:input events are shut down");
+  }
+  if (argc != 0) return JS_ThrowTypeError(context, "listHotkeys()");
+  JSValue report = JS_NewObject(context);
+  if (JS_IsException(report)) return report;
+  JS_SetPropertyStr(context, report, "suspended", JS_NewBool(context, state->suspended ? 1 : 0));
+  JSValue rows = JS_NewArray(context);
+  if (JS_IsException(rows)) {
+    JS_FreeValue(context, report);
+    return rows;
+  }
+  std::uint32_t index = 0;
+  for (const auto& entry : state->hotkeys) {
+    JSValue row = JS_NewObject(context);
+    if (JS_IsException(row)) {
+      JS_FreeValue(context, rows);
+      JS_FreeValue(context, report);
+      return row;
+    }
+    JS_SetPropertyStr(context, row, "name", JS_NewString(context, entry.name.c_str()));
+    JS_SetPropertyStr(context, row, "enabled", JS_NewBool(context, entry.enabled ? 1 : 0));
+    JS_SetPropertyStr(context, row, "inputLevel", JS_NewUint32(context, entry.input_level));
+    JS_SetPropertyStr(context, row, "running", JS_NewUint32(context, entry.running));
+    JS_SetPropertyStr(context, row, "suspendExempt",
+                      JS_NewBool(context, entry.suspend_exempt ? 1 : 0));
+    JS_SetPropertyStr(context, row, "conditional",
+                      JS_NewBool(context, entry.criterion != 0 ? 1 : 0));
+    // JS_SetPropertyUint32 consumes `row` on success and on failure.
+    if (JS_SetPropertyUint32(context, rows, index, row) < 0) {
+      JS_FreeValue(context, rows);
+      JS_FreeValue(context, report);
+      return JS_EXCEPTION;
+    }
+    index += 1;
+  }
+  JS_SetPropertyStr(context, report, "hotkeys", rows);
+  return report;
+}
+
 // ---- module wiring ---------------------------------------------------------
 
 // One EventsState per binding, created the first time rime:input loads and
@@ -3823,7 +3879,8 @@ bool add_events_exports(JSContext* context, JSValue input) {
          add("onClipboardChange", events_on_clipboard_change, 1) &&
          add("onError", events_on_error, 1) && add("onExit", events_on_exit, 1) &&
          add("createInputHook", events_create_input_hook, 3) &&
-         add("suspend", input_suspend, 1) && add("policy", input_policy, 1);
+         add("suspend", input_suspend, 1) && add("policy", input_policy, 1) &&
+         add("listHotkeys", input_list_hotkeys, 0);
 }
 
 // ---- teardown --------------------------------------------------------------

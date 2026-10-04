@@ -2007,10 +2007,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "tests/js/events_slice.cpp",
       "lane": "js",
       "cancellation": "none"
     },

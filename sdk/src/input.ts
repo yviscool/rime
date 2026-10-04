@@ -197,6 +197,28 @@ export interface KeyHistoryReport {
   events: KeyHistoryRow[];
 }
 
+/** One `listHotkeys()` row: a registered hotkey's state snapshot. */
+export interface HotkeyListRow {
+  /** The registered chord name, exactly as passed to `hotkey()`. */
+  name: string;
+  /** False while the registration is toggled off (the `"off"` control word). */
+  enabled: boolean;
+  /** Registration-time `#InputLevel`; events below it never match. */
+  inputLevel: number;
+  /** Callbacks currently in flight for this registration (AHK's Running column). */
+  running: number;
+  /** `#SuspendExempt`: keeps firing while `input.suspend()` is on. */
+  suspendExempt: boolean;
+  /** True when the registration sits under a `hotIf*` criterion. */
+  conditional: boolean;
+}
+
+/** Report from `listHotkeys`: the suspend state plus rows in registration (first-match) order. */
+export interface HotkeyListReport {
+  suspended: boolean;
+  hotkeys: HotkeyListRow[];
+}
+
 /**
  * Action template bound to a chord. The runtime validates it at bind time
  * and rebuilds it into a fresh Action (new id, fresh deadline, source
@@ -473,6 +495,18 @@ export interface InputBridge {
    * capability is missing. No GUI window and no target-column deviation.
    */
   keyHistory(options?: KeyHistoryOptions): KeyHistoryReport;
+
+  /**
+   * Reads the registered hotkeys (`ListHotkeys`): `{ suspended, hotkeys }`
+   * with one row per registration in first-match order — name, enabled,
+   * inputLevel, running (in-flight callbacks), suspendExempt, conditional.
+   * AHK opens a GUI window with Type/Off?/Level/Running/Name columns; we
+   * return the data instead (the `keyHistory` precedent) and drop the Type
+   * column (every registration runs on the one hook dispatch). Synchronous;
+   * no capability gate — it reads this script's own registrations, not
+   * input history.
+   */
+  listHotkeys(): HotkeyListReport;
 
   /**
    * Registers a chord for the event stream (`Hotkey`). First match wins

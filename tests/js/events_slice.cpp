@@ -596,7 +596,8 @@ int main() {
       "globalThis.expected = ['hotkey','hotstring','hotIf','hotIfWinActive','hotIfWinExist',\n"
       "                       'hotIfWinNotActive','hotIfWinNotExist','installKeybdHook',\n"
       "                       'installMouseHook','setTimer','onMessage','onClipboardChange',\n"
-      "                       'onError','onExit','createInputHook','suspend','policy'];\n"
+      "                       'onError','onExit','createInputHook','suspend','policy',\n"
+      "                       'listHotkeys'];\n"
       "globalThis.missing = globalThis.expected.filter(n => typeof input[n] !== 'function');\n"
       "input.onExit(ev => { mark('exit:' + ev.reason); });\n",
       "events-boot.mjs");
@@ -605,6 +606,16 @@ int main() {
       "  throw new Error('missing event exports: ' + globalThis.missing.join(','));\n"
       "if (typeof globalThis.waitFor !== 'function') throw new Error('waitFor helper missing');\n",
       "events-boot-check.mjs");
+
+  // listHotkeys on the untouched registry: the report is an empty table with
+  // the suspend flag off, so later stages can count rows against this zero.
+  run(runtime,
+      "const empty = input.listHotkeys();\n"
+      "if (empty.suspended !== false)\n"
+      "  throw new Error('suspend must start off: ' + JSON.stringify(empty));\n"
+      "if (!Array.isArray(empty.hotkeys) || empty.hotkeys.length !== 0)\n"
+      "  throw new Error('a fresh registry must list no rows: ' + JSON.stringify(empty));\n",
+      "events-listhotkeys-empty.mjs");
 
   // Install*Hook round trip: both hooks are up at start, an empty install
   // list uninstalls them (they report the effective state, a deviation from
@@ -1675,6 +1686,171 @@ int main() {
       "  throw new Error('closing an already-closed subscription must return false');\n",
       "m2d-reenter-check.mjs");
 
+  // ---- M3: input.listHotkeys ---------------------------------------------
+  // The registry is cumulative for the whole slice and close() erases rows,
+  // so nothing here assumes a fixed table size: every snapshot is compared
+  // with the rows it saw a step earlier, each new row is checked by name,
+  // position and field value, and rows inherited from earlier stages must
+  // keep their registration (first-match) order.
+  run(runtime,
+      "globalThis.lhErrors = {};\n"
+      "globalThis.lhNames = report => report.hotkeys.map(row => row.name);\n"
+      "globalThis.lhRow = (report, name) => {\n"
+      "  const rows = report.hotkeys.filter(row => row.name === name);\n"
+      "  if (rows.length !== 1)\n"
+      "    throw new Error('expected exactly one row for ' + name + ': ' +\n"
+      "                    JSON.stringify(globalThis.lhNames(report)));\n"
+      "  return rows[0];\n"
+      "};\n"
+      "globalThis.lhBefore = input.listHotkeys();\n"
+      "if (globalThis.lhBefore.suspended !== false)\n"
+      "  throw new Error('suspend must be off entering listHotkeys: ' +\n"
+      "                  JSON.stringify(globalThis.lhBefore));\n"
+      "if (globalThis.lhNames(globalThis.lhBefore).indexOf('f23') >= 0)\n"
+      "  throw new Error('f23 must be gone after its earlier close');\n"
+      "globalThis.lhSub23 = input.hotkey('f23', () => {});\n"
+      "globalThis.lhOne = input.listHotkeys();\n"
+      "const row23 = globalThis.lhRow(globalThis.lhOne, 'f23');\n"
+      "if (row23.enabled !== true || row23.running !== 0 ||\n"
+      "    row23.suspendExempt !== false || row23.conditional !== false)\n"
+      "  throw new Error('a fresh row must report the defaults: ' + JSON.stringify(row23));\n"
+      "if (row23.inputLevel !== input.policy().inputLevel)\n"
+      "  throw new Error('inputLevel must default to the policy level: ' + JSON.stringify(row23));\n"
+      "const startNames = globalThis.lhNames(globalThis.lhBefore);\n"
+      "const oneNames = globalThis.lhNames(globalThis.lhOne);\n"
+      "if (oneNames.length !== startNames.length + 1)\n"
+      "  throw new Error('a fresh registration must append one row: ' + JSON.stringify(oneNames));\n"
+      "if (oneNames.slice(0, startNames.length).join() !== startNames.join())\n"
+      "  throw new Error('existing rows must keep their order: ' + JSON.stringify(oneNames));\n"
+      "if (oneNames[oneNames.length - 1] !== 'f23')\n"
+      "  throw new Error('a fresh registration must append: ' + JSON.stringify(oneNames));\n",
+      "m3-listhotkeys-register.mjs");
+
+  // The off control re-registers in place: same row count, same position,
+  // only enabled flips; every other field survives the update.
+  run(runtime,
+      "const before = input.listHotkeys();\n"
+      "const beforeNames = globalThis.lhNames(before);\n"
+      "const index23 = beforeNames.indexOf('f23');\n"
+      "input.hotkey('f23', 'off');\n"
+      "const after = input.listHotkeys();\n"
+      "const afterNames = globalThis.lhNames(after);\n"
+      "if (afterNames.length !== beforeNames.length || afterNames.join() !== beforeNames.join())\n"
+      "  throw new Error('the off control must update in place: ' + JSON.stringify(afterNames));\n"
+      "if (afterNames.indexOf('f23') !== index23)\n"
+      "  throw new Error('re-registration must keep the first registration position');\n"
+      "const row23 = globalThis.lhRow(after, 'f23');\n"
+      "if (row23.enabled !== false)\n"
+      "  throw new Error('the off control must clear enabled: ' + JSON.stringify(row23));\n"
+      "if (row23.inputLevel !== input.policy().inputLevel || row23.running !== 0 ||\n"
+      "    row23.suspendExempt !== false || row23.conditional !== false)\n"
+      "  throw new Error('the off control must leave the other fields alone: ' +\n"
+      "                  JSON.stringify(row23));\n",
+      "m3-listhotkeys-off.mjs");
+
+  // Rows come back in registration order: the newest row is last and the
+  // rows registered earlier never move.
+  run(runtime,
+      "const before = input.listHotkeys();\n"
+      "const beforeNames = globalThis.lhNames(before);\n"
+      "globalThis.lhSub22 = input.hotkey('f22', () => {});\n"
+      "const after = input.listHotkeys();\n"
+      "const afterNames = globalThis.lhNames(after);\n"
+      "globalThis.lhRow(after, 'f22');\n"
+      "if (afterNames.length !== beforeNames.length + 1)\n"
+      "  throw new Error('f22 must append exactly one row: ' + JSON.stringify(afterNames));\n"
+      "if (afterNames[afterNames.length - 1] !== 'f22')\n"
+      "  throw new Error('the newest registration must be the last row: ' +\n"
+      "                  JSON.stringify(afterNames));\n"
+      "if (afterNames.slice(0, beforeNames.length).join() !== beforeNames.join())\n"
+      "  throw new Error('earlier rows must keep their order: ' + JSON.stringify(afterNames));\n"
+      "if (afterNames.indexOf('f23') >= afterNames.indexOf('f22'))\n"
+      "  throw new Error('first registration order is first-match order: ' +\n"
+      "                  JSON.stringify(afterNames));\n",
+      "m3-listhotkeys-order.mjs");
+
+  // Registration options show up on the row.
+  run(runtime,
+      "globalThis.lhSub21 = input.hotkey('f21', () => {},\n"
+      "                                  { suspendExempt: true, inputLevel: 2 });\n"
+      "const row21 = globalThis.lhRow(input.listHotkeys(), 'f21');\n"
+      "if (row21.suspendExempt !== true || row21.inputLevel !== 2)\n"
+      "  throw new Error('registration options must reach the row: ' + JSON.stringify(row21));\n"
+      "if (row21.enabled !== true || row21.conditional !== false || row21.running !== 0)\n"
+      "  throw new Error('an option row keeps the other defaults: ' + JSON.stringify(row21));\n",
+      "m3-listhotkeys-options.mjs");
+
+  // A hotIf* criterion marks only the row registered under it, and the
+  // criterion is cleared again so the rest of the slice stays unconditional.
+  run(runtime,
+      "const previous = input.hotIfWinExist('no-such-window-zzz');\n"
+      "if (previous.kind !== 'none' || previous.id !== 0)\n"
+      "  throw new Error('the stage must start unconditional: ' + JSON.stringify(previous));\n"
+      "globalThis.lhSub20 = input.hotkey('f20', () => {});\n"
+      "const row20 = globalThis.lhRow(input.listHotkeys(), 'f20');\n"
+      "if (row20.conditional !== true)\n"
+      "  throw new Error('a hotIfWin* registration must be conditional: ' + JSON.stringify(row20));\n"
+      "if (row20.enabled !== true || row20.running !== 0 || row20.suspendExempt !== false ||\n"
+      "    row20.inputLevel !== input.policy().inputLevel)\n"
+      "  throw new Error('a conditional row keeps the defaults: ' + JSON.stringify(row20));\n"
+      "const restored = input.hotIf(null);\n"
+      "if (restored.kind !== 'winExist')\n"
+      "  throw new Error('hotIf(null) must report the criterion it cleared: ' +\n"
+      "                  JSON.stringify(restored));\n",
+      "m3-listhotkeys-conditional.mjs");
+
+  // input.suspend() is reported, never applied to the table itself.
+  run(runtime,
+      "const before = input.listHotkeys();\n"
+      "if (input.suspend(true) !== true) throw new Error('suspend(true) must report true');\n"
+      "const on = input.listHotkeys();\n"
+      "if (on.suspended !== true)\n"
+      "  throw new Error('the report must mirror the suspend flag: ' + JSON.stringify(on));\n"
+      "if (on.hotkeys.length !== before.hotkeys.length ||\n"
+      "    globalThis.lhNames(on).join() !== globalThis.lhNames(before).join())\n"
+      "  throw new Error('suspending must not hide or reorder rows: ' + JSON.stringify(on));\n"
+      "const row23 = globalThis.lhRow(on, 'f23');\n"
+      "if (row23.enabled !== false)\n"
+      "  throw new Error('suspend must not re-enable a disabled row: ' + JSON.stringify(row23));\n"
+      "if (input.suspend(false) !== false) throw new Error('suspend(false) must report false');\n"
+      "const off = input.listHotkeys();\n"
+      "if (off.suspended !== false)\n"
+      "  throw new Error('the report must clear after suspend(false): ' + JSON.stringify(off));\n"
+      "if (globalThis.lhNames(off).join() !== globalThis.lhNames(before).join())\n"
+      "  throw new Error('resuming must not change the rows: ' + JSON.stringify(off));\n",
+      "m3-listhotkeys-suspend.mjs");
+
+  // close() erases the row and leaves the surviving order untouched.
+  run(runtime,
+      "const before = input.listHotkeys();\n"
+      "const beforeNames = globalThis.lhNames(before);\n"
+      "if (!globalThis.lhSub21.close())\n"
+      "  throw new Error('closing an open registration must report true');\n"
+      "const after = input.listHotkeys();\n"
+      "const afterNames = globalThis.lhNames(after);\n"
+      "if (afterNames.length !== beforeNames.length - 1)\n"
+      "  throw new Error('close must erase the row: ' + JSON.stringify(afterNames));\n"
+      "if (afterNames.join() !== beforeNames.filter(name => name !== 'f21').join())\n"
+      "  throw new Error('the surviving rows must keep their order: ' + JSON.stringify(afterNames));\n"
+      "if (globalThis.lhSub21.close())\n"
+      "  throw new Error('a second close must report false');\n",
+      "m3-listhotkeys-close.mjs");
+
+  // Arity: any argument is a TypeError and a rejected call changes nothing.
+  run(runtime,
+      "const before = input.listHotkeys();\n"
+      "expectT(globalThis.lhErrors, 'extraArg', () => input.listHotkeys(1));\n"
+      "expectT(globalThis.lhErrors, 'extraArgs', () => input.listHotkeys(null, 2));\n"
+      "checkT(globalThis.lhErrors, 'extraArg');\n"
+      "checkT(globalThis.lhErrors, 'extraArgs');\n"
+      "const after = input.listHotkeys();\n"
+      "if (after.suspended !== before.suspended ||\n"
+      "    globalThis.lhNames(after).join() !== globalThis.lhNames(before).join())\n"
+      "  throw new Error('a rejected call must change nothing: ' + JSON.stringify(after));\n"
+      "if (typeof input.listHotkeys !== 'function')\n"
+      "  throw new Error('listHotkeys must stay exported');\n",
+      "m3-listhotkeys-arity.mjs");
+
   // Lifetime: stop runs the onExit handlers on the JS thread, then the host
   // teardown closes every registration the slice left open.
   assert(runtime.stop().ok());
@@ -1724,6 +1900,11 @@ int main() {
         "    (typeof input.createInputHook().Stop === 'function');\n"
         "globalThis.allowed.suspend = (input.suspend(false) === false);\n"
         "globalThis.allowed.policy = (input.policy().overflow === 'coalesce');\n"
+        // listHotkeys reads this script's own registry: no capability gate,
+        // and a denied hotkey registration leaves the table empty.
+        "globalThis.allowed.listHotkeys =\n"
+        "    (input.listHotkeys().suspended === false &&\n"
+        "     input.listHotkeys().hotkeys.length === 0);\n"
         "globalThis.allowed.timer =\n"
         "    (typeof input.setTimer(() => {}, 60000).close === 'function');\n"
         "globalThis.allowed.message =\n"
