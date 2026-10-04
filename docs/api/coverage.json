@@ -2041,11 +2041,11 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "rime:runtime",
-      "status": "contract-only",
+      "tsModule": "@rime/runtime-language",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "none"
     },
@@ -2935,11 +2935,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/input",
-      "status": "contract-only",
+      "tsModule": "@rime/runtime-language",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "none"
     },
@@ -2955,11 +2955,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/input",
-      "status": "contract-only",
+      "tsModule": "@rime/runtime-language",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "none"
     },
@@ -2972,11 +2972,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/input",
-      "status": "contract-only",
+      "tsModule": "@rime/runtime-language",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "none"
     },
@@ -3032,11 +3032,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
-      "tsModule": "@rime/input",
-      "status": "contract-only",
+      "tsModule": "@rime/runtime-language",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "none"
     },
