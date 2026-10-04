@@ -1166,7 +1166,7 @@ int main() {
 
   // keyboard.setLockState lives in the sdk, which is TypeScript this slice
   // cannot load (no file root, no transpile step), so the facade body below
-  // mirrors sdk/src/input.ts verbatim - force first, then read, then the
+  // mirrors sdk/src/input/keyboard.ts verbatim - force first, then read, then the
   // self-injected tap - and runs against the real rime:input exports. What
   // this slice proves is the native contract that body drives: setLockForce's
   // gate order, the self-injected pass-through and the force's suppression.

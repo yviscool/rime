@@ -4,7 +4,7 @@
 
 源码证据：`lib/functions.h` 的 `Hotkey`、`Hotstring`、`InstallKeybdHook`、`InstallMouseHook`、`SetTimer`、`OnMessage`、`OnExit`、`OnError`、`OnClipboardChange`、`HotIf*`；`source/hotkey.cpp`（`Hotkey` 匹配与 `Hotstring::ParseOptions` ~2500-2620）、`source/hook.cpp`（Hook 线程与 `g_MaxHistoryKeys`）、`source/script2.cpp`（`OnMessage`/`OnExit` 装载）、`source/input_object.cpp`。实现：`engine/win32/js/src/events_module.cpp`（全部事件导出与调度）、`engine/win32/js/src/input_module.cpp`（`subscribe`/`bind`/`unbind`）、`engine/win32/src/input.cpp`（LL Hook、自注入标记、key history）、`engine/win32/src/context_watcher.cpp`（HotIf 窗口快照）、`engine/js/src/host.cpp`（error observer、exit handler、teardown、ABI busy 检查）。
 
-TS 面：`sdk/src/input.ts` 的 `InputBridge`（`EventSubscription`、`HotkeyEvent`、`MessageEvent`、`ClipboardChangeEvent`、`ErrorEvent`、`ExitEvent`、`HotIfDescriptor`、`RegistrationOptions`、`DispatchPolicy`、`createInputHook`/`suspend`/`policy` 扩展），以及 `InputHook` class + interface 合并（构造委托 `input.createInputHook`，`objects.json` 的 23 成员中除 `__New` 外全部由 interface 声明）。
+TS 面：`sdk/src/input/types.ts` 的 `InputBridge`（`EventSubscription`、`HotkeyEvent`、`MessageEvent`、`ClipboardChangeEvent`、`ErrorEvent`、`ExitEvent`、`HotIfDescriptor`、`RegistrationOptions`、`DispatchPolicy`、`createInputHook`/`suspend`/`policy` 扩展），以及 `InputHook` class + interface 合并（构造委托 `input.createInputHook`，`objects.json` 的 23 成员中除 `__New` 外全部由 interface 声明）。
 
 ## 派发模型（线程与所有权）
 

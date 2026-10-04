@@ -4,7 +4,7 @@
 
 源码证据：`functions.h` 的 `Send*`/`Mouse*`/`KeyWait`；`rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp`（SendKeys ~460-830、SendKey 1035-1265、MouseClickDrag 2035-2106、MouseClick 2116、MouseMove 2355、BlockInput 4512/4520）；`script2.cpp:1308`（MouseGetPos）、`script2.cpp:2264`（GetKeyState 模式首字符）、`script2.cpp:870`（KeyHistory）、`lib/wait.cpp:111`（KeyWait 默认等释放/physical）、`hook.cpp:263-266`（hook 吞噬 return 1 先例）、`hook.h:255`+`globaldata.cpp:97`（`KeyHistoryItem` 与 `g_MaxHistoryKeys=40`）；`source/window.cpp:1136`（GetNonChildParent）；`lib/win.cpp:762`（ControlGetClassNN）。
 
-TS 面：`keyboard`/`mouse` 两个门面（`sdk/src/input.ts`），编译器为纯函数 `compileSend`（`sdk/src/send.ts`）。经 Action 管道执行：`input.send`、`input.mouse` 共用一个 executor，提交单次 `SendInput` 批次，`dwExtraInfo` 写入进程私有标记，Hook 据此标记 `selfInjected`；chord 匹配跳过 `selfInjected` 防止注入回灌热键。
+TS 面：`keyboard`/`mouse` 两个门面（`sdk/src/input/`），编译器为纯函数 `compileSend`（`sdk/src/send/parse.ts`）。经 Action 管道执行：`input.send`、`input.mouse` 共用一个 executor，提交单次 `SendInput` 批次，`dwExtraInfo` 写入进程私有标记，Hook 据此标记 `selfInjected`；chord 匹配跳过 `selfInjected` 防止注入回灌热键。
 
 ## keyboard — Send 字符串语言
 
@@ -25,7 +25,7 @@ await keyboard.sendText("中文ABC");           // 每字符 KEYEVENTF_UNICODE
 - 修饰键生命周期：`{Ctrl down}` 写入 persistent 状态，后续发送以该状态为起点（lazy release：编译器只补发当前批次真正需要释放的前缀键；`up` 时从 persistent 清除）。
 - `{Blind}`：仅允许字符串开头；`{Raw}`：其后原样发送；`{Text}`：其后进入文本模式（见下）。`{}` 空项抛错；未配对 `{` 抛错；裸 `}` 按字面发送（与 AHK 一致）。
 - 换行：字符串中的 `\r\n` 展开为 Enter；单 `\n` 同样处理（AHK `SendRaw` 语义）。
-- 默认模式（`mode: "input"`）下字符先查静态 US 布局 VK 表（命中注入 VK，必要时补 Shift）；未命中字符编译为 `unicode` 步骤经 `KEYEVENTF_UNICODE` 注入——与 AHK `CharToVK` 失败后落 `SendKeySpecial` 同义（`keyboard_mouse.cpp:790` 的 `default: vk = 0` 分支），因此非 ASCII 在默认模式同样可用；本阶段固定 US 表、不随活动键盘布局变化（偏离清单见 `sdk/src/send.ts` 头注释）。
+- 默认模式（`mode: "input"`）下字符先查静态 US 布局 VK 表（命中注入 VK，必要时补 Shift）；未命中字符编译为 `unicode` 步骤经 `KEYEVENTF_UNICODE` 注入——与 AHK `CharToVK` 失败后落 `SendKeySpecial` 同义（`keyboard_mouse.cpp:790` 的 `default: vk = 0` 分支），因此非 ASCII 在默认模式同样可用；本阶段固定 US 表、不随活动键盘布局变化（偏离清单见 `sdk/src/send/index.ts` 头注释）。
 
 ### `{Text}` / `sendText` 的 Unicode 路径
 
@@ -110,7 +110,7 @@ input.keyHistory({ maxEvents: 40 });             // { capacity, count, events[] 
 - 自注入输入绕过 block（见上）；AHK hook 模式下自身发送的交互未逐条等价验证，此处以"本进程注入管线可用"为显式选择。
 - `keyHistory` 无 GUI 历史窗口（AHK 无参调用打开窗口）、无目标窗口列；`maxEvents` 上限 500 为本仓库扩展（AHK 无参数化容量）。
 - 四个面都是**读/控制路径而非 Action**：`getKeyState`/`keyHistory`/`blockInput` 同步、`keyWait` 轮询异步，均不经 `Context → Intent → Action IR → Action Kernel`（与 `windows.wait`、`mouseGetPos` 同构）；能力门禁、取消、超时、诊断仍齐备，只是不进 Action Trace。
-- TS 声明已随 M2-B 落地：`sdk/src/input.ts` 的 `InputBridge` 四方法与配套类型（`KeyStateMode`/`KeyWaitOptions`/`BlockInputOptions`/`KeyHistoryOptions`/`KeyHistoryRow`/`KeyHistoryReport`）。
+- TS 声明已随 M2-B 落地：`sdk/src/input/types.ts` 的 `InputBridge` 四方法与配套类型（`KeyStateMode`/`KeyWaitOptions`/`BlockInputOptions`/`KeyHistoryOptions`/`KeyHistoryRow`/`KeyHistoryReport`）。
 
 ## 捕获与调度控制 — createInputHook / suspend / policy（M2-D）
 
@@ -154,7 +154,7 @@ input.hotkey("f16", fn, { suspendExempt: true, inputLevel: 1, on: true }); // �
 - `{Text}` 外的非 ASCII 依赖 US 布局 VK 表，不可映射即抛错；不实现布局探测。
 - `SendLevel`、CapsLock 预翻转（`{CapsLock}` 按普通键处理）、SendEvent/SendPlay 的批间光标预测、标题栏点击补偿、`{Click}`/`{ASC}`/`{U+}`/鼠标键注入、相对移动 `R` 标志、X1/X2/滚轮点击：不实现。
 - 绝对坐标按主屏 `SM_CXSCREEN/SM_CYSCREEN` 归一化（AHK 同为主屏-only，不带 `MOUSEEVENTF_VIRTUALDESK`）。
-- M2-B 四件套（`KeyWait`/`GetKeyState`/`BlockInput`/`KeyHistory`）的逐条偏差见上文"键状态与输入控制"节；TS 声明已在 `sdk/src/input.ts` 的 `InputBridge` 落地（`getKeyState`/`keyWait`/`blockInput`/`keyHistory` 及配套类型）。
+- M2-B 四件套（`KeyWait`/`GetKeyState`/`BlockInput`/`KeyHistory`）的逐条偏差见上文"键状态与输入控制"节；TS 声明已在 `sdk/src/input/types.ts` 的 `InputBridge` 落地（`getKeyState`/`keyWait`/`blockInput`/`keyHistory` 及配套类型）。
 
 ## 测试与契约
 

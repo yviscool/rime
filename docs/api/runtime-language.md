@@ -80,7 +80,7 @@
 | `SetDefaultMouseSpeed` | COV | `mouse.move(x, y, { speed })` 按调用传参 | AHK 是进程级默认（vars.cpp:68-75），我们的设计禁隐式全局（stdlib.md §2，speed 本就是每调用参数）；speed 与 AHK SendInput 一样注入时忽略（keyboard_mouse.cpp:2476-2478 ↔ input.ts:84-91），默认值 2 恒等 | `lib/vars.cpp:68` |
 | `SetKeyDelay` | COV | 无代码：`keyboard.send` 恒为一个 SendInput 批（input.ts:682） | AHK DoKeyDelay 在非 SendEvent 模式直接返回（keyboard_mouse.cpp:2865-2878），本设置对 SendInput 本就是 no-op；差异：Rime 尚无 SendEvent 执行器，若未来实现需回到调度策略统一设计（计划 §M3） | `lib/keyboard_mouse.cpp:2865` |
 | `SetMouseDelay` | COV | 同 `SetKeyDelay` | DoMouseDelay 同样只在 SendEvent 模式 sleep（keyboard_mouse.cpp:2882-2896） | `lib/keyboard_mouse.cpp:2882` |
-| `SetStoreCapsLockMode` | COV | 无代码：Rime 固定“从不预切换 CapsLock”偏差已入档（send.ts:36） | AHK 默认 store-on：Send 前压低 CapsLock、结束后恢复（keyboard_mouse.cpp:413-416, 985-986）；Rime 从不切换，store-on/off 两模式下可观测行为一致，恢复分支必然真空 | `sdk/src/send.ts:36` |
+| `SetStoreCapsLockMode` | COV | 无代码：Rime 固定“从不预切换 CapsLock”偏差已入档（send.ts:36） | AHK 默认 store-on：Send 前压低 CapsLock、结束后恢复（keyboard_mouse.cpp:413-416, 985-986）；Rime 从不切换，store-on/off 两模式下可观测行为一致，恢复分支必然真空 | `sdk/src/send/index.ts:1` |
 | `SetWinDelay` | COV | 无代码（删除调用）：窗口操作已是 deadline + UI 往返（window_executor.cpp:215-219 逐段重算预算），不是“发完睡 N 毫秒” | 同 SetControlDelay；依赖窗口消息节奏的脚本改显式 `runtime.delay`；AHK 每次 Win 调用后的隐式 sleep 无对应物（`engine/win32/src/window.cpp` 零 `Sleep`） | `lib/functions.h:270` |
 | `Sin` | CB | `Math.sin(v)` | 同 Cos | `lib/math.cpp:215` |
 | `Sqrt` | CB | `Math.sqrt(v)` | v<0 AHK 抛参数错（math.cpp:292-294），JS 得 NaN；非数值 AHK 按 0 得 0，JS 得 NaN | `lib/math.cpp:288` |
@@ -115,18 +115,18 @@
 | `ComObjQuery` | CB | `@rime/native-interop` | M8 | 同 ComObjActive：QI 结果仍是隔离面对象，不能返回裸指针 | `script_com.cpp:523` |
 | `ComObjType` | CB | `@rime/native-interop` | M8 | 同 ComObjActive：可改为对隔离面包装对象的只读查询，等 M8 COM 边界定档 | `script_com.cpp:383` |
 | `ComObjValue` | CB | `@rime/native-interop` | M8 | 同 ComObjActive：VARIANT 解包涉及类型归一化，属隔离面能力 | `script_com.cpp:374` |
-| `CoordMode` | COV | `@rime/input` | M3（计划 line 97 显式 API） | 坐标空间必须是 mouse/screen 调用的参数而非进程全局态（stdlib.md §2 设置原则），当前 input/automation 尚无 coords 参数（sdk/src/input.ts 无该选项） | `lib/functions.h:52` |
+| `CoordMode` | COV | `@rime/input` | M3（计划 line 97 显式 API） | 坐标空间必须是 mouse/screen 调用的参数而非进程全局态（stdlib.md §2 设置原则），当前 input/automation 尚无 coords 参数（sdk/src/input/ 无该选项） | `lib/functions.h:52` |
 | `Exit` | COV | `rime:runtime` | M3（HostLifecycle） | 退出必须由宿主执行：engine/js/src/host.cpp:211-220 只有 ping/delay/取消/inspect 桥，无 JS exit 面；不能在模块内自起脚本泵（AGENTS 线程与生命周期规则） | `script.cpp:1220` |
 | `ExitApp` | COV | `rime:runtime` | M3（HostLifecycle） | 同 Exit（script.cpp:1240 → Script::ExitApp），需 OnExit 订阅可排空并诊断 | `script.cpp:1240` |
 | `FileOpen` | CB | `@rime/fs` | M4（fs service + File 对象 31 成员） | 返回有所有权的 File 对象（编码、缓冲、GC/显式/shutdown 三路径），不是纯函数；台账原值 @rime/storage 按 stdlib.md §1 L2 命名改为 @rime/fs | `TextIO.cpp:1038` |
-| `GetKeyName` | COV | `@rime/input` | M3（计划 line 97 输入映射） | 键名↔SC/VK 反查依赖当前键盘布局与扩展键标志（script2.cpp:2312-2317），非纯 L0 映射；sdk/src/send.ts 的键表（:141-362）尚未导出为公共 API | `script2.cpp:2312` |
+| `GetKeyName` | COV | `@rime/input` | M3（计划 line 97 输入映射） | 键名↔SC/VK 反查依赖当前键盘布局与扩展键标志（script2.cpp:2312-2317），非纯 L0 映射；sdk/src/send/tables.ts尚未导出为公共 API | `script2.cpp:2312` |
 | `GetKeySC` | COV | `@rime/input` | M3 | 同 GetKeyName（scan code 随布局变化，script2.cpp:2303-2311） | `script2.cpp:2303` |
 | `GetKeyVK` | COV | `@rime/input` | M3 | 同 GetKeyName（script2.cpp:2294-2302） | `script2.cpp:2294` |
 | `IsLabel` | COV | `rime:runtime` | M3 后（宿主可检查面） | 脚本内没有 label 概念（计划 §0.1：不实现 AHK 脚本语言），但“命名 handler 是否存在”属宿主可检查接口，应由 inspect/CLI 读出；无现成注册表 | `lib/functions.h:160` |
 | `ListHotkeys` | COV | `@rime/input` | M3 | 需读出已注册 hotkey 与当前 suspend/policy 快照（input.ts:534-595 已有 setTimer/suspend/policy，但无列表读出面） | `script2.cpp:863` |
 | `ListLines` | COV | `rime:runtime` | M3（诊断/Trace） | AHK 的脚本行日志对应我们的 Action Trace 与 runtime.inspect()（sdk/src/index.ts:34），尚无脚本可读的日志面（engine 无 console） | `script2.cpp:828` |
 | `OutputDebug` | COV | `rime:runtime` | M3（计划 line 97） | engine/hosts 无 JS console，也没有 OutputDebugString 出面（Win32 侧只在 error.cpp 内部使用）；诊断必须走宿主可检查接口，不能是散落全局函数（stdlib.md §5.5） | `script2.cpp:2630` |
-| `Pause` | COV | `rime:runtime` | M3（HostLifecycle） | input.suspend()（sdk/src/input.ts:588）只覆盖 hotkey 分发，Pause 还要停 timer/线程派发——需 lifecycle 级挂起状态与 Trace | `script.cpp:12468` |
+| `Pause` | COV | `rime:runtime` | M3（HostLifecycle） | input.suspend()（sdk/src/input/types.ts:533）只覆盖 hotkey 分发，Pause 还要停 timer/线程派发——需 lifecycle 级挂起状态与 Trace | `script.cpp:12468` |
 | `Persistent` | COV | `rime:runtime` | M3（HostLifecycle） | 驻留与否是宿主生命周期策略（脚本空闲后的退出条件），非脚本可变全局态 | `lib/functions.h:219` |
 | `PostMessage` | COV | `@rime/window` | M7（Win32 消息层） | 跨进程消息注入需 HWND 稳定 ID 封装与 capability 门禁；input.md:3 记 SendMessage 未实现，window 域无 postMessage 面 | `lib/functions.h:225` |
 | `RegCreateKey` | CB | `@rime/registry` | M4（registry service） | 注册表写入是跨进程系统状态，需 capability 门禁与 Action Trace，非 L0/L4 可覆盖；台账原值 @rime/storage 按 stdlib.md §1 改为 @rime/registry | `script_registry.cpp:632` |
@@ -151,7 +151,7 @@
 
 #### 2.2.2 L4 还原保留（10，已实现）
 
-**状态：10 项已全部实现**——落点 `sdk/src/runtime-language.ts`（`round`/`format`/`formatTime`/`sortLines`/`splitPath`/`compareVersions`/`addTime`/`diffTime`/`regexMatch`/`regexReplace`，命名提案见计划 §M3），对照语义测试 `tests/sdk/runtime-language.test.ts`（41 例，逐条附 AHK `file:line` 引证），台账已流转 `implemented`、`contractTest` 指向该测试。
+**状态：10 项已全部实现**——落点 `sdk/src/runtime-language/`（`round`/`format`/`formatTime`/`sortLines`/`splitPath`/`compareVersions`/`addTime`/`diffTime`/`regexMatch`/`regexReplace`，命名提案见计划 §M3），对照语义测试 `tests/sdk/runtime-language.test.ts`（41 例，逐条附 AHK `file:line` 引证），台账已流转 `implemented`、`contractTest` 指向该测试。
 
 计划 §0.1 禁止 AHK 名称兼容层，stdlib.md §6 把“JS 覆盖不了的语义能力”定义为 L4 还原保留层。原 18 项候选经本轮严格复判：8 项改判 §2.1 `js-native`（等价式可覆盖），其余 10 项保留——“还原保留理由”列逐项写明**单表达式在何处失效**（JSON `note` 以 `还原保留：` 前缀）。实现以自有命名与参数形状落地，AHK 只作语义测试 oracle。
 
@@ -173,8 +173,8 @@
 
 | AHK 函数 | 台账 | 服务表面（模块） | 改名/语义注记 | contract test |
 |---|---|---|---|---|
-| `Click` | CB | `@rime/input` | 服务表面 mouse.click(options)（sdk/src/input.ts:760，down/up 对与 count 校验）；AHK Click 的复合字符串语法（如 "x100 y200 Left"）由移植层解析——按 core-builtins.md:18 与 MouseClick 合并审计 | `tests/sdk/send.test.ts,tests/js/input_slice.cpp` |
-| `GetKeyState` | COV | `@rime/input` | 服务表面 input.getKeyState(keyName, mode?)（sdk/src/input.ts:419，同步读、capability windows.input.read）；AHK 返回数值/双态，TS 返回 boolean，mode 仅保留 "P" 物理态差异 | `tests/native/input_tests.cpp,tests/js/input_slice.cpp` |
+| `Click` | CB | `@rime/input` | 服务表面 mouse.click(options)（sdk/src/input/mouse.ts:79，down/up 对与 count 校验）；AHK Click 的复合字符串语法（如 "x100 y200 Left"）由移植层解析——按 core-builtins.md:18 与 MouseClick 合并审计 | `tests/sdk/send.test.ts,tests/js/input_slice.cpp` |
+| `GetKeyState` | COV | `@rime/input` | 服务表面 input.getKeyState(keyName, mode?)（sdk/src/input/types.ts:309，同步读、capability windows.input.read）；AHK 返回数值/双态，TS 返回 boolean，mode 仅保留 "P" 物理态差异 | `tests/native/input_tests.cpp,tests/js/input_slice.cpp` |
 | `Sleep` | COV | `rime:runtime` | 服务表面 runtime.delay(ms, value?, cancellationId?)（sdk/src/index.ts:22，异步可取消；engine/js/src/host.cpp 的 delay 桥）；AHK Sleep 同步阻塞脚本线程，TS 必须 await——按 stdlib.md §4 禁止阻塞 JS 线程，保留改名注记 | `tests/js/runtime_smoke.cpp` |
 | `WinActive` | CB | `@rime/window` | 服务表面 window.isActive(query)（sdk/src/window.ts:675，前台窗口探针）；AHK 返回 HWND 数值，TS 返回 boolean——改名 isActive 并用 WindowQuery 替代 WinTitle 字符串 | `tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp` |
 | `WinExist` | CB | `@rime/window` | 服务表面 window.exists(query)（sdk/src/window.ts:665，枚举到首个匹配即停）；同 WinActive 的 HWND→boolean 与 WinTitle→WindowQuery 改名 | `tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp` |
@@ -214,7 +214,7 @@
 - **§6 点名但经表达式判定改判 `js-native` 的 5 项**：`Mod`（`a % b`，整型 C % 与浮点 qmathFmod 同为余数取被除数符号，差异只在除零/非数值错误路径）、`SubStr`（`slice` + 两处钳制覆盖 1-based、负 start、负 length、空起始与越界，已对照 string.cpp:1211-1247 核验）、`InStr`（`toLowerCase` + `indexOf` + 1 对齐 1-based 与默认 CaseSense=Off，Occurrence/负起点 RTL 记为低频参数差异）、`StrSplit`（`split` + 空输入/空分隔符三元，OmitChars/MaxParts 记为差异）、`Random`（闭区间 `floor` 式，模偏差、CSPRNG 源与 2^53 范围记为差异）。**建议 §6 的示例清单同步措辞**（其“等”字已可涵盖，或直接改为“示例见 runtime-language.md §3”）。
 - **§6 以“等”字兜底但同样改判 `js-native` 的 3 项**：`StrReplace`（转义式 + `/gi/` + 函数替换体覆盖默认大小写不敏感、字面替换与空搜索，Limit/计数记为差异）、`StrTitle`（整体小写 + 非空白段首字母提升，逐条对应 util.h:97-119）、`Type`（`typeof` + `Number.isInteger` + 构造器名三段映射，整数值 Float 的 token 类型在 L0 已丢失，专属函数同样无法恢复）。
 - **明确不进 L4 的（判 `js-native`）**：`Trim`/`LTrim`/`RTrim`、`Abs`、`StrLen`、`Is*` 11 项（`IsAlnum` 至 `IsXDigit`）、`StrLower`/`StrUpper`/`StrCompare`、`Chr`/`Ord` —— 与 §6“JS 已覆盖的不写代码”一致；`Trim` 类的默认 cutset 差异在 §2.1 差异列显式记录。
-- **落点与形状**：`sdk/src/runtime-language.ts`，实现为纯函数、不反向依赖 L2（stdlib.md §6）；命名以 future-runtime.md 定义优先，无定义者实现阶段先出命名提案再落码；不新造 AHK 约定包装。10 项 `contractTest` 均为 `missing`，实现时补对照原版的语义用例；8 项改判行的 `contractTest` 指向本页（映射与差异记录替代测试 ID，stdlib.md §3）。
+- **落点与形状**：`sdk/src/runtime-language/`，实现为纯函数、不反向依赖 L2（stdlib.md §6）；命名以 future-runtime.md 定义优先，无定义者实现阶段先出命名提案再落码；不新造 AHK 约定包装。10 项 `contractTest` 均为 `missing`，实现时补对照原版的语义用例；8 项改判行的 `contractTest` 指向本页（映射与差异记录替代测试 ID，stdlib.md §3）。
 
 ## 4. PCRE → JS 政策
 
@@ -224,7 +224,7 @@
 
 ## 5. 分批与计划对齐注记
 
-- **M3（纯 JS 快铺）**：67 项 `js-native`（等价式与差异入档，零专属代码）排在 M3；10 项 L4 还原保留**已实现**（`sdk/src/runtime-language.ts` + `tests/sdk/runtime-language.test.ts`，命名提案见计划 §M3，残留清单见本页 §3 报告注记）；`contract-only` 中的 `Reload`（计划 §M3 第三条）仍属 M3 的显式 API/HostLifecycle 映射待实现（批 4 已分流：`Persistent` 实现为 `runtime.persistent` + 驻留泵、`SetControlDelay`/`SetWinDelay`/`IsLabel` 改判 §2.1 `js-native`、`CoordMode` 与 `Exit`/`ExitApp` 实现、`Pause` 判 §2.4；`SetKeyDelay`/`SetMouseDelay`/`ListVars` 等 5 项 M3 盘点早已改判 §2.1，`OutputDebug`/`SetWorkingDir` 已由批 2 绑定实现）；`GetKeyVK`/`GetKeyName`/`ListHotkeys`/`Set*LockState` 归 `@rime/input` 的 M3 输入映射（批 2/3 已全部实现）。
+- **M3（纯 JS 快铺）**：67 项 `js-native`（等价式与差异入档，零专属代码）排在 M3；10 项 L4 还原保留**已实现**（`sdk/src/runtime-language/` + `tests/sdk/runtime-language.test.ts`，命名提案见计划 §M3，残留清单见本页 §3 报告注记）；`contract-only` 中的 `Reload`（计划 §M3 第三条）仍属 M3 的显式 API/HostLifecycle 映射待实现（批 4 已分流：`Persistent` 实现为 `runtime.persistent` + 驻留泵、`SetControlDelay`/`SetWinDelay`/`IsLabel` 改判 §2.1 `js-native`、`CoordMode` 与 `Exit`/`ExitApp` 实现、`Pause` 判 §2.4；`SetKeyDelay`/`SetMouseDelay`/`ListVars` 等 5 项 M3 盘点早已改判 §2.1，`OutputDebug`/`SetWorkingDir` 已由批 2 绑定实现）；`GetKeyVK`/`GetKeyName`/`ListHotkeys`/`Set*LockState` 归 `@rime/input` 的 M3 输入映射（批 2/3 已全部实现）。
 - **M4**：`FileOpen`（fs service + `File` 对象）、`Reg*` 5 项 + `SetRegView`（registry service，计划 line 105 点名）。
 - **M5**：`Sound*` 5 项（winmm，计划 line 112）。
 - **M7**：`PostMessage`（Control 三层执行的 Win32 消息层）。

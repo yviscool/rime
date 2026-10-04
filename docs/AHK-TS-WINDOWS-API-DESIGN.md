@@ -233,7 +233,7 @@ contract-only / unsupported-by-policy`。窗口、控件、输入、进程、剪
   （`controls.find/getText/click/focus/send`、`ControlRef`/`ControlQuery`——当前
   `controls()` 只承载 WinGetControls/WinGetControlsHwnd 读族）与 `ControlSnapshot.id`
   形态（设计 `string` ↔ 实现复用 `WindowId` brand）。
-- **仍为已知偏差**：`sdk/src/input.ts` 的事件订阅返回裸 number 并使用同步回调，尚未提供
+- **仍为已知偏差**：`sdk/src/input/` 的事件订阅返回裸 number 并使用同步回调，尚未提供
   Subscription 对象。
 
 该偏差清单在实现每个垂直切片时复查；示例引用未实现项时必须先按设计稿标注状态，声明、

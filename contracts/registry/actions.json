@@ -289,7 +289,7 @@
       "validation": "engine/win32/src/input_executor.cpp:41-77",
       "executor": "engine/win32/src/input_executor.cpp:189",
       "module": "engine/win32/js/src/input_module.cpp:718",
-      "sdk": "sdk/src/input.ts:334",
+      "sdk": "sdk/src/send/parse.ts:697",
       "tests": ["tests/js/input_slice.cpp", "tests/sdk/send.test.ts"],
       "status": "implemented"
     },
@@ -301,7 +301,7 @@
       "validation": "engine/win32/src/input_executor.cpp:101-174",
       "executor": "engine/win32/src/input_executor.cpp:189",
       "module": "engine/win32/js/src/input_module.cpp:805",
-      "sdk": "sdk/src/input.ts:376",
+      "sdk": "sdk/src/input/mouse.ts:41",
       "tests": ["tests/native/input_tests.cpp", "tests/js/input_slice.cpp"],
       "status": "implemented"
     },
