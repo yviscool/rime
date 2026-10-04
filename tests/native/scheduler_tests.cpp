@@ -1,5 +1,6 @@
 #include "rime/action/dispatcher.hpp"
 #include "rime/action/kernel.hpp"
+#include "rime/core/clock.hpp"
 #include "rime/core/event_queue.hpp"
 #include "rime/core/lane.hpp"
 #include "rime/core/runtime.hpp"
@@ -23,6 +24,7 @@ using rime::core::Delivery;
 using rime::core::Event;
 using rime::core::EventKind;
 using rime::core::EventQueue;
+using rime::core::ManualClock;
 using rime::core::OverflowPolicy;
 using rime::core::QueueStatus;
 using rime::core::SchedulerPolicy;
@@ -94,6 +96,19 @@ int main() {
     assert(dedupe_queue.push({2, EventKind::Input, "n", "b", "key"}) == QueueStatus::Deduped);
     assert(dedupe_queue.push({3, EventKind::Input, "n", "b", "other"}) == QueueStatus::Accepted);
     assert(dedupe_queue.size() == 2);
+  }
+  {
+    ManualClock clock;
+    EventQueue manual_dedupe(SchedulerPolicy::coalescing(4, 100), &clock);
+    assert(manual_dedupe.push({1, EventKind::Input, "n", "a", "key"}) ==
+           QueueStatus::Accepted);
+    assert(manual_dedupe.try_pop().has_value());
+    assert(manual_dedupe.push({2, EventKind::Input, "n", "b", "key"}) == QueueStatus::Deduped);
+    clock.advance(std::chrono::milliseconds(99));
+    assert(manual_dedupe.push({3, EventKind::Input, "n", "c", "key"}) == QueueStatus::Deduped);
+    clock.advance(std::chrono::milliseconds(2));
+    assert(manual_dedupe.push({4, EventKind::Input, "n", "d", "key"}) == QueueStatus::Accepted);
+    assert(manual_dedupe.size() == 1);
   }
 
   // --- M2-D dispatch decisions ------------------------------------------

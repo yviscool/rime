@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rime/action/action.hpp"
+#include "rime/core/clock.hpp"
 #include "rime/core/trace.hpp"
 
 #include <memory>
@@ -31,7 +32,8 @@ class StaticCapabilityPolicy final : public CapabilityPolicy {
 class Kernel final {
  public:
   explicit Kernel(std::shared_ptr<const CapabilityPolicy> policy,
-                  std::shared_ptr<rime::core::TraceSink> trace = {});
+                  std::shared_ptr<rime::core::TraceSink> trace = {},
+                  const rime::core::Clock* clock = nullptr);
 
   rime::core::Error register_executor(std::string action_type,
                                        std::shared_ptr<Executor> executor);
@@ -52,6 +54,7 @@ class Kernel final {
 
   std::shared_ptr<const CapabilityPolicy> policy_;
   std::shared_ptr<rime::core::TraceSink> trace_;
+  const rime::core::Clock* clock_;
   std::mutex mutex_;
   std::unordered_map<std::string, std::shared_ptr<Executor>> executors_;
 };

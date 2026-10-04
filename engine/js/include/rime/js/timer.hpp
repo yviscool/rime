@@ -1,5 +1,7 @@
 #pragma once
 
+#include "rime/core/clock.hpp"
+
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -17,7 +19,7 @@ class TimerService final {
  public:
   using Callback = std::function<void()>;
 
-  TimerService();
+  explicit TimerService(const rime::core::Clock* clock = nullptr);
   ~TimerService();
 
   TimerService(const TimerService&) = delete;
@@ -49,6 +51,7 @@ class TimerService final {
   std::vector<Entry> entries_;
   std::uint64_t next_sequence_{1};
   bool stopping_{false};
+  const rime::core::Clock* clock_;
   std::thread thread_;
 };
 

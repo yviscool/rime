@@ -9,19 +9,14 @@ namespace rime::action {
 namespace {
 
 // Wall-clock semantics: deadlines are absolute Unix-epoch milliseconds and
-// are read from system_clock (not steady_clock) so they stay comparable
-// with the Action contract's deadlineUnixMs across processes.
-std::int64_t now_unix_ms() {
-  return std::chrono::duration_cast<std::chrono::milliseconds>(
-             std::chrono::system_clock::now().time_since_epoch())
-      .count();
-}
-
+// are read from the clock's wall domain (SystemClock by default, not
+// steady_clock) so they stay comparable with the Action contract's
+// deadlineUnixMs across processes.
 // Expired means deadline <= now: an action whose deadline equals the current
 // time is already out of budget (no test pins the ==now boundary; kernel
 // and executors share this <=now rule).
-bool deadline_expired(const Action& action) {
-  return static_cast<std::int64_t>(action.deadline_unix_ms) <= now_unix_ms();
+bool deadline_expired(const Action& action, const rime::core::Clock& clock) {
+  return static_cast<std::int64_t>(action.deadline_unix_ms) <= clock.unix_ms();
 }
 
 // Migration hint for the pre-alignment capability namespace (commit
@@ -45,8 +40,10 @@ std::string denied_message(const std::string& capability) {
 }  // namespace
 
 Kernel::Kernel(std::shared_ptr<const CapabilityPolicy> policy,
-               std::shared_ptr<rime::core::TraceSink> trace)
-    : policy_(std::move(policy)), trace_(std::move(trace)) {}
+               std::shared_ptr<rime::core::TraceSink> trace, const rime::core::Clock* clock)
+    : policy_(std::move(policy)),
+      trace_(std::move(trace)),
+      clock_(clock ? clock : &rime::core::SystemClock::instance()) {}
 
 rime::core::Error Kernel::register_executor(std::string action_type,
                                             std::shared_ptr<Executor> executor) {
@@ -91,7 +88,7 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
   }
   // Deadline is absolute and enforced at dispatch: an expired action never
   // reaches an executor and reports Timeout (not ExecutionFailed).
-  if (deadline_expired(action)) {
+  if (deadline_expired(action, *clock_)) {
     return fail(action, Code::Timeout, "action deadline exceeded");
   }
   if (!policy_ || !policy_->allows(action.capability)) {
@@ -111,7 +108,7 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
   record(action, rime::core::TraceKind::ActionStarted, "execution started");
   Result result;
   std::uint64_t duration_ms = 0;
-  const auto executor_started = std::chrono::steady_clock::now();
+  const auto executor_started = clock_->now();
   try {
     result = executor->execute(action, cancellation);
   } catch (const std::exception& exception) {
@@ -122,8 +119,7 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
               {Code::ExecutionFailed, "executor threw an unknown exception"}};
   }
   duration_ms = static_cast<std::uint64_t>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
-                                                            executor_started)
+      std::chrono::duration_cast<std::chrono::milliseconds>(clock_->now() - executor_started)
           .count());
 
   result.id = action.id;
@@ -137,7 +133,7 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
                     "action cancelled during execution (after commit; side effects may have "
                     "occurred)"};
     result.detail = result.error.message;
-  } else if (result.succeeded && deadline_expired(action)) {
+  } else if (result.succeeded && deadline_expired(action, *clock_)) {
     // Post-commit deadline recheck: the executor already ran, so a success
     // that overran the deadline is rewritten to Timeout. The side effects
     // cannot be undone, hence the note below.

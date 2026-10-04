@@ -6,17 +6,20 @@
 namespace rime::core {
 namespace {
 
-std::uint64_t now_ms() {
-  return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                        std::chrono::steady_clock::now().time_since_epoch())
-                                        .count());
+std::uint64_t now_ms(const Clock& clock) {
+  return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(clock.now().time_since_epoch())
+          .count());
 }
 
 }  // namespace
 
-EventQueue::EventQueue(const std::size_t capacity) : policy_(SchedulerPolicy::bounded(capacity)) {}
+EventQueue::EventQueue(const std::size_t capacity, const Clock* clock)
+    : policy_(SchedulerPolicy::bounded(capacity)),
+      clock_(clock ? clock : &SystemClock::instance()) {}
 
-EventQueue::EventQueue(SchedulerPolicy policy) : policy_(policy) {}
+EventQueue::EventQueue(SchedulerPolicy policy, const Clock* clock)
+    : policy_(policy), clock_(clock ? clock : &SystemClock::instance()) {}
 
 QueueStatus EventQueue::push(Event event) {
   std::lock_guard lock(mutex_);
@@ -24,7 +27,7 @@ QueueStatus EventQueue::push(Event event) {
   if (policy_.capacity == 0) return QueueStatus::Full;
 
   const bool has_key = !event.key.empty();
-  const std::uint64_t now = now_ms();
+  const std::uint64_t now = now_ms(*clock_);
   if (policy_.dedupe_window_ms > 0 && has_key) {
     const auto found = last_accepted_ms_.find(event.key);
     if (found != last_accepted_ms_.end() && now - found->second < policy_.dedupe_window_ms) {

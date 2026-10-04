@@ -4,7 +4,16 @@
 
 namespace rime::js {
 
-TimerService::TimerService() : thread_(&TimerService::run, this) {}
+TimerService::TimerService(const rime::core::Clock* clock)
+    : clock_(clock ? clock : &rime::core::SystemClock::instance()),
+      thread_(&TimerService::run, this) {
+  if (clock_->manual()) {
+    clock_->on_advance([this] {
+      std::lock_guard lock(mutex_);
+      condition_.notify_all();
+    });
+  }
+}
 
 TimerService::~TimerService() { stop(); }
 
@@ -14,7 +23,7 @@ std::uint64_t TimerService::schedule(std::chrono::milliseconds delay, Callback c
     std::lock_guard lock(mutex_);
     if (stopping_) return 0;
     id = next_sequence_++;
-    const auto deadline = std::chrono::steady_clock::now() + delay;
+    const auto deadline = clock_->now() + delay;
     entries_.push_back({deadline, id, std::move(callback)});
     // TODO(perf): full re-sort on every schedule is O(N log N); kept to avoid
     // changing the container/headers. Revisit with a heap if timers grow.
@@ -70,9 +79,16 @@ void TimerService::run() {
       condition_.wait(lock, [this] { return stopping_ || !entries_.empty(); });
       continue;
     }
-    const auto now = std::chrono::steady_clock::now();
+    const auto now = clock_->now();
     if (entries_.front().deadline > now) {
-      condition_.wait_until(lock, entries_.front().deadline);
+      if (clock_->manual()) {
+        condition_.wait(lock, [this] {
+          return stopping_ || entries_.empty() ||
+                 clock_->now() >= entries_.front().deadline;
+        });
+      } else {
+        condition_.wait_until(lock, entries_.front().deadline);
+      }
       continue;
     }
     Callback callback = std::move(entries_.front().callback);

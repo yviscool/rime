@@ -76,6 +76,7 @@ tools/    Bun 构建、测试、诊断和开发工具
 - 卸载测试必须证明 Hook、窗口过程、COM 引用、订阅和 JS 回调全部退出，并覆盖“仍有外部引用/Hook 未卸载”的失败路径。
 - Host ABI 的 load/execute/error/exit/unload 以及脚本检查接口有版本化 contract 测试。
 - Native 代码使用 ASan/WinDbg 验证句柄、内存和线程问题。
+- 时间窗、deadline 与 timer 调度的原生单测注入 `ManualClock` 推进判定，不以 `sleep` 等待真实时间流逝；真时钟只留给必须真实投递的切片级测试。`ManualClock` 必须比注册了监听器的组件活得久。
 - 公开 API 变化必须同步更新 TypeScript 声明和示例。
 
 ## 修改原则

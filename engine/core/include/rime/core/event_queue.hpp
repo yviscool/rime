@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rime/core/clock.hpp"
 #include "rime/core/event.hpp"
 #include "rime/core/scheduler_policy.hpp"
 
@@ -26,8 +27,8 @@ enum class QueueStatus : std::uint8_t {
 
 class EventQueue {
  public:
-  explicit EventQueue(std::size_t capacity);
-  explicit EventQueue(SchedulerPolicy policy);
+  explicit EventQueue(std::size_t capacity, const Clock* clock = nullptr);
+  explicit EventQueue(SchedulerPolicy policy, const Clock* clock = nullptr);
 
   [[nodiscard]] QueueStatus push(Event event);
   [[nodiscard]] std::optional<Event> wait_pop();
@@ -41,6 +42,7 @@ class EventQueue {
 
  private:
   SchedulerPolicy policy_;
+  const Clock* clock_;
   mutable std::mutex mutex_;
   std::condition_variable condition_;
   std::deque<Event> events_;

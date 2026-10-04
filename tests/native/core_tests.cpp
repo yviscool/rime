@@ -1,6 +1,7 @@
 #include "rime/core/runtime.hpp"
 #include "rime/action/kernel.hpp"
 #include "rime/action/dispatcher.hpp"
+#include "rime/core/clock.hpp"
 #include "rime/desktop/host.hpp"
 
 #include <cassert>
@@ -210,6 +211,22 @@ int main() {
   assert(result_code_for(44) == "unsupported");
   assert(result_code_for(45) == "timeout");
   assert(result_code_for(46) == "unsupported");
+
+  {
+    rime::core::ManualClock clock;
+    rime::action::Kernel manual_kernel(policy, trace, &clock);
+    assert(manual_kernel.register_executor("window.move", std::make_shared<EchoExecutor>()).ok());
+    const std::uint64_t deadline = static_cast<std::uint64_t>(clock.unix_ms() + 100);
+    const auto within_budget = manual_kernel.execute(
+        {47, 1, {"user", "local"}, "window.move", "windows.window.write", {"window", "active"}, {},
+         deadline, 0, "{}", ""});
+    assert(within_budget.succeeded);
+    clock.advance(std::chrono::milliseconds(100));
+    const auto over_budget = manual_kernel.execute(
+        {48, 1, {"user", "local"}, "window.move", "windows.window.write", {"window", "active"}, {},
+         deadline, 0, "{}", ""});
+    assert(over_budget.error.code == rime::core::Error::Code::Timeout);
+  }
 
   rime::core::Runtime host_runtime(2);
   rime::desktop::DesktopHost desktop_host(host_runtime);
