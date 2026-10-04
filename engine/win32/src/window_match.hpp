@@ -1,0 +1,136 @@
+#pragma once
+
+#include "rime/win32/window.hpp"
+
+#include <windows.h>
+
+#include <atomic>
+#include <cstdint>
+#include <optional>
+#include <regex>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace rime::win32::detail {
+
+std::wstring window_text(HWND window);
+
+// Image identity behind `pid`: one OpenProcess + QueryFullProcessImageNameW
+// yields both the full path (WinGetProcessPath) and the final path segment
+// (processName / ahk_exe matching). Both parts are empty when the process
+// cannot be opened (protected/system processes stay readable as windows).
+struct ProcessImage {
+  std::wstring path;     // full image path, empty when unreadable
+  std::wstring basename;  // final path segment (extension kept)
+};
+
+// Per-enumeration pid -> image cache. A single query() enum touches every
+// top-level window; without this each window pays OpenProcess plus a 64KB path
+// buffer even when dozens share one pid. The snapshot reads processName and
+// processPath per window, so the cache only dedupes repeated pids; callers
+// without a shared cache (single-window probes and reads) pass nullptr and go
+// straight to process_image.
+using PidImageCache = std::unordered_map<std::uint32_t, ProcessImage>;
+
+// Process-wide generation handed out once per registry, so ids issued by one
+// WindowService can never resolve inside a newer one: an id is
+// [generation:32][sequence:32], generation only grows, and lookups reject
+// foreign generations before scanning. That turns a stale id held across a
+// service restart into target_gone instead of a different window with the
+// same sequence number.
+inline std::atomic<std::uint32_t> next_window_generation{1};
+
+// UI-thread-only mapping from stable ids to live HWNDs. Stale entries are
+// dropped on lookup; ids are never recycled inside one service (the
+// sequence is masked to its 32 bits, which cannot wrap in a service's
+// lifetime).
+class WindowRegistry final {
+ public:
+  std::uint64_t id_for(HWND window) {
+    prune();
+    for (const auto& [id, hwnd] : entries_) {
+      if (hwnd == window) return id;
+    }
+    const std::uint64_t id = (static_cast<std::uint64_t>(generation_) << 32) |
+                             (++next_id_ & 0xFFFFFFFFull);
+    entries_.emplace_back(id, window);
+    return id;
+  }
+
+  HWND hwnd_for(const std::uint64_t id) {
+    if (static_cast<std::uint32_t>(id >> 32) != generation_) return nullptr;
+    prune();
+    for (const auto& [entry_id, hwnd] : entries_) {
+      if (entry_id == id) return hwnd;
+    }
+    return nullptr;
+  }
+
+ private:
+  void prune() {
+    for (auto it = entries_.begin(); it != entries_.end();) {
+      if (!IsWindow(it->second)) {
+        it = entries_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
+  std::vector<std::pair<std::uint64_t, HWND>> entries_;
+  const std::uint32_t generation_{next_window_generation.fetch_add(1)};
+  std::uint64_t next_id_{0};
+};
+
+rime::core::Error build_info(WindowRegistry& registry, HWND window, WindowInfo& out);
+
+// Compiles one AHK-style regex pattern: an optional run of option letters
+// followed by ')' (AHK's `i)`/`m)`/`s)` prefix) selects case/line/dot
+// semantics, everything else is the pattern body. AHK's regex default is
+// case-sensitive, which std::wregex already gives us. Only `i)` maps onto a
+// std::wregex flag (icase); `m)` and `s)` would need multiline/dotall, which
+// MSVC's std::regex does not provide, so they fail loudly (Unsupported)
+// instead of silently changing match semantics. An unknown option letter or
+// an invalid pattern fails with a typed error, never silently ignored.
+rime::core::Error compile_window_regex(const std::string& utf8,
+                                       std::optional<std::wregex>& out);
+
+// A query with the global defaults resolved and any regex compiled once for
+// the whole request (never per window). Built on the caller thread before
+// the UI hop: std::wregex touches no HWND, and an invalid pattern then
+// fails the service call without queueing UI work.
+struct ResolvedQuery {
+  const WindowQuery* query{nullptr};
+  TitleMatchMode mode{TitleMatchMode::Contains};
+  bool include_hidden{false};
+  std::optional<std::wregex> title_regex;
+  std::optional<std::wregex> class_regex;
+  std::optional<std::wregex> exe_regex;
+};
+
+rime::core::Error resolve_query(const WindowQuery& query, const WindowSettings& settings,
+                                ResolvedQuery& out);
+
+bool has_selectors(const WindowQuery& query);
+
+// WinTitle-style matching evaluated on the UI lane only. `cache` dedupes
+// pid -> basename lookups within one enumeration; pass nullptr for single
+// foreground lookups. Title matching is case-sensitive in every mode
+// (AHK WinTitle rule; only RegEx `i)` opts back in), class stays
+// case-insensitive (AHK v2.1) and exe keeps the ASCII-fold rule.
+bool matches_query(WindowRegistry& registry, HWND window, const ResolvedQuery& resolved,
+                   PidImageCache* cache);
+
+struct EnumContext {
+  WindowRegistry* registry;
+  const ResolvedQuery* resolved;   // null for the list() baseline enum
+  bool include_hidden;             // list() baseline only (DetectHiddenWindows)
+  bool selectors;
+  std::vector<WindowInfo>* windows;
+  PidImageCache* images;  // per-query pid cache; null on the list() baseline
+};
+
+BOOL CALLBACK collect_matching(HWND window, LPARAM parameter);
+
+}  // namespace rime::win32::detail
