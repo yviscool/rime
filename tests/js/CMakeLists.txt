@@ -20,6 +20,13 @@ if (WIN32 AND TARGET rime_win32_js)
   # needs the same desktop environment as the window tests below.
   add_test(NAME quickjs_bundle_smoke
            COMMAND rime_js_bundle ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/ping.mjs)
+  # The exit path needs the same desktop env as quickjs_bundle_smoke: the
+  # harness still boots WindowService before the script runs. The second
+  # argument is the runtime.exit() code the bundle must come back with.
+  add_test(NAME quickjs_exit_basic
+           COMMAND rime_js_bundle ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/exit-basic.mjs 7)
+  add_test(NAME quickjs_exit_pending
+           COMMAND rime_js_bundle ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/exit-pending.mjs 3)
 endif()
 
 add_executable(rime_js_runtime runtime_smoke.cpp)

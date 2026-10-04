@@ -188,38 +188,60 @@ int run_bundle_file(const std::string& path, std::unordered_set<std::string> cap
     std::cerr << "QuickJS runtime failed to start: " << error.message << '\n';
     return 1;
   }
-  if (const auto error = runtime.evaluate_module(source, path).get(); !error.ok()) {
-    std::cerr << "QuickJS script failed: " << error.message << '\n';
-    (void)runtime.stop();
-    return 1;
+  const auto evaluation = runtime.evaluate_module(source, path).get();
+  // runtime.exit(code) unwinds the script with an exception; treat it as a
+  // deliberate outcome, not a failure: no settle, no __rim_failure check.
+  // Deviation from the async-failure contract: an explicit exit outranks a
+  // queued failure report, so the rim-main-check never runs on this path.
+  if (!runtime.exit_requested()) {
+    if (!evaluation.ok()) {
+      std::cerr << "QuickJS script failed: " << evaluation.message << '\n';
+      (void)runtime.stop();
+      return 1;
+    }
+    // Let async work (SDK queries, action chains) run to completion. settle
+    // returns early once an exit is requested, so both orders - exit before
+    // settle, exit while settling - land on the exit path below.
+    if (const auto settled = runtime.settle(std::chrono::seconds(5)); !settled.ok()) {
+      std::cerr << "QuickJS script did not settle: " << settled.message << '\n';
+      (void)runtime.stop();
+      return 1;
+    }
+    if (!runtime.exit_requested()) {
+      // Scripts report async failures by publishing globalThis.__rim_failure.
+      const auto failure = runtime
+                               .evaluate_module(
+                                   "if (globalThis.__rim_failure)\n"
+                                   "  throw new Error(globalThis.__rim_failure);\n",
+                                   "rim-main-check.mjs")
+                               .get();
+      if (!failure.ok()) {
+        std::cerr << "QuickJS script async failure: " << failure.message << '\n';
+        (void)runtime.stop();
+        return 1;
+      }
+      if (const auto stopped = runtime.stop(); !stopped.ok()) {
+        std::cerr << "QuickJS runtime stop failed: " << stopped.message << '\n';
+        return 1;
+      }
+      if (const auto stopped = bootstrap.stop(); !stopped.ok()) {
+        std::cerr << "rime: bootstrap stop failed: " << stopped.message << '\n';
+        return 1;
+      }
+      return 0;
+    }
   }
-  // Let async work (SDK queries, action chains) run to completion.
-  if (const auto settled = runtime.settle(std::chrono::seconds(5)); !settled.ok()) {
-    std::cerr << "QuickJS script did not settle: " << settled.message << '\n';
-    (void)runtime.stop();
-    return 1;
-  }
-  // Scripts report async failures by publishing globalThis.__rim_failure.
-  const auto failure = runtime
-                           .evaluate_module(
-                               "if (globalThis.__rim_failure)\n"
-                               "  throw new Error(globalThis.__rim_failure);\n",
-                               "rim-main-check.mjs")
-                           .get();
-  if (!failure.ok()) {
-    std::cerr << "QuickJS script async failure: " << failure.message << '\n';
-    (void)runtime.stop();
-    return 1;
-  }
+  // Exit path: handlers drain with reason "exit" plus the code inside
+  // Runtime::stop (run()'s post-loop dynamic payload), then this entry point
+  // returns the code. Stop/bootstrap failures are reported but never outrank
+  // the requested exit code, so both stops are best-effort here.
   if (const auto stopped = runtime.stop(); !stopped.ok()) {
     std::cerr << "QuickJS runtime stop failed: " << stopped.message << '\n';
-    return 1;
   }
   if (const auto stopped = bootstrap.stop(); !stopped.ok()) {
     std::cerr << "rime: bootstrap stop failed: " << stopped.message << '\n';
-    return 1;
   }
-  return 0;
+  return runtime.exit_code();
 }
 
 }  // namespace rime::win32

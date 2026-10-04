@@ -121,7 +121,9 @@ rime::core::Error Runtime::settle(std::chrono::milliseconds timeout) {
   }
   if (!condition_.wait_for(lock, timeout, [this] {
         // Mirrors the hpp quiescence promise: host idle AND no queued work.
-        return idle_flag_ && tasks_.empty() && inspect_tasks_.empty();
+        // runtime.exit abandons queued work, so settle must not sit out the
+        // timeout once an exit is requested.
+        return exit_requested_ || (idle_flag_ && tasks_.empty() && inspect_tasks_.empty());
       })) {
     return {rime::core::Error::Code::ExecutionFailed,
             "runtime did not become idle before the timeout"};
@@ -160,6 +162,21 @@ rime::core::Error Runtime::stop() {
 RuntimeState Runtime::state() const {
   std::lock_guard lock(mutex_);
   return state_;
+}
+
+void Runtime::set_exit_notifier(std::function<void(int)> notifier) {
+  std::lock_guard lock(mutex_);
+  exit_notifier_ = std::move(notifier);
+}
+
+bool Runtime::exit_requested() const {
+  std::lock_guard lock(mutex_);
+  return exit_requested_;
+}
+
+int Runtime::exit_code() const {
+  std::lock_guard lock(mutex_);
+  return exit_code_;
 }
 
 void Runtime::run() {
@@ -202,6 +219,21 @@ void Runtime::run() {
           wake_pending_ = true;
         }
         condition_.notify_all();
+      });
+      // Exit notifier: records the first requested code for the exit
+      // accessors, wakes any settle() waiter, then reports to the embedder
+      // observer. Installed before any script runs, so it is stable for the
+      // host's whole life.
+      host.set_exit_notifier([this](int code) {
+        std::function<void(int)> observer;
+        {
+          std::lock_guard lock(mutex_);
+          exit_requested_ = true;
+          exit_code_ = code;
+          observer = exit_notifier_;
+        }
+        condition_.notify_all();
+        if (observer) observer(code);
       });
 
       {
@@ -260,8 +292,14 @@ void Runtime::run() {
 
     // Exit contract: JS exit handlers run on the JS thread after the loop
     // stops and before ~Host tears the context down (idempotent with the
-    // destructor fallback).
-    host.run_exit_handlers("{\"reason\":\"stop\"}");
+    // destructor fallback). Exit/ExitApp drain observes reason "exit" plus
+    // the requested code; a normal stop keeps "stop". Read from the host on
+    // this thread instead of the runtime members - it is the same owner.
+    const auto payload = host.exit_requested()
+                             ? (std::string("{\"reason\":\"exit\",\"code\":") +
+                                std::to_string(host.exit_code()) + "}")
+                             : std::string("{\"reason\":\"stop\"}");
+    host.run_exit_handlers(payload);
   }
 
   rime::core::LaneRegistry::instance().release(rime::core::Lane::Js);

@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <future>
 #include <mutex>
 #include <string>
@@ -48,6 +49,21 @@ class Runtime final {
   [[nodiscard]] rime::core::Error stop();
   [[nodiscard]] RuntimeState state() const;
 
+  // runtime.exit(code?) observability (AHK Exit / ExitApp).
+  // - Host-attached: the JS thread's Host writes the state through the exit
+  //   notifier installed by run(); both readers lock the runtime mutex, so
+  //   the owning thread may query them while the JS thread is live.
+  // - The notifier must be installed before start() (same convention as the
+  //   native module list); it fires once, on the JS thread, with the first
+  //   requested code.
+  // - An exit abandons queued work: settle() returns as soon as an exit is
+  //   requested instead of waiting out its timeout, and run() drains the
+  //   exit handlers with {"reason":"exit","code":N} instead of the normal
+  //   {"reason":"stop"} payload.
+  void set_exit_notifier(std::function<void(int)> notifier);
+  [[nodiscard]] bool exit_requested() const;
+  [[nodiscard]] int exit_code() const;
+
  private:
   struct EvalTask {
     std::string source;
@@ -72,6 +88,13 @@ class Runtime final {
   bool idle_flag_{true};
   bool wake_pending_{false};
   std::atomic_bool stop_interrupt_{false};
+  // Guarded by mutex_; written from the JS thread through the exit notifier
+  // run() installs on the Host, read by the exit accessors and settle().
+  bool exit_requested_{false};
+  int exit_code_{0};
+  // Embedder observer installed through set_exit_notifier (before start);
+  // copied out of the lock by run()'s notifier before it fires.
+  std::function<void(int)> exit_notifier_;
   std::string file_root_;
   // NOTE: void* wiring pointers are caller-owned (see add_native_module);
   // never dereference them here or share them across threads.

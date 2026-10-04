@@ -40,6 +40,16 @@ export interface RuntimeBridge {
   cwd(): string;
   /** Sets the process working directory (AHK SetWorkingDir). Throws on Win32 failure, leaving the directory unchanged. */
   setCwd(path: string): void;
+  /**
+   * Ends the script process with `code` (AHK Exit / ExitApp - one API; there
+   * are no script threads to leave, so both map here). Synchronous: the call
+   * always throws to unwind the current turn, queued async work is abandoned,
+   * `input.onExit` handlers run with `{reason: "exit", code}`, and the host
+   * returns `code` from its entry point. First call wins; later calls are
+   * unreachable. `code` must be an integer (default 0); portable exit codes
+   * are 0..255. Ungated host lifecycle, like `ping`.
+   */
+  exit(code?: number): never;
 }
 
 export { runtime } from "rime:runtime";

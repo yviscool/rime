@@ -162,6 +162,20 @@ class Host final {
   void run_exit_handlers(std::string_view payload_json);
   [[nodiscard]] bool exit_handlers_ran() const { return exit_ran_; }
 
+  // JS thread: runtime.exit(code?) - records the first requested code, arms
+  // the interrupt that aborts the rest of the script, and reports the code
+  // to the exit notifier. First call wins: later calls are ignored and
+  // return none, so a script can never overwrite an earlier decision.
+  rime::core::Error request_exit(int code);
+  // JS thread only: mirrors request_exit (see above); safe to read from the
+  // owner thread once the JS thread is joined.
+  [[nodiscard]] bool exit_requested() const { return exit_requested_; }
+  [[nodiscard]] int exit_code() const { return exit_code_; }
+  // Thread convention matches set_wakeup: installed by the owning Runtime on
+  // the JS thread before any script runs, invoked on the JS thread from
+  // request_exit. JS-thread only, so it needs no lock.
+  void set_exit_notifier(std::function<void(int)> notifier);
+
   // JS thread: native teardown hooks (unsubscribe services, remove UI
   // observers). run_teardowns() runs them exactly once; ~Host and a
   // successful HostAbi::unload both call it. Unlike exit handlers these run
@@ -240,6 +254,11 @@ class Host final {
   std::thread::id owner_;
   std::atomic_bool interrupt_{false};
   std::atomic_bool* interrupt_source_{nullptr};
+  // JS thread only: runtime.exit bookkeeping written by request_exit and
+  // read by the exit accessors / run_exit_handlers on the same thread.
+  bool exit_requested_{false};
+  int exit_code_{0};
+  std::function<void(int)> exit_notifier_;
 
   TimerService timer_;
 

@@ -210,6 +210,31 @@ JSValue runtime_set_cwd(JSContext* context, JSValueConst, int argc, JSValueConst
   return JS_UNDEFINED;
 }
 
+// runtime.exit(code?): AHK Exit / ExitApp collapse into one API - there are
+// no script threads to leave. The call always throws so the current turn
+// unwinds, request_exit arms the interrupt that aborts everything after it
+// (uncatchable), and the host entry point returns `code`. First call wins.
+JSValue runtime_exit(JSContext* context, JSValueConst, int argc, JSValueConst* argv) {
+  Host* host = host_of(context);
+  if (!host) return JS_ThrowInternalError(context, "runtime host is gone");
+  if (argc > 1) return JS_ThrowTypeError(context, "exit(code?)");
+  int code = 0;
+  if (argc == 1) {
+    if (!JS_IsNumber(argv[0])) {
+      return JS_ThrowTypeError(context, "exit(code): code must be an integer");
+    }
+    if (JS_ToInt32(context, &code, argv[0])) {
+      // JS_ToInt32 left a pending exception behind; fetch it so the
+      // TypeError below becomes the one the caller observes.
+      JSValue pending = JS_GetException(context);
+      JS_FreeValue(context, pending);
+      return JS_ThrowTypeError(context, "exit(code): code must be an integer");
+    }
+  }
+  (void)host->request_exit(code);
+  return JS_ThrowPlainError(context, "exit requested (code %d)", code);
+}
+
 JSValue runtime_ping(JSContext* context, JSValueConst, int, JSValueConst*) {
   return JS_NewString(context, "pong");
 }
@@ -345,7 +370,8 @@ int runtime_module_init(JSContext* context, JSModuleDef* module) {
       !set("context", JS_NewCFunction(context, runtime_context, "context", 0)) ||
       !set("debug", JS_NewCFunction(context, runtime_debug, "debug", 1)) ||
       !set("cwd", JS_NewCFunction(context, runtime_cwd, "cwd", 0)) ||
-      !set("setCwd", JS_NewCFunction(context, runtime_set_cwd, "setCwd", 1))) {
+      !set("setCwd", JS_NewCFunction(context, runtime_set_cwd, "setCwd", 1)) ||
+      !set("exit", JS_NewCFunction(context, runtime_exit, "exit", 1))) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "runtime", object);
@@ -944,6 +970,11 @@ bool Host::remove_exit_handler(const std::uint64_t subscription_id) {
 }
 
 void Host::run_exit_handlers(const std::string_view payload_json) {
+  // Exit handlers are the final trusted JS turn: drop the abort flag
+  // request_exit armed so the handlers can actually run to completion. The
+  // stop source (interrupt_source_) keeps its existing cadence, and a
+  // pending request_exit flag itself stays set for the exit accessors.
+  interrupt_.store(false, std::memory_order_relaxed);
   if (exit_ran_ || !context_) return;
   exit_ran_ = true;
   std::vector<std::pair<std::uint64_t, std::uint64_t>> handlers;
@@ -955,6 +986,22 @@ void Host::run_exit_handlers(const std::string_view payload_json) {
     (void)remove_callback(callback_id);
     (void)subscriptions_.remove(subscription_id);
   }
+}
+
+rime::core::Error Host::request_exit(const int code) {
+  if (const auto thread_error = check_thread(); !thread_error.ok()) return thread_error;
+  if (exit_requested_) return rime::core::Error::none();  // first call wins; later ones ignored
+  exit_requested_ = true;
+  exit_code_ = code;
+  // Arm the abort: interrupt_thunk turns this into an uncatchable interrupt,
+  // so everything after the throwing runtime.exit() call stops.
+  interrupt_.store(true, std::memory_order_relaxed);
+  if (exit_notifier_) exit_notifier_(code);
+  return rime::core::Error::none();
+}
+
+void Host::set_exit_notifier(std::function<void(int)> notifier) {
+  exit_notifier_ = std::move(notifier);
 }
 
 void Host::add_teardown(std::function<void()> teardown) {

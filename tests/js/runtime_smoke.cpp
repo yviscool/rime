@@ -1,8 +1,10 @@
 #include "rime/js/abi.hpp"
+#include "rime/js/host.hpp"
 #include "rime/js/runtime.hpp"
 
 #include <cassert>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <thread>
@@ -194,6 +196,142 @@ void test_busy_loop_interrupt() {
   assert(runtime.state() == rime::js::RuntimeState::Stopped);
 }
 
+// Exit probe: the onExit handler runs while the JS context is on its way
+// out, so it reports through a native module instead of a JS global.
+struct ExitProbe {
+  std::string notes;
+  bool handler_ran{false};
+  std::string payload;
+
+  void append(const std::string& text) {
+    if (text.rfind("payload:", 0) == 0) {
+      handler_ran = true;
+      payload = text.substr(8);
+    }
+    if (!notes.empty()) notes += '|';
+    notes += text;
+  }
+};
+
+constexpr const char* k_exit_probe_module = "rime:test:exit";
+
+rime::js::Host* host_of(JSContext* context) {
+  return static_cast<rime::js::Host*>(JS_GetContextOpaque(context));
+}
+
+ExitProbe* exit_probe_of(JSContext* context) {
+  rime::js::Host* host = host_of(context);
+  if (!host) return nullptr;
+  return static_cast<ExitProbe*>(host->module_data(k_exit_probe_module));
+}
+
+JSValue exit_probe_note(JSContext* context, JSValueConst, int argc, JSValueConst* argv) {
+  ExitProbe* probe = exit_probe_of(context);
+  if (!probe) return JS_ThrowInternalError(context, "exit probe is not wired");
+  if (argc < 1 || !JS_IsString(argv[0])) return JS_ThrowTypeError(context, "note(text)");
+  const char* text = JS_ToCString(context, argv[0]);
+  if (!text) return JS_EXCEPTION;
+  probe->append(text);
+  JS_FreeCString(context, text);
+  return JS_UNDEFINED;
+}
+
+// Same registration path as rime:input.onExit: the JS function becomes a
+// host callback, the id comes from the shared subscription counter, and the
+// pair goes to add_exit_handler. Deliberately not in the
+// SubscriptionRegistry, exactly like the input module does.
+JSValue exit_probe_on_exit(JSContext* context, JSValueConst, int argc, JSValueConst* argv) {
+  rime::js::Host* host = host_of(context);
+  if (!host) return JS_ThrowInternalError(context, "exit probe is not wired");
+  if (argc < 1 || !JS_IsFunction(context, argv[0])) {
+    return JS_ThrowTypeError(context, "onExit(fn)");
+  }
+  std::uint64_t callback = 0;
+  if (const auto error = host->add_callback(JS_DupValue(context, argv[0]), callback);
+      !error.ok()) {
+    return JS_ThrowInternalError(context, "%s", error.message.c_str());
+  }
+  const std::uint64_t sub = host->allocate_subscription_id();
+  if (const auto error = host->add_exit_handler(callback, sub); !error.ok()) {
+    (void)host->remove_callback(callback);
+    return JS_ThrowInternalError(context, "%s", error.message.c_str());
+  }
+  return JS_UNDEFINED;
+}
+
+int exit_probe_init(JSContext* context, JSModuleDef* module) {
+  JSValue note = JS_NewCFunction(context, exit_probe_note, "note", 1);
+  if (JS_IsException(note)) return -1;
+  if (JS_SetModuleExport(context, module, "note", note) < 0) return -1;
+  JSValue on_exit = JS_NewCFunction(context, exit_probe_on_exit, "onExit", 1);
+  if (JS_IsException(on_exit)) return -1;
+  return JS_SetModuleExport(context, module, "onExit", on_exit);
+}
+
+JSModuleDef* create_exit_probe_module(JSContext* context) {
+  JSModuleDef* module = JS_NewCModule(context, k_exit_probe_module, exit_probe_init);
+  if (!module) return nullptr;
+  if (JS_AddModuleExport(context, module, "note") < 0) return nullptr;
+  if (JS_AddModuleExport(context, module, "onExit") < 0) return nullptr;
+  return module;
+}
+
+// runtime.exit(code?) end to end: throws to unwind the turn, arms the
+// uncatchable abort, records the code for the host entry point, and hands
+// the onExit handlers {"reason":"exit","code":N} when the runtime drains.
+void test_runtime_exit() {
+  ExitProbe probe;
+  rime::js::Runtime runtime;
+  assert(runtime
+             .add_native_module(k_exit_probe_module,
+                                [](JSContext* context) {
+                                  return create_exit_probe_module(context);
+                                },
+                                &probe)
+             .ok());
+  assert(runtime.start().ok());
+
+  auto exit_task = runtime.evaluate_module(
+      "import { runtime } from 'rime:runtime';\n"
+      "import { note, onExit } from 'rime:test:exit';\n"
+      "onExit((p) => { note('payload:' + JSON.stringify(p)); });\n"
+      "note('before');\n"
+      // Pending work the exit abandons: it keeps the host non-idle for 60s,
+      // so settle below can only return by noticing the exit.
+      "void runtime.delay(60000, null).catch(() => {});\n"
+      "try { runtime.exit(5); note('never-reached'); }\n"
+      "catch (e) { note('caught:' + e.message); }\n"
+      // The exit already armed the interrupt, so this bounded loop is where
+      // it has to fire: the try/catch above swallowed the throw, leaving the
+      // interrupt as the only way the evaluation can still fail. The
+      // deadline keeps a missing interrupt finite instead of hanging.
+      "const deadline = Date.now() + 2000;\n"
+      "while (Date.now() < deadline) { }\n"
+      "note('after-turn');\n",
+      "exit.js");
+  const auto exit_result = exit_task.get();
+  // Exit's own exception was caught by the script above, so a failure here
+  // is the uncatchable interrupt aborting the rest of the module.
+  assert(!exit_result.ok());
+
+  assert(runtime.exit_requested());
+  assert(runtime.exit_code() == 5);
+  // The 60s timer above keeps the host non-idle, so this settle can only
+  // return through the exit; it fails the test if it waits out its budget.
+  assert(runtime.settle(200ms).ok());
+  assert(runtime.stop().ok());
+  assert(runtime.state() == rime::js::RuntimeState::Stopped);
+
+  // The handler ran on the JS thread during the stop drain, so the notes
+  // are only read after the join above.
+  assert(probe.handler_ran);
+  assert(probe.payload == "{\"reason\":\"exit\",\"code\":5}");
+  assert(probe.notes.find("before") != std::string::npos);
+  // Exit throws before the next statement can run.
+  assert(probe.notes.find("never-reached") == std::string::npos);
+  assert(probe.notes.find("payload:{\"reason\":\"exit\",\"code\":5}") != std::string::npos);
+}
+
 void test_host_abi() {
   rime::js::HostAbi abi;
   assert(abi.abi_version() == rime::js::k_host_abi_version);
@@ -297,6 +435,7 @@ int main() {
   test_context();
   test_debug_and_cwd();
   test_busy_loop_interrupt();
+  test_runtime_exit();
   test_host_abi();
   return 0;
 }
