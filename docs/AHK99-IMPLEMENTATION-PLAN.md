@@ -27,12 +27,12 @@
 
 | 清单 | implemented | js-native | unsupported | 终态合计 | 剩余（`contract-only`） |
 |---|---:|---:|---:|---:|---:|
-| coverage 253 | 107 | 7 | 7 | 121 | 132 |
+| coverage 253 | 108 | 10 | 8 | 126 | 127 |
 | core-builtins 101 | 8 | 57 | 18 | 83 | 18 |
 | objects 243（成员） | 0 | 0 | 0 | 0 | 243 |
 | builtins 134（145 − 11 `excluded`） | 5 | 0 | 0 | 5 | 129 |
 
-注：已落地能力已回填（M0-M2）：`process.*` 6 项、`Send`/`SendInput`（`input.send`）、`A_Clipboard`（`clipboard.read`/`clipboard.write`）、`Click/WinActive/WinExist`、`Sleep`（`runtime.delay`）、`GetKeyState` 等；15 个 action 的真值源在 `contracts/registry/actions.json`（`automation.*` 等无独立 AHK 函数条目，其状态记录在该注册表，`matrix:check` 校验 type 集 == executor 注册集）。138 项纯语言分类已入 `core-builtins`/`coverage`（映射表 `docs/api/runtime-language.md`）。当前终态 209 / 731 ≈ 28.6%（四个 JSON，不含指令）。
+注：已落地能力已回填（M0-M2）：`process.*` 6 项、`Send`/`SendInput`（`input.send`）、`A_Clipboard`（`clipboard.read`/`clipboard.write`）、`Click/WinActive/WinExist`、`Sleep`（`runtime.delay`）、`GetKeyState` 等；15 个 action 的真值源在 `contracts/registry/actions.json`（`automation.*` 等无独立 AHK 函数条目，其状态记录在该注册表，`matrix:check` 校验 type 集 == executor 注册集）。138 项纯语言分类已入 `core-builtins`/`coverage`（映射表 `docs/api/runtime-language.md`）。当前终态 214 / 731 ≈ 29.3%（四个 JSON，不含指令）。
 
 ### 1.3 代码现状（结构事实，M0 之后）
 
@@ -93,9 +93,9 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 
 ### M3 纯 JS 快铺（可穿插，M）
 
-- 138 项纯语言归档已定（`docs/api/runtime-language.md` 映射表）：**64 项 `js-native`**（零专属代码，等价表达式与差异入档）、**33 项 `contract-only`**（L2/L3 目标待实现）、**21 项 `implemented`**（5 项既有 + **10 项 L4 还原保留已实现** + 3 项批 2 绑定 `OutputDebug`/`SetWorkingDir`/`GetKeySC` + 3 项批 3 输入映射 `GetKeyVK`/`GetKeyName`/`ListHotkeys`）、20 项 `unsupported-by-policy`；
+- 138 项纯语言归档已定（`docs/api/runtime-language.md` 映射表）：**67 项 `js-native`**（零专属代码，等价表达式与差异入档，含批 4 改判 `SetControlDelay`/`SetWinDelay`/`IsLabel`）、**23 项 `contract-only`**（L2/L3 目标待实现）、**27 项 `implemented`**（5 项既有 + **10 项 L4 还原保留已实现** + 3 项批 2 绑定 `OutputDebug`/`SetWorkingDir`/`GetKeySC` + 6 项批 3（输入映射 `GetKeyVK`/`GetKeyName`/`ListHotkeys`、锁键状态 `SetCapsLockState`/`SetNumLockState`/`SetScrollLockState`）+ 3 项批 4（`Exit`/`ExitApp`→`runtime.exit`、`CoordMode`→mouse per-call `coords`））、21 项 `unsupported-by-policy`（含批 4 `Pause`）；
 - **L4 还原保留（10 项，已实现）**：`Round/Format/FormatTime/Sort/SplitPath/VerCompare/DateAdd/DateDiff/RegExMatch/RegExReplace`——已落 `sdk/src/runtime-language.ts`（自有命名 `round/format/formatTime/sortLines/splitPath/compareVersions/addTime/diffTime/regexMatch/regexReplace`，不建 AHK 名称兼容层，计划 §0.1）与 `tests/sdk/runtime-language.test.ts`（41 例对照原版语义测试，逐条附 AHK `file:line` 引证），台账流转 `implemented`；其余 8 项原候选（`SubStr/InStr/Mod/StrReplace/StrTitle/Type/StrSplit/Random`）差异可用等价表达式消解，判 `js-native` 入档不写代码；
-- `SetControlDelay/SetWinDelay/CoordMode/Exit/ExitApp/Reload/Pause/Persistent` → Runtime/HostLifecycle/SchedulerPolicy 显式 API（`Sleep`/`Suspend` 已分别由 `runtime.delay`/`input.suspend` 承载并流转 `implemented`；`SetKeyDelay`/`SetMouseDelay`/`SetDefaultMouseSpeed`/`SetStoreCapsLockMode`/`ListVars` 经 M3 源码盘点判 `js-native` 零代码入档；`OutputDebug`→`runtime.debug`、`SetWorkingDir`→`runtime.cwd`/`runtime.setCwd`、`Exit`/`ExitApp`→`runtime.exit` 已实现；`Critical`/`Thread` 按 `stdlib.md` §5.3 判 `unsupported-by-policy`）；
+- `Reload/Persistent` → Runtime/HostLifecycle 显式 API（`Sleep`/`Suspend` 已分别由 `runtime.delay`/`input.suspend` 承载并流转 `implemented`；`SetKeyDelay`/`SetMouseDelay`/`SetDefaultMouseSpeed`/`SetStoreCapsLockMode`/`ListVars` 经 M3 源码盘点判 `js-native` 零代码入档；`OutputDebug`→`runtime.debug`、`SetWorkingDir`→`runtime.cwd`/`runtime.setCwd`、`Exit`/`ExitApp`→`runtime.exit` 已实现；批 4 另判：`CoordMode`→mouse per-call `coords`/`window` 选项实现、`SetControlDelay`/`SetWinDelay`/`IsLabel` 判 `js-native`（无隐式延迟可言，等待由 per-call deadline + 结果往返表达）、`Pause` 按 `stdlib.md` §5.3 与 `Critical`/`Thread` 同族判 `unsupported-by-policy`；`Critical`/`Thread` 同判）；
 - `GetKeyVK/GetKeyName/ListHotkeys/Set*LockState` → `@rime/input` M3 输入映射（`GetKeySC`→`input.getKeySC`、`GetKeyVK`→`input.getKeyVK`、`GetKeyName`→`input.getKeyName`、`ListHotkeys`→`input.listHotkeys` 已实现）；
 - `js-native` 行只做映射入档与差异核对，不写代码。
 

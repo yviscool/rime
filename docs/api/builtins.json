@@ -1226,7 +1226,7 @@
         "updatePoint": "runtime-state-change",
         "lane": "js",
         "capability": "runtime",
-        "tsReplacement": "settings.window.controlDelay",
+        "tsReplacement": "0 (no delay knob exists: SetControlDelay is js-native, operations are deadline-driven)",
         "compatibilityTest": "missing"
       },
       {
@@ -1628,7 +1628,7 @@
         "updatePoint": "runtime-state-change",
         "lane": "js",
         "capability": "runtime",
-        "tsReplacement": "settings.window.winDelay",
+        "tsReplacement": "0 (no delay knob exists: SetWinDelay is js-native, window ops use deadline + round-trip)",
         "compatibilityTest": "missing"
       }
     ]

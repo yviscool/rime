@@ -591,10 +591,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
-      "async": "sync",
-      "capability": "runtime",
-      "contractTest": "missing",
+      "status": "implemented",
+      "async": "async",
+      "capability": "windows.input.inject",
+      "contractTest": "tests/sdk/coord-mode.test.ts",
       "lane": "js",
       "cancellation": "none"
     },
@@ -1953,10 +1953,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "rime:runtime",
-      "status": "contract-only",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "none"
     },
@@ -2434,10 +2434,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "rime:runtime",
-      "status": "contract-only",
+      "status": "unsupported-by-policy",
       "async": "async",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2921,10 +2921,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
       "tsModule": "@rime/automation",
-      "status": "contract-only",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "none"
     },
@@ -3090,10 +3090,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
       "tsModule": "@rime/window",
-      "status": "contract-only",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "none"
     },

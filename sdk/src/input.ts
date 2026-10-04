@@ -12,7 +12,7 @@ import {
   type SendKeyStep,
   type SendMode,
 } from "./send";
-import type { WindowControl, WindowSnapshot } from "./window";
+import type { WindowControl, WindowSnapshot, WindowsBridge, WindowsListOptions } from "./window";
 import { input } from "rime:input";
 
 export type { SendKeyStep } from "./send";
@@ -115,8 +115,35 @@ export interface KeyboardSendOptions extends ActionOptions {
   mode?: KeyboardSendMode;
 }
 
+/**
+ * Coordinate spaces for one mouse call (AHK `CoordMode Mouse/CoordMode
+ * Pixel`), resolved per call instead of as a process-global mutable mode —
+ * stdlib.md §2 makes settings parameters, and stdlib.md §5.3 blacklists
+ * AHK-style implicit globals. Only the pixel/mouse spaces exist here:
+ * ToolTip/Caret/Menu placement has no counterpart surface.
+ */
+export type MouseCoordSpace = "screen" | "window" | "client";
+
+/** Coordinate-space options shared by the mouse surface (AHK `CoordMode`). */
+export interface MouseCoordOptions {
+  /**
+   * Default `"screen"` — the only space the native payload understands
+   * (int32 screen pixels, normalized to absolute at injection). `"window"`
+   * offsets by the target window's outer origin and `"client"` by its
+   * client-area origin (both already in screen coordinates on the snapshot);
+   * both resolve through `rime:window` (`windows.active()` by default, the
+   * first `windows.list(query)` match when `window` is given), so they need
+   * the `windows.window.read` capability and reject when no window matches
+   * or the `rime:window` module is not registered. The translated point must
+   * stay inside int32 or the call throws.
+   */
+  coords?: MouseCoordSpace;
+  /** Window for `"window"`/`"client"`; default the active window. Ignored when `coords` is `"screen"`. */
+  window?: WindowsListOptions;
+}
+
 /** Options for `mouse.click` (AHK MouseClick's WhichButton/X/Y/Count/Speed). */
-export interface MouseClickOptions {
+export interface MouseClickOptions extends MouseCoordOptions {
   /** Default 1 (left). */
   button?: MouseButton;
   /** Click point; both `x` and `y` or neither (partial throws TypeError). */
@@ -129,7 +156,7 @@ export interface MouseClickOptions {
 }
 
 /** Options for `mouse.drag` (AHK MouseClickDrag's WhichButton/X1/Y1/X2/Y2/Speed). */
-export interface MouseDragOptions {
+export interface MouseDragOptions extends MouseCoordOptions {
   /** Default 1 (left). */
   button?: MouseButton;
   /** Optional drag start; both `x` and `y` or neither (partial throws TypeError; omitted = current cursor). */
@@ -142,7 +169,7 @@ export interface MouseDragOptions {
 }
 
 /** Options for `mouse.move` (AHK MouseMove's Speed). */
-export interface MouseMoveOptions {
+export interface MouseMoveOptions extends MouseCoordOptions {
   /** 0..100 integer; validated then ignored at injection (see {@link MousePayload.speed}). */
   speed?: number;
 }
@@ -749,6 +776,39 @@ function validateOptionalPoint(x: unknown, y: unknown, field: string): void {
   if (y !== undefined) requireCoordinate(y, `${field}.y`);
 }
 
+function validateCoordSpace(value: unknown, field: string): MouseCoordSpace | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "screen" && value !== "window" && value !== "client") {
+    throw new TypeError(`${field}.coords must be "screen"|"window"|"client", got ${String(value)}`);
+  }
+  return value;
+}
+
+/**
+ * Screen-space origin of `coords`: null for the default `"screen"` space
+ * (no translation needed), otherwise the target window's outer or client
+ * origin — both already expressed in screen coordinates on the snapshot.
+ */
+async function coordOrigin(
+  coords: MouseCoordSpace,
+  query: WindowsListOptions | undefined,
+  field: string,
+): Promise<{ x: number; y: number } | null> {
+  if (coords === "screen") return null;
+  let module: { windows: WindowsBridge };
+  try {
+    module = await import("rime:window");
+  } catch {
+    throw new Error(`${field}: coords "${coords}" needs the rime:window module`);
+  }
+  const snapshot = query ? (await module.windows.list(query))[0] : await module.windows.active();
+  if (!snapshot) {
+    throw new Error(`${field}: no ${query ? "matching" : "active"} window for coords "${coords}"`);
+  }
+  const rect = coords === "client" ? snapshot.clientRect : snapshot.rect;
+  return { x: rect.left, y: rect.top };
+}
+
 function runSend(keys: string, options?: KeyboardSendOptions): Promise<{ sent: number }> {
   const { mode = "input", ...actionOptions } = options ?? {};
   if (mode !== "input" && mode !== "event" && mode !== "play" && mode !== "text" && mode !== "raw") {
@@ -890,36 +950,83 @@ export const keyboard = {
  * (only one of x/y) throws TypeError instead of silently returning; X1/X2
  * and wheel buttons are refused; the title-bar click-down workaround
  * (`keyboard_mouse.cpp:2193-2291`) is not replicated; `speed` is validated
- * but ignored at injection (AHK SendInput does the same).
+ * but ignored at injection (AHK SendInput does the same). `CoordMode` maps
+ * to the per-call `coords`/`window` options (AHK's process-global mode is a
+ * §5.3-style implicit global): `"window"`/`"client"` translate through
+ * `rime:window` before the existing screen-pixel payload, and `getPos`
+ * translates the read back into the requested space.
  */
 export const mouse = {
-  /** AHK `MouseMove X, Y, Speed`: absolute move in one step. */
+  /**
+   * AHK `MouseMove X, Y, Speed`: absolute move in one step. With
+   * `coords: "window"|"client"` the point is translated into screen pixels
+   * first (see {@link MouseCoordOptions}).
+   */
   move(x: number, y: number, options?: MouseMoveOptions): Promise<{ sent: number }> {
     requireCoordinate(x, "mouse.move x");
     requireCoordinate(y, "mouse.move y");
     const speed = validateSpeed(options?.speed, "mouse.move speed");
-    const payload: MousePayload = { steps: [{ action: "move", x, y }] };
-    if (speed !== undefined) payload.speed = speed;
-    return runMouse(payload);
+    const coords = validateCoordSpace(options?.coords, "mouse.move");
+    if (coords === undefined || coords === "screen") {
+      const payload: MousePayload = { steps: [{ action: "move", x, y }] };
+      if (speed !== undefined) payload.speed = speed;
+      return runMouse(payload);
+    }
+    return coordOrigin(coords, options?.window, "mouse.move").then((origin) => {
+      if (!origin) throw new Error("mouse.move: unresolved coordinate origin");
+      const payload: MousePayload = {
+        steps: [
+          {
+            action: "move",
+            x: requireCoordinate(x + origin.x, "mouse.move x"),
+            y: requireCoordinate(y + origin.y, "mouse.move y"),
+          },
+        ],
+      };
+      if (speed !== undefined) payload.speed = speed;
+      return runMouse(payload);
+    });
   },
   /**
    * AHK `MouseClick WhichButton, X, Y, Count, Speed`: optional move first,
    * then `count` down/up pairs. `count < 1` does nothing, not even a move.
+   * With `coords: "window"|"client"` a given point is translated first;
+   * without a point the click lands on the current cursor, so no origin is
+   * resolved (no `rime:window` dependency, no capability demand).
    */
   click(options?: MouseClickOptions): Promise<{ sent: number }> {
     const button = validateButton(options?.button, "mouse.click");
     const speed = validateSpeed(options?.speed, "mouse.click speed");
     const count = validateCount(options?.count, "mouse.click count");
     validateOptionalPoint(options?.x, options?.y, "mouse.click");
+    const coords = validateCoordSpace(options?.coords, "mouse.click");
     if (count < 1) return Promise.resolve({ sent: 0 });
-    const steps: MouseStep[] = [];
-    if (options?.x !== undefined && options?.y !== undefined) {
-      steps.push({ action: "move", x: options.x, y: options.y });
+    const px = options?.x;
+    const py = options?.y;
+    const buildSteps = (point?: { x: number; y: number }): MouseStep[] => {
+      const steps: MouseStep[] = [];
+      if (point) steps.push({ action: "move", x: point.x, y: point.y });
+      for (let index = 0; index < count; ++index) {
+        steps.push({ action: "down", button }, { action: "up", button });
+      }
+      return steps;
+    };
+    if (px !== undefined && py !== undefined && coords !== undefined && coords !== "screen") {
+      return coordOrigin(coords, options?.window, "mouse.click").then((origin) => {
+        if (!origin) throw new Error("mouse.click: unresolved coordinate origin");
+        const payload: MousePayload = {
+          steps: buildSteps({
+            x: requireCoordinate(px + origin.x, "mouse.click x"),
+            y: requireCoordinate(py + origin.y, "mouse.click y"),
+          }),
+        };
+        if (speed !== undefined) payload.speed = speed;
+        return runMouse(payload);
+      });
     }
-    for (let index = 0; index < count; ++index) {
-      steps.push({ action: "down", button }, { action: "up", button });
-    }
-    const payload: MousePayload = { steps };
+    const payload: MousePayload = {
+      steps: buildSteps(px !== undefined && py !== undefined ? { x: px, y: py } : undefined),
+    };
     if (speed !== undefined) payload.speed = speed;
     return runMouse(payload);
   },
@@ -940,14 +1047,44 @@ export const mouse = {
     }
     const toX = requireCoordinate(options.to.x, "mouse.drag to.x");
     const toY = requireCoordinate(options.to.y, "mouse.drag to.y");
-    const steps: MouseStep[] = [];
-    if (options.x !== undefined && options.y !== undefined) {
-      steps.push({ action: "move", x: options.x, y: options.y });
+    const coords = validateCoordSpace(options.coords, "mouse.drag");
+    const buildSteps = (from: { x: number; y: number } | undefined, to: { x: number; y: number }): MouseStep[] => {
+      const steps: MouseStep[] = [];
+      if (from) steps.push({ action: "move", x: from.x, y: from.y });
+      steps.push({ action: "down", button });
+      steps.push({ action: "move", x: to.x, y: to.y });
+      steps.push({ action: "up", button });
+      return steps;
+    };
+    const fromX = options.x;
+    const fromY = options.y;
+    if (coords !== undefined && coords !== "screen") {
+      return coordOrigin(coords, options.window, "mouse.drag").then((origin) => {
+        if (!origin) throw new Error("mouse.drag: unresolved coordinate origin");
+        const payload: MousePayload = {
+          steps: buildSteps(
+            fromX !== undefined && fromY !== undefined
+              ? {
+                  x: requireCoordinate(fromX + origin.x, "mouse.drag x"),
+                  y: requireCoordinate(fromY + origin.y, "mouse.drag y"),
+                }
+              : undefined,
+            {
+              x: requireCoordinate(toX + origin.x, "mouse.drag to.x"),
+              y: requireCoordinate(toY + origin.y, "mouse.drag to.y"),
+            },
+          ),
+        };
+        if (speed !== undefined) payload.speed = speed;
+        return runMouse(payload);
+      });
     }
-    steps.push({ action: "down", button });
-    steps.push({ action: "move", x: toX, y: toY });
-    steps.push({ action: "up", button });
-    const payload: MousePayload = { steps };
+    const payload: MousePayload = {
+      steps: buildSteps(
+        fromX !== undefined && fromY !== undefined ? { x: fromX, y: fromY } : undefined,
+        { x: toX, y: toY },
+      ),
+    };
     if (speed !== undefined) payload.speed = speed;
     return runMouse(payload);
   },
@@ -955,10 +1092,24 @@ export const mouse = {
    * AHK `MouseGetPos`: cursor position plus the window and child control
    * under it. Rejects with `capability_denied` naming `windows.input.read`.
    * AHK's OutputVarX/Y/Win/Control and flags 0x01/0x02 (simple mode) are not
-   * exposed; the full snapshot and control id are returned instead.
+   * exposed; the full snapshot and control id are returned instead. With
+   * `coords: "window"|"client"` the read position is translated out of
+   * screen space (the inverse of the move-side offset).
    */
-  getPos(options?: ActionOptions): Promise<MouseGetPosResult> {
-    return runAction(options, (native) => input.mouseGetPos(native));
+  getPos(options?: ActionOptions & MouseCoordOptions): Promise<MouseGetPosResult> {
+    const coords = validateCoordSpace(options?.coords, "mouse.getPos");
+    const read = runAction(options, (native) => input.mouseGetPos(native));
+    if (coords === undefined || coords === "screen") return read;
+    return Promise.all([read, coordOrigin(coords, options?.window, "mouse.getPos")]).then(
+      ([result, origin]) => {
+        if (!origin) throw new Error("mouse.getPos: unresolved coordinate origin");
+        return {
+          ...result,
+          x: requireCoordinate(result.x - origin.x, "mouse.getPos x"),
+          y: requireCoordinate(result.y - origin.y, "mouse.getPos y"),
+        };
+      },
+    );
   },
 };
 

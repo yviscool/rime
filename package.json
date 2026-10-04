@@ -12,7 +12,7 @@
     "build": "bun tools/build.ts",
     "check": "bun tools/check.ts",
     "typecheck": "bun x tsc --noEmit",
-    "sdk:test": "bun test tests/sdk",
+    "sdk:test": "bun test --isolate tests/sdk",
     "contract:smoke": "bun tools/schema-smoke.ts",
     "contract:check": "bun tools/contract.ts",
     "contract:gen": "bun tools/contract.ts --write",

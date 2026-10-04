@@ -1,6 +1,6 @@
 # Runtime and Language Compatibility
 
-状态：138 项已分类——64 `js-native`、28 `contract-only`、26 `implemented`（5 项既有 + §2.2.2 的 10 项 L4 还原保留 + 3 项批 2 绑定 `OutputDebug`/`SetWorkingDir`/`GetKeySC` + 6 项批 3（输入映射 `GetKeyVK`/`GetKeyName`/`ListHotkeys`、锁键状态 `SetCapsLockState`/`SetNumLockState`/`SetScrollLockState`）+ 2 项批 4 宿主生命周期 `Exit`/`ExitApp`（`runtime.exit`））、20 `unsupported-by-policy`。判定真值见 §2 映射表；状态词汇的权威是 [`stdlib.md`](./stdlib.md)（§3 四状态口径、§5 黑名单、§6 L4 还原保留层）。
+状态：138 项已分类——67 `js-native`、23 `contract-only`、27 `implemented`（5 项既有 + §2.2.2 的 10 项 L4 还原保留 + 3 项批 2 绑定 `OutputDebug`/`SetWorkingDir`/`GetKeySC` + 6 项批 3（输入映射 `GetKeyVK`/`GetKeyName`/`ListHotkeys`、锁键状态 `SetCapsLockState`/`SetNumLockState`/`SetScrollLockState`）+ 3 项批 4（宿主生命周期 `Exit`/`ExitApp`（`runtime.exit`）、坐标空间 `CoordMode`（mouse per-call `coords`）））、21 `unsupported-by-policy`。判定真值见 §2 映射表；状态词汇的权威是 [`stdlib.md`](./stdlib.md)（§3 四状态口径、§5 黑名单、§6 L4 还原保留层）。
 
 命名与参数形状不在本页裁定：公共 API 命名遵循 [`AHK-TS-WINDOWS-API-DESIGN.md`](../AHK-TS-WINDOWS-API-DESIGN.md) §0 的六个核心设计问题与 [`future-runtime.md`](./future-runtime.md)（stdlib.md 开篇）。本页只登记**判定、证据与语义差异**，不给出 API 形状；AHK 名称仅作能力研究样本与语义核对测试的 oracle（计划 §0.1：不存在 AHK 名称兼容层）。
 
@@ -23,9 +23,9 @@
 
 台账标记：**CB** = `core-builtins.json`，**COV** = `coverage.json`。
 
-### 2.1 `js-native`（64）
+### 2.1 `js-native`（67）
 
-等价式为可直接使用的 TS/ECMAScript 表达式；差异列记录可观察行为不一致处（按 stdlib.md §3：差异集中在错误路径、区域设置或低频参数形态）。本轮按 §6“JS 覆盖不了的语义能力”严格复判，把原 18 项还原保留候选中的 8 项——`Mod`、`Random`、`InStr`、`SubStr`、`StrTitle`、`Type`、`StrReplace`、`StrSplit`——改判入本表：等价式已覆盖其核心语义与已核验的边界情形，残余差异逐项记在差异列（复判过程见 §3）。再经 M3 显式 API 盘点（源码核验 `DoKeyDelay`/`DoMouseDelay` 只在 SendEvent 模式生效等），`SetKeyDelay`/`SetMouseDelay`/`SetDefaultMouseSpeed`/`SetStoreCapsLockMode`/`ListVars` 5 项从“待实现显式 API”改判本表——现状即等价行为，零代码。
+等价式为可直接使用的 TS/ECMAScript 表达式；差异列记录可观察行为不一致处（按 stdlib.md §3：差异集中在错误路径、区域设置或低频参数形态）。本轮按 §6“JS 覆盖不了的语义能力”严格复判，把原 18 项还原保留候选中的 8 项——`Mod`、`Random`、`InStr`、`SubStr`、`StrTitle`、`Type`、`StrReplace`、`StrSplit`——改判入本表：等价式已覆盖其核心语义与已核验的边界情形，残余差异逐项记在差异列（复判过程见 §3）。再经 M3 显式 API 盘点（源码核验 `DoKeyDelay`/`DoMouseDelay` 只在 SendEvent 模式生效等），`SetKeyDelay`/`SetMouseDelay`/`SetDefaultMouseSpeed`/`SetStoreCapsLockMode`/`ListVars` 5 项从“待实现显式 API”改判本表——现状即等价行为，零代码。批 4 再判 3 项入本表：`SetControlDelay`/`SetWinDelay`（无隐式延迟可言——窗口/automation 操作的等待由 per-call `deadlineMs` 预算与结果往返表达，`engine/win32/src/window.cpp` 零 `Sleep`，盲等只该写成显式 `runtime.delay`）与 `IsLabel`（label 概念不存在；命名查询由 `runtime.inspect().functions` 与 `input.listHotkeys()` 覆盖）。
 
 | 函数 | 台账 | 等价 TS 表达式 | 可观察差异 | 证据 |
 |---|---|---|---|---|
@@ -50,6 +50,7 @@
 | `IsDigit` | CB | `/^[0-9]*$/.test(s)` | 仅 ASCII 数字（script2.cpp:2166-2174）；空串记 true；Locale 不影响本项 | `script2.cpp:2086` |
 | `IsFloat` | CB | `typeof v === "number" ? !Number.isInteger(v) : (/\./.test(v) && !Number.isNaN(Number(v)))` | AHK 按 token 区分：浮点 token 即 true、1.0 这类整数值浮点为 Integer 判 false（script2.cpp:2109-2119）；JS 单一 number 无此区分；字符串走 IsNumeric==PURE_FLOAT（2157-2158，需含小数点），表达式同为“含小数点且可解析”，`1e3` 这类纯指数串两端判定可能不一致 | `script2.cpp:2086` |
 | `IsInteger` | CB | `typeof v === "number" ? Number.isInteger(v) : /^[+-]?\d+$/.test(v)` | AHK 对浮点 token 恒判 false，含 1.0（script2.cpp:2115-2119）而 Number.isInteger(1.0) 为 true；字符串走 IsNumeric(allowFloat=false)（2154-2155，接受 0x 十六进制），JS 正则不含 0x | `script2.cpp:2086` |
+| `IsLabel` | COV | `JSON.parse(runtime.inspect()).functions.includes(name)`（hotkey/hotstring 名另用 `input.listHotkeys().rows` 查询） | AHK label 是脚本内命名跳转目标（计划 §0.1 不实现该语言）；inspect 的 `functions` 只列 globalThis 函数，订阅注册表按 `kind#id` 无名（subscriptions.cpp:44-52）无法按名查——仅函数与 hotkey 两类可判定 | `lib/functions.h:160` |
 | `IsLower` | CB | `/^[a-z]*$/.test(s)` | 空串记 true（script2.cpp:2215-2223）；Locale 分支走 IsCharLower（2218）；纯数字参数 AHK 抛 Type 错 | `script2.cpp:2086` |
 | `IsNumber` | CB | `typeof v === "number" ? true : (String(v).trim() !== "" && Number.isFinite(Number(v)))` | AHK 字符串走 IsNumeric（script2.cpp:2151-2152 → util.cpp:326-372）：允许前导空白、接受 0x 十六进制、拒绝 0b/0o 与中缀空格；JS Number() 更宽松（0b11、尾随空白也可）。空串 AHK 记 false，表达式已排除 | `script2.cpp:2086` |
 | `IsObject` | CB | `v !== null && ["object", "function"].includes(typeof v)` | AHK 把 ComObject/Func 等 IObject 全判 true（script_object_bif.cpp:42-45）；表达式含 function（class 同为 function）；null/undefined 两端均判 false | `script_object_bif.cpp:42` |
@@ -75,10 +76,12 @@
 | `Props` | CB | `function* (o) { for (const k in o) yield [k, o[k]]; }` | AHK 沿基类链逐层枚举并按名排序、跳过 NoEnumGet/无 getter 的属性（script_object.cpp:3311-3364），且可对原始值枚举其值原型（script_object_bif.cpp:226-249）；JS for-in 按插入序、只给 enumerable 名 | `script_object_bif.cpp:226` |
 | `Random` | CB | `Math.min(a,b) + Math.floor(Math.random() * (Math.abs(a-b) + 1))（整型闭区间）；Math.min(a,b) + Math.random() * Math.abs(a-b)（浮点）；Math.random()（无参）` | 闭区间与参数宽容度可由参数调整覆盖：min>max 自动交换、单参等价 (0,n)、无参返回 [0,1) 浮点（math.cpp:322-330/346-349），浮点式与 AHK 的 53-bit 构造 (rand>>11)/2^53*range+min（math.cpp:338）同构；残余差异：AHK 用 OS CSPRNG 并做拒绝采样保证均匀（math.cpp:326-370），Math.random 是非加密 PRNG 且有 ≤1/2^53 量级模偏差；范围超过 2^53 时表达式精度不足；整型/浮点需按参数选式（AHK 按是否含小数点自动分流，math.cpp:317-320） | `lib/math.cpp:312` |
 | `RTrim` | CB | `s.replace(/[\t ]+$/, "")` | 同 LTrim | `lib/string.cpp:1540` |
+| `SetControlDelay` | COV | 无代码（删除调用）：automation 操作的等待由每调用 `deadlineMs` 预算与结果往返表达，不存在可调的隐式延迟 | 移植脚本删除该调用；依赖隐式 Sleep 节奏的交互改为显式 `runtime.delay` 或重试轮询；AHK 默认值（-1/10ms）与“控制类消息后的固定等待”无对应物，源码零 Sleep（uia_service 只有带谓词的 cv wait） | `lib/functions.h:258` |
 | `SetDefaultMouseSpeed` | COV | `mouse.move(x, y, { speed })` 按调用传参 | AHK 是进程级默认（vars.cpp:68-75），我们的设计禁隐式全局（stdlib.md §2，speed 本就是每调用参数）；speed 与 AHK SendInput 一样注入时忽略（keyboard_mouse.cpp:2476-2478 ↔ input.ts:84-91），默认值 2 恒等 | `lib/vars.cpp:68` |
 | `SetKeyDelay` | COV | 无代码：`keyboard.send` 恒为一个 SendInput 批（input.ts:682） | AHK DoKeyDelay 在非 SendEvent 模式直接返回（keyboard_mouse.cpp:2865-2878），本设置对 SendInput 本就是 no-op；差异：Rime 尚无 SendEvent 执行器，若未来实现需回到调度策略统一设计（计划 §M3） | `lib/keyboard_mouse.cpp:2865` |
 | `SetMouseDelay` | COV | 同 `SetKeyDelay` | DoMouseDelay 同样只在 SendEvent 模式 sleep（keyboard_mouse.cpp:2882-2896） | `lib/keyboard_mouse.cpp:2882` |
 | `SetStoreCapsLockMode` | COV | 无代码：Rime 固定“从不预切换 CapsLock”偏差已入档（send.ts:36） | AHK 默认 store-on：Send 前压低 CapsLock、结束后恢复（keyboard_mouse.cpp:413-416, 985-986）；Rime 从不切换，store-on/off 两模式下可观测行为一致，恢复分支必然真空 | `sdk/src/send.ts:36` |
+| `SetWinDelay` | COV | 无代码（删除调用）：窗口操作已是 deadline + UI 往返（window_executor.cpp:215-219 逐段重算预算），不是“发完睡 N 毫秒” | 同 SetControlDelay；依赖窗口消息节奏的脚本改显式 `runtime.delay`；AHK 每次 Win 调用后的隐式 sleep 无对应物（`engine/win32/src/window.cpp` 零 `Sleep`） | `lib/functions.h:270` |
 | `Sin` | CB | `Math.sin(v)` | 同 Cos | `lib/math.cpp:215` |
 | `Sqrt` | CB | `Math.sqrt(v)` | v<0 AHK 抛参数错（math.cpp:292-294），JS 得 NaN；非数值 AHK 按 0 得 0，JS 得 NaN | `lib/math.cpp:288` |
 | `StrCompare` | CB | `a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0` | 默认大小写不敏感 = _tcsicmp（string.cpp:1162/1180）；CaseSense=Locale/Logical 走 lstrcmpi/StrCmpLogicalW（1181-1182）无 JS 等价；非 ASCII 折叠规则与 _tcsicmp 有边缘差异 | `lib/string.cpp:1159` |
@@ -95,11 +98,11 @@
 | `Type` | CB | `v === undefined ? 'unset' : typeof v === 'string' ? 'String' : typeof v === 'number' ? (Number.isInteger(v) ? 'Integer' : 'Float') : typeof v === 'bigint' ? 'Integer' : (v?.constructor?.name ?? 'Object')` | 三段映射与 TokenTypeString（script2.cpp:3099-3121）一致：String/Integer/Float/对象类名/unset（无参调用即 undefined→unset）；残余差异：JS 只有 IEEE double，整数值的 Float（如 3.0）报 Integer 而 AHK 报 Float——token 类型在 L0 已丢失，专属函数同样无法恢复；函数报 Function 而 AHK 报 Func/Closure/BoundFunc；BigInt 报 Integer（AHK 对应 int64）；null 与 symbol 无 AHK 对应物 | `script2.cpp:3099` |
 
 
-### 2.2 `contract-only`（28；另 21 项已实现，见 §2.2.2 与本节注记）
+### 2.2 `contract-only`（23；另 22 项已实现，见 §2.2.2 与本节注记）
 
-过渡态，不计终态（stdlib.md §3）。本节现为 28 项常规能力，按 L2 模块归属排期；原 44 + 10 的 54 项中，10 项 L4 还原保留已实现并流转 `implemented`（§2.2.2 注记），5 项（`ListVars`/`SetKeyDelay`/`SetMouseDelay`/`SetDefaultMouseSpeed`/`SetStoreCapsLockMode`）经 M3 盘点改判 §2.1 `js-native`，3 项（`OutputDebug`/`SetWorkingDir`/`GetKeySC`）经批 2 绑定实现流转 `implemented`（`runtime.debug`/`runtime.cwd`+`runtime.setCwd`/`input.getKeySC`，测试 `tests/js/runtime_smoke.cpp`+`tests/js/input_slice.cpp`），3 项（`GetKeyVK`/`GetKeyName`/`ListHotkeys`）经批 3 输入映射实现流转 `implemented`（`input.getKeyVK`/`input.getKeyName` 含共享语法 `scNNN` 扩展、`input.listHotkeys` 注册表读出，测试 `tests/js/input_slice.cpp`+`tests/js/events_slice.cpp`），3 项（`SetCapsLockState`/`SetNumLockState`/`SetScrollLockState`）经批 3 锁键状态实现流转 `implemented`（`keyboard.setLockState` 编排 + 原生 `input.setLockForce` force-toggle 抑制，测试 `tests/js/input_slice.cpp`+`tests/sdk/keyboard-lock.test.ts`），2 项（`Exit`/`ExitApp`）经批 4 宿主生命周期实现流转 `implemented`（`runtime.exit(code?)` 单一 API——无线程可退故两名合一，同步 throw 解卷当前 turn、settle 提前返回、onExit 以 `{reason:"exit",code}` 排空、入口返回码；测试 `tests/js/runtime_smoke.cpp`+`tests/js/js_bundle.cpp`），表列均留原处以保持分类研究原貌。
+过渡态，不计终态（stdlib.md §3）。本节现为 23 项常规能力，按 L2 模块归属排期；原 44 + 10 的 54 项中，10 项 L4 还原保留已实现并流转 `implemented`（§2.2.2 注记），5 项（`ListVars`/`SetKeyDelay`/`SetMouseDelay`/`SetDefaultMouseSpeed`/`SetStoreCapsLockMode`）经 M3 盘点改判 §2.1 `js-native`，3 项（`OutputDebug`/`SetWorkingDir`/`GetKeySC`）经批 2 绑定实现流转 `implemented`（`runtime.debug`/`runtime.cwd`+`runtime.setCwd`/`input.getKeySC`，测试 `tests/js/runtime_smoke.cpp`+`tests/js/input_slice.cpp`），3 项（`GetKeyVK`/`GetKeyName`/`ListHotkeys`）经批 3 输入映射实现流转 `implemented`（`input.getKeyVK`/`input.getKeyName` 含共享语法 `scNNN` 扩展、`input.listHotkeys` 注册表读出，测试 `tests/js/input_slice.cpp`+`tests/js/events_slice.cpp`），3 项（`SetCapsLockState`/`SetNumLockState`/`SetScrollLockState`）经批 3 锁键状态实现流转 `implemented`（`keyboard.setLockState` 编排 + 原生 `input.setLockForce` force-toggle 抑制，测试 `tests/js/input_slice.cpp`+`tests/sdk/keyboard-lock.test.ts`），2 项（`Exit`/`ExitApp`）经批 4 宿主生命周期实现流转 `implemented`（`runtime.exit(code?)` 单一 API——无线程可退故两名合一，同步 throw 解卷当前 turn、settle 提前返回、onExit 以 `{reason:"exit",code}` 排空、入口返回码；测试 `tests/js/runtime_smoke.cpp`+`tests/js/js_bundle.cpp`），5 项经批 4 改判（`CoordMode` 实现流转 `implemented`——mouse per-call `coords`/`window` 选项经 `rime:window` 原点偏移，测试 `tests/sdk/coord-mode.test.ts`；`SetControlDelay`/`SetWinDelay`/`IsLabel` 改判 §2.1 `js-native`；`Pause` 改判 §2.4 `unsupported-by-policy`），表列均留原处以保持分类研究原貌。
 
-#### 2.2.1 常规能力（28）
+#### 2.2.1 常规能力（23）
 
 目标模块按 stdlib.md §1 L2 命名（`fs`/`registry` 由台账 `@rime/storage` 改名），计划阶段取自 `AHK99-IMPLEMENTATION-PLAN.md`。
 
@@ -166,7 +169,7 @@
 | `VerCompare` | CB | 表达式不可靠：AHK 版本比较是分段算法（数字段与字母段切分、rc/beta 顺序经 VersionSatisfies 落地，string.cpp:1567-1572），单表达式无法同时表达分段、进制解析与大小写规则，Intl.Collator 也不等价 | ~40 行 | `lib/string.cpp:1567` |
 
 
-### 2.3 `implemented`（26：5 项既有 + §2.2.2 的 10 项 + 批 2 的 3 项 + 批 3 的 6 项（输入映射 3 + 锁键状态 3）+ 批 4 的 2 项，行留原节）
+### 2.3 `implemented`（27：5 项既有 + §2.2.2 的 10 项 + 批 2 的 3 项 + 批 3 的 6 项（输入映射 3 + 锁键状态 3）+ 批 4 的 3 项（Exit/ExitApp + CoordMode），行留原节）
 
 | AHK 函数 | 台账 | 服务表面（模块） | 改名/语义注记 | contract test |
 |---|---|---|---|---|
@@ -177,7 +180,7 @@
 | `WinExist` | CB | `@rime/window` | 服务表面 window.exists(query)（sdk/src/window.ts:665，枚举到首个匹配即停）；同 WinActive 的 HWND→boolean 与 WinTitle→WindowQuery 改名 | `tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp` |
 
 
-### 2.4 `unsupported-by-policy`（20）
+### 2.4 `unsupported-by-policy`（21）
 
 | 函数 | 台账 | 理由 | 等价物 / 替代路径 | 证据 |
 |---|---|---|---|---|
@@ -195,6 +198,7 @@
 | `ObjPtrAddRef` | CB | stdlib.md §5.1：地址 + 引用计数 | 不提供 | `script_object_bif.cpp:114` |
 | `ObjRelease` | CB | stdlib.md §5.1：显式释放引用 | JS GC 自动管理 | `script_object_bif.cpp:68` |
 | `ObjSetCapacity` | CB | stdlib.md §5 第 4 条（裸内存与引擎布局互操作）：重新分配对象字段数组容量（script_object.cpp:1972-1995），暴露引擎内部布局 | 同 ObjGetCapacity | `script_object.cpp:1972` |
+| `Pause` | COV | stdlib.md §5.3：AHK 伪线程挂起模型（Pause 挂起脚本线程执行）与 `Critical`/`Thread` 同族——无伪线程的架构里“整脚本停摆”无法定义为脚本可变状态 | hotkey/hotstring 分发用 `input.suspend`（events_module 分发挡板）；timer 用取消/清除；整体不响应属宿主生命周期策略（计划 §M3 第三条与 `Persistent` 一起归 HostLifecycle） | `script.cpp:12468` |
 | `SoundGetInterface` | CB | stdlib.md §5.1：返回裸 COM 接口指针（sound.cpp:292 的 GetInterface 族） | 按能力暴露的 SoundGet/Set 高层读写（M5） | `lib/sound.cpp:292` |
 | `StrGet` | CB | stdlib.md §5.4：按地址读字符串缓冲 | TypedArray/TextDecoder 解码 | `lib/interop.cpp:242` |
 | `StrPtr` | CB | stdlib.md §5.4：暴露字符串缓冲地址 | 不提供 | `lib/interop.cpp:577` |
@@ -220,11 +224,11 @@
 
 ## 5. 分批与计划对齐注记
 
-- **M3（纯 JS 快铺）**：64 项 `js-native`（等价式与差异入档，零专属代码）排在 M3；10 项 L4 还原保留**已实现**（`sdk/src/runtime-language.ts` + `tests/sdk/runtime-language.test.ts`，命名提案见计划 §M3，残留清单见本页 §3 报告注记）；`contract-only` 中的 `SetControlDelay`/`SetWinDelay`/`CoordMode`/`Exit`/`ExitApp`/`Reload`/`Pause`/`Persistent`（计划 §M3 第三条；`SetKeyDelay`/`SetMouseDelay`/`ListVars` 等 5 项已改判 §2.1 `js-native`，`OutputDebug`/`SetWorkingDir` 已由批 2 绑定实现）同属 M3 的显式 API/HostLifecycle 映射；`GetKeyVK`/`GetKeyName`/`ListHotkeys`/`Set*LockState` 归 `@rime/input` 的 M3 输入映射（`GetKeySC` 已由批 2、`GetKeyVK`/`GetKeyName`/`ListHotkeys` 已由批 3 实现）。
+- **M3（纯 JS 快铺）**：67 项 `js-native`（等价式与差异入档，零专属代码）排在 M3；10 项 L4 还原保留**已实现**（`sdk/src/runtime-language.ts` + `tests/sdk/runtime-language.test.ts`，命名提案见计划 §M3，残留清单见本页 §3 报告注记）；`contract-only` 中的 `Reload`/`Persistent`（计划 §M3 第三条）仍属 M3 的显式 API/HostLifecycle 映射待实现（批 4 已分流：`SetControlDelay`/`SetWinDelay`/`IsLabel` 改判 §2.1 `js-native`、`CoordMode` 与 `Exit`/`ExitApp` 实现、`Pause` 判 §2.4；`SetKeyDelay`/`SetMouseDelay`/`ListVars` 等 5 项 M3 盘点早已改判 §2.1，`OutputDebug`/`SetWorkingDir` 已由批 2 绑定实现）；`GetKeyVK`/`GetKeyName`/`ListHotkeys`/`Set*LockState` 归 `@rime/input` 的 M3 输入映射（批 2/3 已全部实现）。
 - **M4**：`FileOpen`（fs service + `File` 对象）、`Reg*` 5 项 + `SetRegView`（registry service，计划 line 105 点名）。
 - **M5**：`Sound*` 5 项（winmm，计划 line 112）。
 - **M7**：`PostMessage`（Control 三层执行的 Win32 消息层）。
-- **M8**：`ComObj*` 7 项（audit-gaps 的 COM/VARIANT 边界）+ 20 项 `unsupported-by-policy` 的拒绝行为测试与替代路径文档（计划 line 131）。
+- **M8**：`ComObj*` 7 项（audit-gaps 的 COM/VARIANT 边界）+ 21 项 `unsupported-by-policy` 的拒绝行为测试与替代路径文档（计划 line 131）。
 - **判定已定案（stdlib.md 修订后口径，无遗留冲突）**：
   1. `Critical`/`Thread` = `unsupported-by-policy`，引用 stdlib.md §5 第 3 条（隐式伪线程/抢占模型）；替代物为集中式 SchedulerPolicy 与 Action 临界区。计划 §M3 的措辞由 orchestrator 同步修订。
   2. `ComObj*` 7 项 = `contract-only`（M8）：stdlib.md §5 尾注明确其不在黑名单，去向是计划 §0.3 与 audit-gaps 的 COM 边界定档，按隔离插件信任模型处理。
