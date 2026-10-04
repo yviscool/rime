@@ -703,6 +703,50 @@ JSValue input_get_key_state(JSContext* context, JSValueConst, int argc, JSValueC
 
 constexpr std::chrono::milliseconds kKeyWaitPollInterval{25};
 
+// input.getKeySC(keyName): AHK GetKeySC (script2.cpp:2303-2310) - the scan
+// code a key name maps to, or 0 when it maps to none. Name -> vk goes through
+// state_key like getKeyState/keyWait, then MapVirtualKeyW exactly as the
+// injector does (engine/win32/src/input.cpp:712). It reads no input state and
+// no service, so no capability gate: docs/api/coverage.json records it as a
+// runtime-level call. Deviation from AHK: extended keys return the standard
+// 0xE0-prefixed make code (Right = 0xE04D) instead of AHK's internal 0x100
+// flag (0x14D) - the low byte and the extended bit both match the hook's
+// sc04D/E0 prefix - and numpad Enter has no separate name here (enter/return
+// both resolve to VK_RETURN, so 0x1C is returned for both).
+JSValue input_get_key_sc(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                         void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc < 1) return JS_ThrowTypeError(context, "getKeySC(keyName)");
+  if (!JS_IsString(argv[0])) {
+    return JS_ThrowTypeError(context, "getKeySC(keyName): keyName must be a string");
+  }
+  const char* text = JS_ToCString(context, argv[0]);
+  if (!text) return JS_EXCEPTION;
+  const std::string name(text);
+  JS_FreeCString(context, text);
+  std::uint32_t vk = 0;
+  std::string error;
+  if (!state_key(name, vk, error)) {
+    // AHK GetKeySC: an unparseable name has no scan code at all (0), it does
+    // not throw - unlike getKeyState, which reports the name it rejected.
+    return JS_NewUint32(context, 0);
+  }
+  const UINT sc = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
+  if (sc == 0) return JS_NewUint32(context, 0);  // mouse buttons and friends
+  // E0 is part of the make code the hook delivers for these keys; the
+  // right-hand and navigation cluster is a fixed list, not a layout query
+  // (MapVirtualKeyW's E0 high byte comes back layout-dependent).
+  const bool extended = vk == VK_INSERT || vk == VK_DELETE || vk == VK_HOME ||
+                        vk == VK_END || vk == VK_PRIOR || vk == VK_NEXT || vk == VK_LEFT ||
+                        vk == VK_UP || vk == VK_RIGHT || vk == VK_DOWN ||
+                        vk == VK_RCONTROL || vk == VK_RMENU || vk == VK_LWIN ||
+                        vk == VK_RWIN;
+  return JS_NewUint32(context, extended ? (sc | 0xE000u) : sc);
+}
+
 // One keyWait loop: held by shared_ptr through the worker/timer closures,
 // exactly like the window WaitLoop (the Host outlives every armed task).
 // Exactly one terminal path runs - resolve, reject, or CancelById - and
@@ -1027,7 +1071,8 @@ int input_module_init(JSContext* context, JSModuleDef* module) {
       !add("bind", input_bind, 2) || !add("unbind", input_unbind, 1) ||
       !add("send", input_send, 1) || !add("modifiers", input_modifiers, 0) ||
       !add("mouse", input_mouse, 1) || !add("mouseGetPos", input_mouse_get_pos, 1) ||
-      !add("getKeyState", input_get_key_state, 2) || !add("keyWait", input_key_wait, 2) ||
+      !add("getKeyState", input_get_key_state, 2) || !add("getKeySC", input_get_key_sc, 1) ||
+      !add("keyWait", input_key_wait, 2) ||
        !add("blockInput", input_block_input, 2) || !add("keyHistory", input_key_history, 1)) {
     return -1;
   }

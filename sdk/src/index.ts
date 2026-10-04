@@ -34,6 +34,12 @@ export interface RuntimeBridge {
   inspect(): string;
   /** Reads a fresh read-only environment snapshot (modules, tasks, ownership). */
   context(): RuntimeContext;
+  /** Passes text to the debugger (AHK OutputDebug). Returns nothing. */
+  debug(text: string): void;
+  /** Reads the process working directory (AHK A_WorkingDir). */
+  cwd(): string;
+  /** Sets the process working directory (AHK SetWorkingDir). Throws on Win32 failure, leaving the directory unchanged. */
+  setCwd(path: string): void;
 }
 
 export { runtime } from "rime:runtime";

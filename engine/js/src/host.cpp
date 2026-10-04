@@ -5,8 +5,22 @@
 
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <string>
 #include <utility>
+
+// rime:runtime owns the Win32 diagnostics and working-directory calls behind
+// runtime.debug / runtime.cwd / runtime.setCwd (AHK OutputDebug and
+// SetWorkingDir), so windows.h lands in this translation unit. It is kept
+// lean and macro-free here: min/max and the socket/COM surface must not
+// reach the C++ declarations above or the helpers below.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 
 namespace rime::js {
 namespace {
@@ -84,6 +98,117 @@ void call_handler(JSContext* context, JSValue handler, JSValue argument) {
 }
 
 // ---- rime:runtime C module ----
+
+// JS and JSON strings cross every boundary as UTF-8; the Win32 W entry points
+// below want UTF-16. Best-effort conversion, the same rule as
+// engine/win32/src/utf.hpp: oversized or unconvertible input yields an empty
+// wide string instead of truncating mid-sequence.
+std::wstring utf8_to_wide(const std::string& text) {
+  if (text.empty()) return {};
+  if (text.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)())) return {};
+  const int size =
+      MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+  if (size <= 0) return {};
+  std::wstring wide(static_cast<std::size_t>(size), L'\0');
+  if (MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(),
+                          size) == 0) {
+    return {};
+  }
+  return wide;
+}
+
+std::string wide_to_utf8(const std::wstring& wide) {
+  if (wide.empty()) return {};
+  if (wide.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)())) return {};
+  const int size =
+      WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0,
+                          nullptr, nullptr);
+  if (size <= 0) return {};
+  std::string text(static_cast<std::size_t>(size), '\0');
+  if (WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), text.data(),
+                          size, nullptr, nullptr) == 0) {
+    return {};
+  }
+  return text;
+}
+
+// OS failures surface as a plain Error whose message carries the Win32 code,
+// the "X failed (win32 error N)" shape the Win32 services already use
+// (engine/win32/src/window.cpp SetWindowPos/OpenProcess/TerminateProcess).
+JSValue throw_win32_error(JSContext* context, const char* what, unsigned long failure) {
+  return JS_ThrowPlainError(context, "%s failed (win32 error %lu)", what, failure);
+}
+
+// runtime.debug(text): AHK OutputDebug (script2.cpp:2630-2636) hands the text
+// to OutputDebugString and returns nothing; there is no failure mode to
+// report, so the only rejection is argument validation - a non-string (or a
+// missing) argument is a TypeError before any Win32 call, and an empty string
+// passes through exactly like AHK's empty argument.
+JSValue runtime_debug(JSContext* context, JSValueConst, int argc, JSValueConst* argv) {
+  if (argc < 1) return JS_ThrowTypeError(context, "debug(text)");
+  if (!JS_IsString(argv[0])) {
+    return JS_ThrowTypeError(context, "debug(text): text must be a string");
+  }
+  const char* raw = JS_ToCString(context, argv[0]);
+  if (!raw) return JS_EXCEPTION;
+  const std::string text(raw);
+  JS_FreeCString(context, raw);
+  // The W entry point keeps non-ASCII text intact, where OutputDebugStringA
+  // would round-trip it through the active ANSI code page.
+  const std::wstring wide = utf8_to_wide(text);
+  OutputDebugStringW(wide.c_str());
+  return JS_UNDEFINED;
+}
+
+// runtime.cwd(): the live process working directory as UTF-8. AHK's
+// A_WorkingDir reads GetCurrentDirectory on every access (vars.cpp:900-907),
+// so there is no cached copy that could go stale here either.
+JSValue runtime_cwd(JSContext* context, JSValueConst, int, JSValueConst*) {
+  // Reading is two calls - size probe, then copy - and the directory is
+  // process-global, so it can grow between them. The buffer therefore grows
+  // until a copy fits; four attempts bound the loop far past any realistic
+  // churn, and exhaustion reports ERROR_INSUFFICIENT_BUFFER honestly.
+  std::wstring buffer(260, L'\0');  // MAX_PATH, the usual case
+  for (int attempt = 0; attempt < 4; ++attempt) {
+    const DWORD written =
+        GetCurrentDirectoryW(static_cast<DWORD>(buffer.size()), buffer.data());
+    if (written == 0) return throw_win32_error(context, "GetCurrentDirectoryW", GetLastError());
+    if (written < buffer.size()) {
+      buffer.resize(written);
+      return JS_NewString(context, wide_to_utf8(buffer).c_str());
+    }
+    // Only a too-small buffer gets here, and then `written` is the required
+    // size including the terminator: grow to it and copy again.
+    buffer.assign(static_cast<std::size_t>(written), L'\0');
+  }
+  return throw_win32_error(context, "GetCurrentDirectoryW", ERROR_INSUFFICIENT_BUFFER);
+}
+
+// runtime.setCwd(path): AHK SetWorkingDir (script2.cpp:1439-1490). The "C:"
+// drive-root fixup is applied up front exactly like AHK (a bare "C:" would
+// otherwise mean "current directory on C:"); a failed SetCurrentDirectory
+// throws and leaves the directory unchanged; success returns nothing (AHK OK).
+JSValue runtime_set_cwd(JSContext* context, JSValueConst, int argc, JSValueConst* argv) {
+  if (argc < 1) return JS_ThrowTypeError(context, "setCwd(path)");
+  if (!JS_IsString(argv[0])) {
+    return JS_ThrowTypeError(context, "setCwd(path): path must be a string");
+  }
+  const char* raw = JS_ToCString(context, argv[0]);
+  if (!raw) return JS_EXCEPTION;
+  const std::string path(raw);
+  JS_FreeCString(context, raw);
+
+  // AHK script2.cpp:1456-1464: a two-character "X:" becomes "X:\".
+  std::wstring wide = path.size() == 2 && path[1] == ':' ? utf8_to_wide(path + "\\")
+                                                         : utf8_to_wide(path);
+  if (wide.empty() && !path.empty()) {
+    return JS_ThrowTypeError(context, "setCwd(path): path is not valid UTF-8");
+  }
+  if (!SetCurrentDirectoryW(wide.c_str())) {
+    return throw_win32_error(context, "SetCurrentDirectoryW", GetLastError());
+  }
+  return JS_UNDEFINED;
+}
 
 JSValue runtime_ping(JSContext* context, JSValueConst, int, JSValueConst*) {
   return JS_NewString(context, "pong");
@@ -217,7 +342,10 @@ int runtime_module_init(JSContext* context, JSModuleDef* module) {
       !set("subscribe", JS_NewCFunction(context, runtime_subscribe, "subscribe", 1)) ||
       !set("unsubscribe", JS_NewCFunction(context, runtime_unsubscribe, "unsubscribe", 1)) ||
       !set("inspect", JS_NewCFunction(context, runtime_inspect, "inspect", 0)) ||
-      !set("context", JS_NewCFunction(context, runtime_context, "context", 0))) {
+      !set("context", JS_NewCFunction(context, runtime_context, "context", 0)) ||
+      !set("debug", JS_NewCFunction(context, runtime_debug, "debug", 1)) ||
+      !set("cwd", JS_NewCFunction(context, runtime_cwd, "cwd", 0)) ||
+      !set("setCwd", JS_NewCFunction(context, runtime_set_cwd, "setCwd", 1))) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "runtime", object);

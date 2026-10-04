@@ -700,6 +700,50 @@ int main() {
       "  throw new Error('getKeyState must return a boolean');",
       "input-getkeystate-check.mjs");
 
+  // getKeySC (AHK GetKeySC, script2.cpp:2303-2310): unparseable names and
+  // mouse buttons yield 0 instead of throwing, extended keys carry the 0xE0
+  // high byte, and the letter anchors assume the standard US layout that
+  // this suite already runs on (AHK resolves the same layout-dependent codes).
+  run(runtime,
+      "import { input } from 'rime:input';\n"
+      "globalThis.scErrors = {};\n"
+      "const expectSc = (name, fn) => {\n"
+      "  try { fn(); } catch (e) { globalThis.scErrors[name] = e instanceof TypeError; }\n"
+      "};\n"
+      "expectSc('arity', () => input.getKeySC());\n"
+      "expectSc('notString', () => input.getKeySC(42));\n"
+      "globalThis.sc = {\n"
+      "  a: input.getKeySC('a'),\n"
+      "  A: input.getKeySC('A'),\n"
+      "  b: input.getKeySC('b'),\n"
+      "  f1: input.getKeySC('f1'),\n"
+      "  right: input.getKeySC('right'),\n"
+      "  insert: input.getKeySC('insert'),\n"
+      "  rcontrol: input.getKeySC('rcontrol'),\n"
+      "  unknown: input.getKeySC('notakey'),\n"
+      "  empty: input.getKeySC('')\n"
+      "};\n",
+      "input-getkeysc.mjs");
+  run(runtime,
+      "const errors = globalThis.scErrors;\n"
+      "if (!errors.arity || !errors.notString)\n"
+      "  throw new Error('getKeySC must reject non-string names with a TypeError');\n"
+      "const sc = globalThis.sc;\n"
+      "if (sc.unknown !== 0 || sc.empty !== 0)\n"
+      "  throw new Error('getKeySC must map unparseable names to 0: ' + JSON.stringify(sc));\n"
+      "if (sc.f1 !== 59)\n"
+      "  throw new Error('F1 must be scan 59 (layout independent): ' + sc.f1);\n"
+      "if (sc.a !== 30 || sc.A !== 30 || sc.a === sc.b)\n"
+      "  throw new Error('letter codes must be US-layout stable and case-insensitive: ' +\n"
+      "                  JSON.stringify(sc));\n"
+      "for (const key of ['right', 'insert', 'rcontrol']) {\n"
+      "  if ((sc[key] & 0xE000) !== 0xE000)\n"
+      "    throw new Error(key + ' must carry the E0 extended byte: 0x' +\n"
+      "                    sc[key].toString(16));\n"
+      "}\n"
+      "if (typeof sc.a !== 'number') throw new Error('getKeySC must return a number');",
+      "input-getkeysc-check.mjs");
+
   // A real hold: physical and logical both read the held F24 as down, and
   // both clear again after the release. waitFor polls on the JS lane, so
   // this also exercises reading while the lane is alive.

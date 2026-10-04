@@ -418,6 +418,14 @@ export interface InputBridge {
    */
   getKeyState(keyName: string, mode?: KeyStateMode): boolean;
   /**
+   * Reads a key's scan code (`GetKeySC`): the name goes through the same
+   * grammar as `getKeyState`, then `MapVirtualKeyW`; extended keys carry the
+   * `0xE0` high byte (Right = 0xE04D instead of AHK's internal 0x100 flag).
+   * Returns 0 for unparseable names and mouse buttons (AHK returns 0 too).
+   * Synchronous: TypeError for a non-string name; no capability gate.
+   */
+  getKeySC(keyName: string): number;
+  /**
    * Waits for a key to reach a state (`KeyWait`): release by default,
    * `down: true` for a press, physical by default. Resolves `true` once
    * satisfied; rejects `{ code: "timeout" }` after `deadlineMs` (default

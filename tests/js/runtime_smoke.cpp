@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <filesystem>
 #include <string>
 #include <thread>
 
@@ -88,6 +89,97 @@ void test_context() {
       "  throw new Error('cancellation not released');",
       "context.js");
   assert(context_task.get().ok());
+
+  assert(runtime.stop().ok());
+}
+
+void test_debug_and_cwd() {
+  rime::js::Runtime runtime;
+  assert(runtime.start().ok());
+
+  // runtime.debug mirrors AHK OutputDebug (script2.cpp:2630-2636): it returns
+  // nothing, hands any string - the empty one included - to OutputDebugString,
+  // and rejects every other value with a TypeError before it reaches Win32.
+  // The debugger sink itself cannot be observed from this process, so the
+  // contract is what gets pinned here.
+  auto debug_task = runtime.evaluate_module(
+      "import { runtime } from 'rime:runtime';\n"
+      "if (runtime.debug('rime debug smoke') !== undefined)\n"
+      "  throw new Error('debug must return nothing');\n"
+      "runtime.debug('');\n"
+      "const bad = [];\n"
+      "for (const value of [undefined, null, 1, {}, []]) {\n"
+      "  try { runtime.debug(value); } catch (error) { bad.push(error); }\n"
+      "}\n"
+      "try { runtime.debug(); } catch (error) { bad.push(error); }\n"
+      "if (bad.length !== 6)\n"
+      "  throw new Error('debug must reject every non-string: ' + bad.length);\n"
+      "for (const error of bad)\n"
+      "  if (!(error instanceof TypeError))\n"
+      "    throw new Error('debug rejection must be a TypeError: ' + error);\n",
+      "debug.js");
+  assert(debug_task.get().ok());
+
+  // cwd/setCwd move the process-global working directory, so this segment
+  // owns a private child directory and puts the original one back itself: the
+  // guard restores on every exit, the script below covers the happy path, and
+  // the final comparison proves the process is where ctest left it.
+  namespace fs = std::filesystem;
+  const fs::path original = fs::current_path();
+  const std::string dir_name = "rime-cwd-smoke";
+  fs::remove_all(original / dir_name);  // a crashed run must not block this one
+  assert(fs::create_directory(original / dir_name));
+  struct CwdGuard {
+    fs::path original;
+    std::string dir_name;
+    ~CwdGuard() {
+      // Restore before removing: Windows refuses to delete a directory that
+      // is the current directory, and the directory has to go away whether
+      // the assertions below passed or threw.
+      std::error_code ignored;
+      fs::current_path(original, ignored);
+      fs::remove_all(original / dir_name, ignored);
+    }
+  } guard{original, dir_name};
+
+  auto cwd_task = runtime.evaluate_module(
+      "import { runtime } from 'rime:runtime';\n"
+      "const name = '" +
+      dir_name +
+      "';\n"
+      "const original = runtime.cwd();\n"
+      "if (typeof original !== 'string' || original.length === 0)\n"
+      "  throw new Error('cwd must return the process working directory');\n"
+      "runtime.setCwd(name);\n"
+      "const inside = runtime.cwd();\n"
+      "const expected = original.endsWith('\\\\') ? original + name : original + '\\\\' + name;\n"
+      "if (inside.toLowerCase() !== expected.toLowerCase())\n"
+      "  throw new Error('setCwd/cwd round trip: ' + inside + ' != ' + expected);\n"
+      // A missing child throws a plain Error naming the Win32 code and leaves
+      // the directory exactly where it was (AHK SetWorkingDir's failure path).
+      "let missing = null;\n"
+      "try { runtime.setCwd(inside + '\\\\absent-child'); } catch (error) { missing = error; }\n"
+      "if (missing === null || missing instanceof TypeError)\n"
+      "  throw new Error('setCwd must throw an Error for a missing directory');\n"
+      "if (String(missing.message).indexOf('win32 error') < 0)\n"
+      "  throw new Error('setCwd failure must name the Win32 code: ' + missing.message);\n"
+      "if (runtime.cwd().toLowerCase() !== inside.toLowerCase())\n"
+      "  throw new Error('failed setCwd must leave the directory unchanged');\n"
+      // AHK SetWorkingDir resolves a bare 'C:' to 'C:\\' (script2.cpp:1456-1464).
+      "if (original.length >= 2 && original[1] === ':') {\n"
+      "  const drive = original[0] + ':';\n"
+      "  runtime.setCwd(drive);\n"
+      "  const root = runtime.cwd();\n"
+      "  if (root.toLowerCase() !== drive.toLowerCase() + '\\\\')\n"
+      "    throw new Error('bare drive did not resolve to its root: ' + root);\n"
+      "}\n"
+      "if (runtime.setCwd(original) !== undefined)\n"
+      "  throw new Error('setCwd must return nothing');\n"
+      "if (runtime.cwd() !== original)\n"
+      "  throw new Error('setCwd(original) did not restore: ' + runtime.cwd());\n",
+      "cwd.js");
+  assert(cwd_task.get().ok());
+  assert(fs::current_path().wstring() == original.wstring());
 
   assert(runtime.stop().ok());
 }
@@ -203,6 +295,7 @@ void test_host_abi() {
 int main() {
   test_threaded_runtime();
   test_context();
+  test_debug_and_cwd();
   test_busy_loop_interrupt();
   test_host_abi();
   return 0;
