@@ -426,6 +426,27 @@ export interface InputBridge {
    */
   getKeySC(keyName: string): number;
   /**
+   * Reads a key's virtual key code (`GetKeyVK`): the name goes through the
+   * same grammar as `getKeyState` — chord tokens, modifier/mouse names,
+   * `vkXX` hex, and the `scNNN` scan-code form — and resolves to its VK.
+   * Returns 0 for names that do not parse or map to no VK (AHK returns 0
+   * too); mouse buttons keep their VK values. Synchronous: TypeError for a
+   * non-string name; no capability gate (it reads no input state).
+   */
+  getKeyVK(keyName: string): number;
+  /**
+   * Reads a key's canonical name (`GetKeyName`): any accepted spelling
+   * (`F1`, `vk41`, `sc01e`, ...) resolves through the same grammar as
+   * `getKeyState` and returns the lowercase input-grammar token for its VK —
+   * `getKeyState(getKeyName(x))` accepts the result again. Returns `""` for
+   * names that do not parse and for VKs no token names (AHK returns its
+   * display-table name instead — `Escape`, `LControl`, or the unshifted
+   * character for punctuation — and `vkNN` for unknown codes; we keep one
+   * canonical spelling that round-trips). Synchronous: TypeError for a
+   * non-string name; no capability gate.
+   */
+  getKeyName(keyName: string): string;
+  /**
    * Waits for a key to reach a state (`KeyWait`): release by default,
    * `down: true` for a press, physical by default. Resolves `true` once
    * satisfied; rejects `{ code: "timeout" }` after `deadlineMs` (default

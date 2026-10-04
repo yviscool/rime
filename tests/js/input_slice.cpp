@@ -744,6 +744,164 @@ int main() {
       "if (typeof sc.a !== 'number') throw new Error('getKeySC must return a number');",
       "input-getkeysc-check.mjs");
 
+  // --- M3: getKeyVK / getKeyName ---
+
+  // getKeyVK mirrors AHK GetKeyVK: every spelling the shared grammar accepts
+  // resolves to its VK (chord tokens, case-insensitive names, vkXX and the
+  // scNNN scan-code form), unparseable names fall to 0 instead of throwing,
+  // and only a non-string argument is a TypeError. The sc anchors assume the
+  // same standard layout the getKeySC anchors above already rely on.
+  run(runtime,
+      "import { input } from 'rime:input';\n"
+      "globalThis.vkErrors = {};\n"
+      "const expectVk = (name, fn) => {\n"
+      "  try { fn(); } catch (e) { globalThis.vkErrors[name] = e instanceof TypeError; }\n"
+      "};\n"
+      "expectVk('arity', () => input.getKeyVK());\n"
+      "expectVk('notString', () => input.getKeyVK(42));\n"
+      "expectVk('nullName', () => input.getKeyVK(null));\n"
+      "globalThis.vk = {\n"
+      "  a: input.getKeyVK('a'),\n"
+      "  upper: input.getKeyVK('A'),\n"
+      "  f1: input.getKeyVK('F1'),\n"
+      "  escape: input.getKeyVK('escape'),\n"
+      "  vk1b: input.getKeyVK('vk1b'),\n"
+      "  lbutton: input.getKeyVK('lbutton'),\n"
+      "  ctrl: input.getKeyVK('ctrl'),\n"
+      "  right: input.getKeyVK('right'),\n"
+      "  m: input.getKeyVK('m'),\n"
+      "  pause: input.getKeyVK('pause'),\n"
+      "  numlock: input.getKeyVK('numlock'),\n"
+      "  rshift: input.getKeyVK('rshift'),\n"
+      "  sc01e: input.getKeyVK('sc01e'),\n"
+      "  sc032: input.getKeyVK('sc032'),\n"
+      "  sc04d: input.getKeyVK('sc04d'),\n"
+      "  sc14d: input.getKeyVK('sc14d'),\n"
+      "  sce04d: input.getKeyVK('sce04d'),\n"
+      "  sc145: input.getKeyVK('sc145'),\n"
+      "  sc045: input.getKeyVK('sc045'),\n"
+      "  sc136: input.getKeyVK('sc136'),\n"
+      "  bogus: input.getKeyVK('bogus'),\n"
+      "  empty: input.getKeyVK(''),\n"
+      "  sczz: input.getKeyVK('sczz'),\n"
+      "  scOnly: input.getKeyVK('sc'),\n"
+      "  scRange: input.getKeyVK('sc1ffff')\n"
+      "};\n",
+      "input-getkeyvk.mjs");
+  run(runtime,
+      "const errors = globalThis.vkErrors;\n"
+      "for (const key of ['arity', 'notString', 'nullName']) {\n"
+      "  if (!errors[key]) throw new Error('expected a TypeError for getKeyVK ' + key);\n"
+      "}\n"
+      "const vk = globalThis.vk;\n"
+      "if (vk.a !== 0x41 || vk.upper !== 0x41)\n"
+      "  throw new Error('letters must resolve case-insensitively: ' + JSON.stringify(vk));\n"
+      "if (vk.f1 !== 0x70)\n"
+      "  throw new Error('F1 must be 0x70: ' + vk.f1);\n"
+      "if (vk.escape !== 0x1B || vk.vk1b !== 0x1B)\n"
+      "  throw new Error('escape and vk1b must resolve alike: ' + JSON.stringify(vk));\n"
+      "if (vk.lbutton !== 0x01 || vk.ctrl !== 0x11)\n"
+      "  throw new Error('mouse and modifier names must keep their VKs: ' + JSON.stringify(vk));\n"
+      "if (vk.sc01e !== 0x41 || vk.sc01e !== vk.a)\n"
+      "  throw new Error('sc01e must resolve like the letter a: ' + vk.sc01e);\n"
+      "if (vk.sc14d !== 0x27 || vk.sce04d !== 0x27 || vk.sc14d !== vk.right)\n"
+      "  throw new Error('extended sc spellings must all resolve like right: ' +\n"
+      "                  JSON.stringify(vk));\n"
+      "if (vk.sc04d !== vk.right)\n"
+      "  throw new Error('sc04d is the base make code of right, not M: ' + vk.sc04d);\n"
+      "if (vk.sc032 !== 0x4D || vk.sc032 !== vk.m)\n"
+      "  throw new Error('sc032 must resolve like the letter m: ' + JSON.stringify(vk));\n"
+      "if (vk.sc145 !== 0x90 || vk.sc145 !== vk.numlock)\n"
+      "  throw new Error('sc145 must resolve like numlock: ' + JSON.stringify(vk));\n"
+      "if (vk.sc045 !== 0x13 || vk.sc045 !== vk.pause)\n"
+      "  throw new Error('sc045 must resolve like pause: ' + JSON.stringify(vk));\n"
+      "if (vk.sc136 !== 0xA1 || vk.sc136 !== vk.rshift)\n"
+      "  throw new Error('sc136 must resolve like rshift: ' + JSON.stringify(vk));\n"
+      "for (const key of ['bogus', 'empty', 'sczz', 'scOnly', 'scRange']) {\n"
+      "  if (vk[key] !== 0)\n"
+      "    throw new Error('getKeyVK must map unparseable names to 0, got ' + key + ': ' +\n"
+      "                    vk[key]);\n"
+      "}\n"
+      "if (typeof vk.a !== 'number') throw new Error('getKeyVK must return a number');",
+      "input-getkeyvk-check.mjs");
+
+  // getKeyName inverts the mapping onto this repo's canonical lowercase
+  // tokens (AHK returns display-table spellings and vkNN fallbacks -
+  // deviations recorded by the hub): unparseable names and VKs no token
+  // names fall to "", and the scNNN form reads through getKeyState too.
+  run(runtime,
+      "import { input } from 'rime:input';\n"
+      "globalThis.nameErrors = {};\n"
+      "const expectName = (name, fn) => {\n"
+      "  try { fn(); } catch (e) { globalThis.nameErrors[name] = e instanceof TypeError; }\n"
+      "};\n"
+      "expectName('arity', () => input.getKeyName());\n"
+      "expectName('notString', () => input.getKeyName(42));\n"
+      "expectName('nullName', () => input.getKeyName(null));\n"
+      "globalThis.names = {\n"
+      "  f1: input.getKeyName('f1'),\n"
+      "  upperF1: input.getKeyName('F1'),\n"
+      "  vk41: input.getKeyName('vk41'),\n"
+      "  sc01e: input.getKeyName('sc01e'),\n"
+      "  right: input.getKeyName('right'),\n"
+      "  escape: input.getKeyName('Escape'),\n"
+      "  lbutton: input.getKeyName('lbutton'),\n"
+      "  rshift: input.getKeyName('rshift'),\n"
+      "  ctrl: input.getKeyName('ctrl'),\n"
+      "  bogus: input.getKeyName('bogus'),\n"
+      "  unnamedVk: input.getKeyName('vkfe')\n"
+      "};\n"
+      "globalThis.scStateSame =\n"
+      "    input.getKeyState('sc14d', 'l') === input.getKeyState('right', 'l');\n",
+      "input-getkeyname.mjs");
+  run(runtime,
+      "const errors = globalThis.nameErrors;\n"
+      "for (const key of ['arity', 'notString', 'nullName']) {\n"
+      "  if (!errors[key]) throw new Error('expected a TypeError for getKeyName ' + key);\n"
+      "}\n"
+      "const names = globalThis.names;\n"
+      "const expected = {\n"
+      "  f1: 'f1', upperF1: 'f1', vk41: 'a', sc01e: 'a', right: 'right',\n"
+      "  escape: 'escape', lbutton: 'lbutton', rshift: 'rshift', ctrl: 'ctrl'\n"
+      "};\n"
+      "for (const key of Object.keys(expected)) {\n"
+      "  if (names[key] !== expected[key])\n"
+      "    throw new Error('getKeyName(' + key + ') must be ' + expected[key] + ', got ' +\n"
+      "                    JSON.stringify(names[key]));\n"
+      "}\n"
+      "if (names.bogus !== '' || names.unnamedVk !== '')\n"
+      "  throw new Error('unparseable and unnamed keys must return an empty string: ' +\n"
+      "                  JSON.stringify(names));\n"
+      "if (!globalThis.scStateSame)\n"
+      "  throw new Error('getKeyState must read the scNNN form like the named form');",
+      "input-getkeyname-check.mjs");
+
+  // Round trip: a canonical name is always a spelling the shared grammar
+  // reads back to the same virtual key, and getKeyState accepts it again.
+  run(runtime,
+      "import { input } from 'rime:input';\n"
+      "globalThis.roundTrip = true;\n"
+      "for (const token of ['f1', 'right', 'a', 'escape', 'lbutton', 'ctrl']) {\n"
+      "  const name = input.getKeyName(token);\n"
+      "  if (!name) {\n"
+      "    globalThis.roundTrip = token + ' has no canonical name';\n"
+      "    break;\n"
+      "  }\n"
+      "  if (input.getKeyVK(name) !== input.getKeyVK(token)) {\n"
+      "    globalThis.roundTrip = token + ' -> ' + name;\n"
+      "    break;\n"
+      "  }\n"
+      "  if (typeof input.getKeyState(name) !== 'boolean') {\n"
+      "    globalThis.roundTrip = 'getKeyState rejected ' + name;\n"
+      "    break;\n"
+      "  }\n"
+      "}\n",
+      "input-keyname-roundtrip.mjs");
+  run(runtime,
+      "if (globalThis.roundTrip !== true)\n"
+      "  throw new Error('key name round trip failed at: ' + globalThis.roundTrip);",
+      "input-keyname-roundtrip-check.mjs");
+
   // A real hold: physical and logical both read the held F24 as down, and
   // both clear again after the release. waitFor polls on the JS lane, so
   // this also exercises reading while the lane is alive.

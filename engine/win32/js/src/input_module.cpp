@@ -565,12 +565,41 @@ JSValue input_mouse_get_pos(JSContext* context, JSValueConst, int argc, JSValueC
       options.cancellation_id);
 }
 
+// Resolves one scNNN scan-code value to a virtual key. The plain scan-code
+// range goes through MapVirtualKeyW, the 0x100 form carries AHK's extended
+// bit (0x14D = Right, the mirror of getKeySC's 0xE04D), the 0xE000 form is
+// getKeySC's own output fed back in, and the three fixed AHK specials
+// (SC_PAUSE 0x045, SC_NUMLOCK 0x145, SC_RSHIFT 0x136 - keyboard_mouse.h)
+// keep their documented meaning ahead of the range rules. Values Windows
+// cannot map (0, gaps, 0x200..0xDFFF) fail instead of guessing a key.
+bool sc_state_key(const std::uint32_t scan, std::uint32_t& vk) {
+  const auto map = [&vk](const std::uint32_t code) {
+    const UINT mapped = MapVirtualKeyW(code, MAPVK_VSC_TO_VK_EX);
+    if (mapped == 0) return false;
+    vk = static_cast<std::uint32_t>(mapped);
+    return true;
+  };
+  if (scan == 0x136u) return map(0x36u);  // SC_RSHIFT -> right shift
+  if (scan == 0x145u) return map(0x45u);  // SC_NUMLOCK -> numlock
+  if (scan == 0x045u) {                   // SC_PAUSE -> pause
+    vk = VK_PAUSE;
+    return true;
+  }
+  if (scan >= 1u && scan <= 0xFFu) return map(scan);
+  if (scan >= 0x100u && scan <= 0x1FFu) return map(0xE000u | (scan & 0xFFu));
+  if (scan >= 0xE000u && scan <= 0xE0FFu) return map(scan);
+  return false;
+}
+
 // Resolves a state-read key name (getKeyState/keyWait/keyHistory spellings)
 // to a virtual key: chord tokens (letters, digits, f1..f24, navigation and
-// lock names), modifier names, the mouse buttons, and AHK's explicit vkXX
-// hex form (TextToVK's aAllowExplicitVK spelling). Lowercased first (AHK
-// key names are case-insensitive); unknown names fail with an error string
-// instead of guessing a key.
+// lock names), modifier names, the mouse buttons, AHK's explicit vkXX hex
+// form (TextToVK's aAllowExplicitVK spelling) and the scNNN scan-code form
+// (this repo's extension of the shared grammar, in the spirit of AHK's
+// TextToVKandSC, so getKeyState/keyWait/getKeyVK/getKeyName accept the
+// names getKeySC hands back). Lowercased first (AHK key names are
+// case-insensitive); unknown names fail with an error string instead of
+// guessing a key.
 bool state_key(const std::string& token, std::uint32_t& vk, std::string& error) {
   if (token.empty()) {
     error = "key name must not be empty";
@@ -605,6 +634,31 @@ bool state_key(const std::string& token, std::uint32_t& vk, std::string& error) 
     error = "invalid vk key name: " + token;
     return false;
   }
+  if (key.size() >= 2 && key[0] == 's' && key[1] == 'c') {
+    // Explicit sc form: "sc" plus 1..4 hex digits, all of them hex - a
+    // suffix that is not fully hexadecimal fails the whole name (AHK's
+    // TextToSC disallows any invalid suffix rather than parsing a prefix).
+    std::uint32_t value = 0;
+    bool hex = key.size() >= 3 && key.size() <= 6;
+    if (hex) {
+      for (std::size_t index = 2; index < key.size(); ++index) {
+        const char c = key[index];
+        std::uint32_t digit = 0;
+        if (c >= '0' && c <= '9') {
+          digit = static_cast<std::uint32_t>(c - '0');
+        } else if (c >= 'a' && c <= 'f') {
+          digit = static_cast<std::uint32_t>(c - 'a' + 10);
+        } else {
+          hex = false;
+          break;
+        }
+        value = value * 16u + digit;
+      }
+    }
+    if (hex && sc_state_key(value, vk)) return true;
+    error = "invalid sc key name: " + token;
+    return false;
+  }
   struct StateKey {
     const char* name;
     std::uint32_t vk;
@@ -628,6 +682,48 @@ bool state_key(const std::string& token, std::uint32_t& vk, std::string& error) 
   // name in its own terms (its range hint for f99-style mistakes survives).
   if (error.rfind("unknown chord token", 0) == 0) error = "unknown key name: " + token;
   return false;
+}
+
+// Canonical lowercase token for one virtual key: exactly one spelling per
+// VK out of the names chord_key and the modifier/mouse table accept, so
+// aliases (control, return, esc, ins, del, pgup, ...) collapse onto it and
+// the result reads back through state_key. A VK no token names returns ""
+// - AHK falls back to vkNN and to the unshifted character there, two
+// spellings this repo never accepts back, so getKeyName never emits a name
+// getKeyState would reject.
+std::string key_name_for_vk(const std::uint32_t vk) {
+  struct NamedVK {
+    std::uint32_t vk;
+    const char* name;
+  };
+  static constexpr NamedVK kNamedVKs[] = {
+      {VK_LBUTTON, "lbutton"},    {VK_RBUTTON, "rbutton"},   {VK_MBUTTON, "mbutton"},
+      {VK_XBUTTON1, "xbutton1"},  {VK_XBUTTON2, "xbutton2"},
+      {VK_BACK, "backspace"},     {VK_TAB, "tab"},           {VK_RETURN, "enter"},
+      {VK_ESCAPE, "escape"},      {VK_SPACE, "space"},       {VK_PRIOR, "pageup"},
+      {VK_NEXT, "pagedown"},      {VK_HOME, "home"},         {VK_END, "end"},
+      {VK_LEFT, "left"},          {VK_UP, "up"},             {VK_RIGHT, "right"},
+      {VK_DOWN, "down"},          {VK_INSERT, "insert"},     {VK_DELETE, "delete"},
+      {VK_PAUSE, "pause"},        {VK_CAPITAL, "capslock"},  {VK_NUMLOCK, "numlock"},
+      {VK_SCROLL, "scrolllock"},
+      {VK_SHIFT, "shift"},        {VK_CONTROL, "ctrl"},      {VK_MENU, "alt"},
+      {VK_LSHIFT, "lshift"},      {VK_RSHIFT, "rshift"},     {VK_LCONTROL, "lctrl"},
+      {VK_RCONTROL, "rctrl"},     {VK_LMENU, "lalt"},        {VK_RMENU, "ralt"},
+      {VK_LWIN, "lwin"},          {VK_RWIN, "rwin"},
+  };
+  for (const auto& named : kNamedVKs) {
+    if (named.vk == vk) return named.name;
+  }
+  if (vk >= static_cast<std::uint32_t>('A') && vk <= static_cast<std::uint32_t>('Z')) {
+    return std::string(1, static_cast<char>(vk - 'A' + 'a'));
+  }
+  if (vk >= static_cast<std::uint32_t>('0') && vk <= static_cast<std::uint32_t>('9')) {
+    return std::string(1, static_cast<char>(vk));  // chord digits are ASCII
+  }
+  if (vk >= 0x70u && vk <= 0x87u) {  // f1..f24
+    return "f" + std::to_string(vk - 0x70u + 1u);
+  }
+  return {};
 }
 
 // Reads the keyName argument shared by getKeyState/keyWait: a string that
@@ -745,6 +841,77 @@ JSValue input_get_key_sc(JSContext* context, JSValueConst, int argc, JSValueCons
                         vk == VK_RCONTROL || vk == VK_RMENU || vk == VK_LWIN ||
                         vk == VK_RWIN;
   return JS_NewUint32(context, extended ? (sc | 0xE000u) : sc);
+}
+
+// input.getKeyVK(keyName): AHK GetKeyVK (script2.cpp:2294-2302) - the
+// virtual key a key name maps to, or 0 when it maps to none. Name -> vk goes
+// through state_key exactly like getKeyState/keyWait/keySC, so every shared
+// spelling resolves: chord tokens, modifier and mouse names, the vkXX hex
+// form and the scNNN scan-code form (this repo's extension of the grammar,
+// in the spirit of AHK's TextToVKandSC which feeds both GetKeyVK and
+// GetKeySC). An unparseable name returns 0 instead of throwing - the contract
+// AHK GetKeyVK and this repo's getKeySC already use - and only a non-string
+// argument is a TypeError. Mouse buttons keep their VK values, like AHK. No
+// capability gate: it reads no input state and no service (docs/api/
+// coverage.json records it as a runtime-level call), just like getKeySC.
+JSValue input_get_key_vk(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                         void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc < 1) return JS_ThrowTypeError(context, "getKeyVK(keyName)");
+  if (!JS_IsString(argv[0])) {
+    return JS_ThrowTypeError(context, "getKeyVK(keyName): keyName must be a string");
+  }
+  const char* text = JS_ToCString(context, argv[0]);
+  if (!text) return JS_EXCEPTION;
+  const std::string name(text);
+  JS_FreeCString(context, text);
+  std::uint32_t vk = 0;
+  std::string error;
+  if (!state_key(name, vk, error)) {
+    // AHK GetKeyVK: a name that resolves to no key yields 0, it does not
+    // throw - unlike getKeyState, which reports the name it rejected.
+    return JS_NewUint32(context, 0);
+  }
+  return JS_NewUint32(context, vk);
+}
+
+// input.getKeyName(keyName): AHK GetKeyName (script2.cpp:2310-2317) - the
+// canonical name a key resolves to, or "" when it has none. Any spelling the
+// shared grammar accepts (chord tokens, modifier/mouse names, vkXX, scNNN)
+// resolves through state_key, then the VK is looked up in this repo's
+// canonical table, so the result is a lowercase input-grammar token that
+// reads back through getKeyState/keyWait. Deviation from AHK (recorded by
+// the hub): AHK returns its display-table spelling (Escape, LControl, ...),
+// an unshifted character, or vkNN for an unnamed code - this repo offers
+// only the one canonical token, so those two fallbacks become "" (forms it
+// does not accept back). Unparseable names return "" too, matching AHK's
+// default; a non-string argument is a TypeError. No capability gate: it
+// reads no input state and no service, just like getKeySC/getKeyVK.
+JSValue input_get_key_name(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                           void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc < 1) return JS_ThrowTypeError(context, "getKeyName(keyName)");
+  if (!JS_IsString(argv[0])) {
+    return JS_ThrowTypeError(context, "getKeyName(keyName): keyName must be a string");
+  }
+  const char* text = JS_ToCString(context, argv[0]);
+  if (!text) return JS_EXCEPTION;
+  const std::string name(text);
+  JS_FreeCString(context, text);
+  std::uint32_t vk = 0;
+  std::string error;
+  if (!state_key(name, vk, error)) {
+    // AHK GetKeyName: a name that resolves to no key has no name either.
+    return JS_NewString(context, "");
+  }
+  const std::string canonical = key_name_for_vk(vk);
+  return JS_NewString(context, canonical.c_str());
 }
 
 // One keyWait loop: held by shared_ptr through the worker/timer closures,
@@ -1072,6 +1239,7 @@ int input_module_init(JSContext* context, JSModuleDef* module) {
       !add("send", input_send, 1) || !add("modifiers", input_modifiers, 0) ||
       !add("mouse", input_mouse, 1) || !add("mouseGetPos", input_mouse_get_pos, 1) ||
       !add("getKeyState", input_get_key_state, 2) || !add("getKeySC", input_get_key_sc, 1) ||
+      !add("getKeyVK", input_get_key_vk, 1) || !add("getKeyName", input_get_key_name, 1) ||
       !add("keyWait", input_key_wait, 2) ||
        !add("blockInput", input_block_input, 2) || !add("keyHistory", input_key_history, 1)) {
     return -1;
