@@ -44,7 +44,7 @@ L4  还原保留层           JS 覆盖不了的语义能力，以自有命名�
 | `implemented` | 真实代码 + contract 测试（测试 ID 入台账） | 是 |
 | `js-native` | L0 已覆盖：等价表达式与语义差异入档，零专属代码 | 是（映射与差异记录替代测试 ID） |
 | `unsupported-by-policy` | §5 黑名单：理由与替代路径入档 | 是 |
-| `contract-only` | 过渡态：目标模块/阶段已定，待实现（含 L4 还原保留候选） | 否 |
+| `contract-only` | 过渡态：目标模块/阶段已定，待实现 | 否 |
 
 - 终态公式（计划 §0 同步口径）：`终态 = implemented | js-native | unsupported-by-policy`；`excluded`（版本差异别名）不进分母。
 - `js-native` 行必须给出**等价 TS 表达式**与**可观察差异**（无差异写"无"）；差异真实存在且有用户价值时，转入 L4 还原保留（`contract-only` → 实现后 `implemented`），**不新造 AHK 约定包装**。
@@ -73,7 +73,7 @@ L4  还原保留层           JS 覆盖不了的语义能力，以自有命名�
 计划 §0.1 拍板：**不存在 AHK 名称兼容层**；AHK 只是能力研究样本与语义核对测试的 oracle。因此：
 
 - **JS 已覆盖的不写代码**：`Trim/Abs/StrLen/Is*` 等记 `js-native`，给等价表达式与差异说明；`Mod`/`SubStr`/`Type`/`StrReplace`/`StrSplit`/`StrTitle`/`InStr`/`Random` 这类**差异可被等价表达式消解**的同样记 `js-native`（表达式与残余差异入档），不做专属函数。
-- **JS 覆盖不了的语义能力做还原保留**（当前 10 项，逐项判据见 `runtime-language.md` §3）：`Round`（半值规则与定长输出）、`Format`/`FormatTime`/`Sort`（小型格式语言/选项方言）、`SplitPath`（URL/UNC/盘符规则耦合）、`VerCompare`（分段比较算法）、`DateAdd`/`DateDiff`（非法分量校验与截断语义）、`RegExMatch`/`RegExReplace`（PCRE 差距 + 富匹配对象）——以**自有命名与参数形状**实现（future-runtime 命名有定义的从其定义；没有的在实现阶段先出命名提案再落码），测试用 AHK 原版语义用例守住能力（计划 §0.1"语义以对照原版的测试守住"）。
+- **JS 覆盖不了的语义能力做还原保留**（10 项，**已实现**于 `sdk/src/runtime-language.ts`，自有命名 `round`/`format`/`formatTime`/`sortLines`/`splitPath`/`compareVersions`/`addTime`/`diffTime`/`regexMatch`/`regexReplace`；对照测试 `tests/sdk/runtime-language.test.ts`，逐项判据见 `runtime-language.md` §3）：`Round`（半值规则与定长输出）、`Format`/`FormatTime`/`Sort`（小型格式语言/选项方言）、`SplitPath`（URL/UNC/盘符规则耦合）、`VerCompare`（分段比较算法）、`DateAdd`/`DateDiff`（非法分量校验与截断语义）、`RegExMatch`/`RegExReplace`（PCRE 差距 + 富匹配对象）——以**自有命名与参数形状**实现（本次先出命名提案后落码，计划 §0.1"语义以对照原版的测试守住"）。
 - 每项：AHK 源引用（file:line）+ 差异表 + 对照测试；PCRE 构造无 JS 等价时**显式抛错**，不静默错配。
 - 实现保持纯函数、不反向依赖 L2 Windows 能力（可测、可移植）。
 

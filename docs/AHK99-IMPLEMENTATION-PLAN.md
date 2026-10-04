@@ -27,12 +27,12 @@
 
 | 清单 | implemented | js-native | unsupported | 终态合计 | 剩余（`contract-only`） |
 |---|---:|---:|---:|---:|---:|
-| coverage 253 | 91 | 2 | 7 | 100 | 153 |
-| core-builtins 101 | 3 | 57 | 18 | 78 | 23 |
+| coverage 253 | 96 | 2 | 7 | 105 | 148 |
+| core-builtins 101 | 8 | 57 | 18 | 83 | 18 |
 | objects 243（成员） | 0 | 0 | 0 | 0 | 243 |
 | builtins 134（145 − 11 `excluded`） | 5 | 0 | 0 | 5 | 129 |
 
-注：已落地能力已回填（M0-M2）：`process.*` 6 项、`Send`/`SendInput`（`input.send`）、`A_Clipboard`（`clipboard.read`/`clipboard.write`）、`Click/WinActive/WinExist`、`Sleep`（`runtime.delay`）、`GetKeyState` 等；15 个 action 的真值源在 `contracts/registry/actions.json`（`automation.*` 等无独立 AHK 函数条目，其状态记录在该注册表，`matrix:check` 校验 type 集 == executor 注册集）。138 项纯语言分类已入 `core-builtins`/`coverage`（映射表 `docs/api/runtime-language.md`）。当前终态 183 / 731 ≈ 25.0%（四个 JSON，不含指令）。
+注：已落地能力已回填（M0-M2）：`process.*` 6 项、`Send`/`SendInput`（`input.send`）、`A_Clipboard`（`clipboard.read`/`clipboard.write`）、`Click/WinActive/WinExist`、`Sleep`（`runtime.delay`）、`GetKeyState` 等；15 个 action 的真值源在 `contracts/registry/actions.json`（`automation.*` 等无独立 AHK 函数条目，其状态记录在该注册表，`matrix:check` 校验 type 集 == executor 注册集）。138 项纯语言分类已入 `core-builtins`/`coverage`（映射表 `docs/api/runtime-language.md`）。当前终态 193 / 731 ≈ 26.4%（四个 JSON，不含指令）。
 
 ### 1.3 代码现状（结构事实，M0 之后）
 
@@ -93,8 +93,8 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 
 ### M3 纯 JS 快铺（可穿插，M）
 
-- 138 项纯语言归档已定（`docs/api/runtime-language.md` 映射表）：**59 项 `js-native`**（零专属代码，等价表达式与差异入档）、**54 项 `contract-only`**（44 项 L2/L3 目标 + **10 项 L4 还原保留候选**）、5 项 `implemented`、20 项 `unsupported-by-policy`；
-- **L4 还原保留（10 项）**：`Round/Format/FormatTime/Sort/SplitPath/VerCompare/DateAdd/DateDiff/RegExMatch/RegExReplace`——以自有命名与参数形状实现（先命名提案后落码，不建 AHK 名称兼容层，计划 §0.1），每项带对照原版语义测试；其余 8 项原候选（`SubStr/InStr/Mod/StrReplace/StrTitle/Type/StrSplit/Random`）差异可用等价表达式消解，判 `js-native` 入档不写代码；
+- 138 项纯语言归档已定（`docs/api/runtime-language.md` 映射表）：**59 项 `js-native`**（零专属代码，等价表达式与差异入档）、**44 项 `contract-only`**（L2/L3 目标待实现）、**15 项 `implemented`**（5 项既有 + **10 项 L4 还原保留已实现**）、20 项 `unsupported-by-policy`；
+- **L4 还原保留（10 项，已实现）**：`Round/Format/FormatTime/Sort/SplitPath/VerCompare/DateAdd/DateDiff/RegExMatch/RegExReplace`——已落 `sdk/src/runtime-language.ts`（自有命名 `round/format/formatTime/sortLines/splitPath/compareVersions/addTime/diffTime/regexMatch/regexReplace`，不建 AHK 名称兼容层，计划 §0.1）与 `tests/sdk/runtime-language.test.ts`（41 例对照原版语义测试，逐条附 AHK `file:line` 引证），台账流转 `implemented`；其余 8 项原候选（`SubStr/InStr/Mod/StrReplace/StrTitle/Type/StrSplit/Random`）差异可用等价表达式消解，判 `js-native` 入档不写代码；
 - `Set*Delay/CoordMode/SetWorkingDir/OutputDebug/ListVars/Exit/ExitApp/Reload/Pause/Persistent` → Runtime/HostLifecycle/SchedulerPolicy 显式 API（`Sleep`/`Suspend` 已分别由 `runtime.delay`/`input.suspend` 承载并流转 `implemented`；`Critical`/`Thread` 按 `stdlib.md` §5.3 判 `unsupported-by-policy`）；
 - `js-native` 行只做映射入档与差异核对，不写代码。
 

@@ -1,6 +1,6 @@
 # Runtime and Language Compatibility
 
-状态：138 项已分类——59 `js-native`、54 `contract-only`（含 10 项 L4 还原保留候选）、5 `implemented`、20 `unsupported-by-policy`。判定真值见 §2 映射表；状态词汇的权威是 [`stdlib.md`](./stdlib.md)（§3 四状态口径、§5 黑名单、§6 L4 还原保留层）。
+状态：138 项已分类——59 `js-native`、44 `contract-only`、15 `implemented`（5 项既有 + §2.2.2 的 10 项 L4 还原保留已实现）、20 `unsupported-by-policy`。判定真值见 §2 映射表；状态词汇的权威是 [`stdlib.md`](./stdlib.md)（§3 四状态口径、§5 黑名单、§6 L4 还原保留层）。
 
 命名与参数形状不在本页裁定：公共 API 命名遵循 [`AHK-TS-WINDOWS-API-DESIGN.md`](../AHK-TS-WINDOWS-API-DESIGN.md) §0 的六个核心设计问题与 [`future-runtime.md`](./future-runtime.md)（stdlib.md 开篇）。本页只登记**判定、证据与语义差异**，不给出 API 形状；AHK 名称仅作能力研究样本与语义核对测试的 oracle（计划 §0.1：不存在 AHK 名称兼容层）。
 
@@ -14,7 +14,7 @@
 |---|---|---|
 | `implemented` | 已有 TS 服务表面 + contract 测试（测试 ID 入台账）；本页给出服务模块与改名注记 | 是 |
 | `js-native` | L0 已覆盖：本页给等价 TS 表达式与可观察差异（无差异写“无”），零专属代码，映射记录替代测试 ID | 是 |
-| `contract-only` | 过渡态：目标模块与计划阶段已定、待实现；含 §2.2.2 的 10 项 L4 还原保留候选（实现后 → `implemented`） | 否 |
+| `contract-only` | 过渡态：目标模块与计划阶段已定、待实现；§2.2.2 的 10 项 L4 还原保留已于本轮实现并流转 `implemented`（`contractTest` = `tests/sdk/runtime-language.test.ts`），该小节保留分类研究原貌 | 否 |
 | `unsupported-by-policy` | stdlib.md §5 黑名单或计划 §0.3 已拍板裁剪：本页给理由与等价物/替代 | 是（需理由与替代） |
 
 终态公式（stdlib.md §3）：`终态 = implemented | js-native | unsupported-by-policy`。台账收敛规则：`sdk-owned` 收敛到 `contract-only`（差异有用户价值的进 §2.2.2 还原保留候选），`contract-only` 服务表面落地后收敛为 `implemented`，`unsupported-by-policy` 必须能指到 stdlib.md §5 的条目（三条已定案见 §5）。
@@ -90,9 +90,9 @@
 | `Type` | CB | `v === undefined ? 'unset' : typeof v === 'string' ? 'String' : typeof v === 'number' ? (Number.isInteger(v) ? 'Integer' : 'Float') : typeof v === 'bigint' ? 'Integer' : (v?.constructor?.name ?? 'Object')` | 三段映射与 TokenTypeString（script2.cpp:3099-3121）一致：String/Integer/Float/对象类名/unset（无参调用即 undefined→unset）；残余差异：JS 只有 IEEE double，整数值的 Float（如 3.0）报 Integer 而 AHK 报 Float——token 类型在 L0 已丢失，专属函数同样无法恢复；函数报 Function 而 AHK 报 Func/Closure/BoundFunc；BigInt 报 Integer（AHK 对应 int64）；null 与 symbol 无 AHK 对应物 | `script2.cpp:3099` |
 
 
-### 2.2 `contract-only`（54）
+### 2.2 `contract-only`（44；另 10 项已实现，见 §2.2.2）
 
-过渡态，不计终态（stdlib.md §3）。54 = 44 项常规能力 + 10 项 L4 还原保留候选（stdlib.md §6），分列两个小节：常规能力按 L2 模块归属排期，还原保留候选统一落 `@rime/runtime-language` 但实现顺序不同（先命名提案、后实现与对照测试），故单独标记。
+过渡态，不计终态（stdlib.md §3）。本节现为 44 项常规能力，按 L2 模块归属排期；原 44 + 10 的 54 项中，10 项 L4 还原保留候选已实现并流转 `implemented`（§2.2.2 注记），表列留在此节以保持分类研究原貌。
 
 #### 2.2.1 常规能力（44）
 
@@ -146,9 +146,11 @@
 | `SoundSetVolume` | CB | `@rime/sound` | M5（winmm） | 同 SoundGetMute | `lib/sound.cpp:292` |
 
 
-#### 2.2.2 L4 还原保留候选（10）
+#### 2.2.2 L4 还原保留（10，已实现）
 
-计划 §0.1 禁止 AHK 名称兼容层，stdlib.md §6 把“JS 覆盖不了的语义能力”定义为 L4 还原保留层。原 18 项候选经本轮严格复判：8 项改判 §2.1 `js-native`（等价式可覆盖），其余 10 项保留——“还原保留理由”列逐项写明**单表达式在何处失效**（JSON `note` 以 `还原保留：` 前缀）。实现以自有命名与参数形状落地，AHK 只作语义测试 oracle；全部 `contractTest: missing`，落点 `sdk/src/runtime-language.ts`。
+**状态：10 项已全部实现**——落点 `sdk/src/runtime-language.ts`（`round`/`format`/`formatTime`/`sortLines`/`splitPath`/`compareVersions`/`addTime`/`diffTime`/`regexMatch`/`regexReplace`，命名提案见计划 §M3），对照语义测试 `tests/sdk/runtime-language.test.ts`（41 例，逐条附 AHK `file:line` 引证），台账已流转 `implemented`、`contractTest` 指向该测试。
+
+计划 §0.1 禁止 AHK 名称兼容层，stdlib.md §6 把“JS 覆盖不了的语义能力”定义为 L4 还原保留层。原 18 项候选经本轮严格复判：8 项改判 §2.1 `js-native`（等价式可覆盖），其余 10 项保留——“还原保留理由”列逐项写明**单表达式在何处失效**（JSON `note` 以 `还原保留：` 前缀）。实现以自有命名与参数形状落地，AHK 只作语义测试 oracle。
 
 | 函数 | 台账 | 还原保留理由（可观察差异） | 规模 | 证据 |
 |---|---|---|---|---|
@@ -164,7 +166,7 @@
 | `VerCompare` | CB | 表达式不可靠：AHK 版本比较是分段算法（数字段与字母段切分、rc/beta 顺序经 VersionSatisfies 落地，string.cpp:1567-1572），单表达式无法同时表达分段、进制解析与大小写规则，Intl.Collator 也不等价 | ~40 行 | `lib/string.cpp:1567` |
 
 
-### 2.3 `implemented`（5）
+### 2.3 `implemented`（15：5 项既有 + §2.2.2 的 10 项，行留原节）
 
 | AHK 函数 | 台账 | 服务表面（模块） | 改名/语义注记 | contract test |
 |---|---|---|---|---|
@@ -201,7 +203,7 @@
 | `VarSetStrCapacity` | CB | stdlib.md §5.4：预留变量缓冲容量（script2.cpp:2327-2331），属内存布局细节 | JS 字符串不可变，容量无概念 | `script2.cpp:2327` |
 
 
-## 3. L4 还原保留候选清单与政策对照（10 项）
+## 3. L4 还原保留清单与政策对照（10 项，已实现）
 
 本轮按 stdlib.md §6 的判据——只有“JS 覆盖不了的语义能力”才进 L4，**能被单条已记录表达式压平的差异归 `js-native`**——对原 18 项候选逐项复判，结果如下。
 - **保留还原的 10 项（§2.2.2）**：§6 逐点名的 9 项 `FormatTime`、`RegExMatch`、`RegExReplace`、`DateAdd`、`DateDiff`、`SplitPath`、`Format`、`Sort`、`VerCompare`，加 §6“等”兜底的 `Round`。单表达式失效点逐项写在 §2.2.2 的“还原保留理由”列，概括为：`Round` 的半值远离零与定长十进制字符串、`Format`/`FormatTime` 的格式语言与 token 引擎、`Sort` 的旗标方言 + 自定义比较函数、`SplitPath` 的 URL/UNC/冒号规则耦合、`VerCompare` 的分段比较算法、`DateAdd`/`DateDiff` 的输入校验与秒级截断（本版本无日历/DST 运算，保留理由是校验与截断语义）、`RegEx*` 的 PCRE 缺口显式抛错与 Match 对象返回形状。
@@ -212,13 +214,13 @@
 
 ## 4. PCRE → JS 政策
 
-- `RegExMatch`/`RegExReplace` 判 `contract-only`（§2.2.2 L4 还原保留候选），目标 `@rime/runtime-language`；台账原值 `@rime/native-interop`（capability `native.unsafe`）属误归——纯字符串匹配不碰 native 面，本页更正并记入分类报告。
+- `RegExMatch`/`RegExReplace` **已实现**（`implemented`，§2.2.2），落点 `@rime/runtime-language`，`contractTest` = `tests/sdk/runtime-language.test.ts`；台账原值 `@rime/native-interop`（capability `native.unsafe`、`lane=plugin-isolated`）属误归——纯字符串匹配不碰 native 面，本轮随流转一并矫正为 `sync`/`js`/`runtime` 并记入分类报告。
 - 还原内容：AHK 返回形状（`Match` 对象的 `Pos`/`Len`/`Name`/`Value`/`Mark`、`O)` 输出变量族、1-based 位置）与 PCRE→JS 差异；实现走 JS `RegExp` + 语义还原壳（计划 M3 明确点名）。
 - **PCRE 构造无 JS 等价时显式抛错，不静默错配**（stdlib.md §6）：不支持的分支/递归/回溯控制等构造必须同步抛 `Unsupported` 并给出构造名，禁止退化成“看起来能跑”的正则。
 
 ## 5. 分批与计划对齐注记
 
-- **M3（纯 JS 快铺）**：59 项 `js-native`（等价式与差异入档，零专属代码）与 10 项 L4 还原保留候选（§2.2.2，`sdk/src/runtime-language.ts`，`stdlib.md` §7 先命名提案、后实现与对照测试）排在 M3；`contract-only` 中的 `Set*Delay`/`CoordMode`/`SetWorkingDir`/`OutputDebug`/`ListVars`/`Exit`/`ExitApp`/`Reload`/`Pause`/`Persistent`（计划 §M3 第三条）同属 M3 的显式 API/HostLifecycle 映射；`GetKeySC`/`GetKeyVK`/`GetKeyName`/`ListHotkeys`/`Set*LockState` 归 `@rime/input` 的 M3 输入映射。
+- **M3（纯 JS 快铺）**：59 项 `js-native`（等价式与差异入档，零专属代码）排在 M3；10 项 L4 还原保留**已实现**（`sdk/src/runtime-language.ts` + `tests/sdk/runtime-language.test.ts`，命名提案见计划 §M3，残留清单见本页 §3 报告注记）；`contract-only` 中的 `Set*Delay`/`CoordMode`/`SetWorkingDir`/`OutputDebug`/`ListVars`/`Exit`/`ExitApp`/`Reload`/`Pause`/`Persistent`（计划 §M3 第三条）同属 M3 的显式 API/HostLifecycle 映射；`GetKeySC`/`GetKeyVK`/`GetKeyName`/`ListHotkeys`/`Set*LockState` 归 `@rime/input` 的 M3 输入映射。
 - **M4**：`FileOpen`（fs service + `File` 对象）、`Reg*` 5 项 + `SetRegView`（registry service，计划 line 105 点名）。
 - **M5**：`Sound*` 5 项（winmm，计划 line 112）。
 - **M7**：`PostMessage`（Control 三层执行的 Win32 消息层）。
