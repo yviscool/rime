@@ -162,6 +162,18 @@ class Host final {
   void run_exit_handlers(std::string_view payload_json);
   [[nodiscard]] bool exit_handlers_ran() const { return exit_ran_; }
 
+  // JS thread: AHK Persistent / script residency. set_persistent stores the
+  // script-visible force flag (runtime.persistent(value)); the declarative
+  // probe counts live script-visible registrations the host idle predicate
+  // never observes (input hooks, hotkeys, hotstrings, setTimer timers, ...),
+  // read at call time by its owner - no mirrored counter to drift. An empty
+  // probe counts as 0, so a host without an events module is never resident
+  // on its own. persistent() = force flag OR declarative work.
+  void set_persistent(bool force);
+  [[nodiscard]] bool persistent_force() const { return persistent_force_; }
+  void set_declarative_probe(std::function<std::uint64_t()> probe);
+  [[nodiscard]] bool persistent() const;
+
   // JS thread: runtime.exit(code?) - records the first requested code, arms
   // the interrupt that aborts the rest of the script, and reports the code
   // to the exit notifier. First call wins: later calls are ignored and
@@ -259,6 +271,10 @@ class Host final {
   bool exit_requested_{false};
   int exit_code_{0};
   std::function<void(int)> exit_notifier_;
+
+  // JS thread only: residency (see set_persistent / set_declarative_probe).
+  bool persistent_force_{false};
+  std::function<std::uint64_t()> declarative_probe_;
 
   TimerService timer_;
 

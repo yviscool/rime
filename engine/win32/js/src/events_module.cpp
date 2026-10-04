@@ -3846,6 +3846,37 @@ bool ensure_events_state(JSContext* context, InputModuleBinding* binding) {
   host->add_teardown([weak] {
     if (const auto locked = weak.lock()) locked->teardown();
   });
+  // Declarative residency probe (AHK Persistent): the bootstrap pump asks
+  // the host how much script-visible work this state still owns. The count
+  // is read from the live container sizes on every call - no mirrored
+  // counter to drift when a registration is closed or an input ends - and
+  // the weak_ptr answers 0 once the state is gone, whatever order the
+  // binding and the host are destroyed in.
+  host->set_declarative_probe([weak] {
+    const auto locked = weak.lock();
+    if (!locked) return std::uint64_t{0};
+    const EventsState& state = *locked;
+    std::uint64_t live = 0;
+    // InputHooks: an ended hook stays in the vector for id resolution, so
+    // only the ones still capturing (holding a host subscription) are live
+    // work; a created-but-idle hook must not pin the script.
+    for (const auto& hook : state.input_hooks) {
+      if (hook.in_progress) live += 1;
+    }
+    // Every other container holds closable registrations (sub + close):
+    // hotkey/hotstring, setTimer, onMessage, onClipboardChange, onError and
+    // onExit. HotIf criteria are deliberately left out - they carry no
+    // subscription of their own and are only kept alive by the hotkeys and
+    // hotstrings counted above (see sync_criteria).
+    live += state.hotkeys.size();
+    live += state.hotstrings.size();
+    live += state.timers.size();
+    live += state.monitors.size();
+    live += state.clipboard_listeners.size();
+    live += state.error_observers.size();
+    live += state.exit_observers.size();
+    return live;
+  });
   return true;
 }
 

@@ -1,6 +1,7 @@
 #include "rime/win32/bootstrap.hpp"
 
 #include "rime/automation/uia_executor.hpp"
+#include "rime/core/json.hpp"
 #include "rime/js/runtime.hpp"
 #include "rime/win32/clipboard_executor.hpp"
 #include "rime/win32/input_executor.hpp"
@@ -8,18 +9,85 @@
 #include "rime/win32/window_executor.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <memory>
+#include <string_view>
 #include <utility>
 
 namespace rime::win32 {
 
 namespace {
 
+namespace json = rime::core::json;
+
 rime::core::Error module_error(const char* module, const rime::core::Error& error) {
   return {error.code, std::string(module) + " module registration failed: " + error.message};
+}
+
+// Residency probe (AHK Persistent / script residency), evaluated on the JS
+// thread through evaluate_module. It reports the two signals settle has to
+// be judged by: the effective persistent flag (force flag or live
+// declarative registrations) and the pending delay timers from
+// runtime.inspect() - runtime.persistent() alone never covers a plain
+// runtime.delay, so pendingTimers is what separates a long timer from a
+// hung promise. evaluate_module returns only Error (no completion-value
+// channel), so the probe stays silent while residency remains and throws
+// its report as the message once it is gone; the failure then carries the
+// JSON below and parse_residency reads it back.
+constexpr const char* k_residency_probe =
+    "import { runtime } from \"rime:runtime\";\n"
+    "const report = JSON.parse(runtime.inspect());\n"
+    "const residency = { persistent: runtime.persistent(),\n"
+    "                    pendingTimers: report.pendingTimers,\n"
+    "                    pendingCompletions: report.pendingCompletions };\n"
+    "if (!residency.persistent && residency.pendingTimers === 0)\n"
+    "  throw new Error(JSON.stringify(residency));\n";
+
+// What one residency probe answered.
+struct ResidencyReport {
+  // The probe answered: either it evaluated cleanly or its failure carried
+  // a parseable JSON report. False means the evaluation failed for some
+  // other reason (interrupt, probe bug) - the probe_ok miss in the design,
+  // which must not be mistaken for residency.
+  bool ok{false};
+  bool resident{false};  // persistent || pendingTimers > 0
+  bool persistent{false};
+  std::uint64_t pending_timers{0};
+};
+
+ResidencyReport parse_residency(const rime::core::Error& probe) {
+  ResidencyReport report;
+  if (probe.ok()) {
+    // A clean evaluation means the probe's own rule held (persistent ||
+    // pendingTimers > 0), so residency is answered; `persistent` is reported
+    // as true because the pump only asks while quiescent, and quiescence
+    // (host idle) already rules pending delay timers out.
+    report.ok = true;
+    report.resident = true;
+    report.persistent = true;
+    return report;
+  }
+  // Failure: the thrown Error stringifies as "Error: {json}", so the object
+  // between the first brace and the last bracket is the report.
+  const std::size_t begin = probe.message.find('{');
+  const std::size_t end = probe.message.rfind('}');
+  if (begin == std::string::npos || end == std::string::npos || end <= begin) return report;
+  const auto parsed = json::parse(std::string_view(probe.message).substr(begin, end - begin + 1));
+  if (!parsed.ok()) return report;
+  const json::Value& value = *parsed.value;
+  const json::Value* persistent = value.find("persistent");
+  const json::Value* pending_timers = value.find("pendingTimers");
+  if (!persistent || !persistent->is_bool() || !pending_timers || !pending_timers->is_number()) {
+    return report;
+  }
+  report.ok = true;
+  report.persistent = persistent->as_bool();
+  report.pending_timers = static_cast<std::uint64_t>(pending_timers->as_number());
+  report.resident = report.persistent || report.pending_timers > 0;
+  return report;
 }
 
 }  // namespace
@@ -202,10 +270,44 @@ int run_bundle_file(const std::string& path, std::unordered_set<std::string> cap
     // Let async work (SDK queries, action chains) run to completion. settle
     // returns early once an exit is requested, so both orders - exit before
     // settle, exit while settling - land on the exit path below.
-    if (const auto settled = runtime.settle(std::chrono::seconds(5)); !settled.ok()) {
-      std::cerr << "QuickJS script did not settle: " << settled.message << '\n';
-      (void)runtime.stop();
-      return 1;
+    const auto settled = runtime.settle(std::chrono::seconds(5));
+    if (!settled.ok()) {
+      // settle timed out, and the timeout has two legitimate explanations
+      // that must be told apart before the pre-residency hard error is
+      // adopted: script-visible work the host idle predicate never observes
+      // (input hooks, hotkeys, hotstrings, setTimer registrations - the
+      // probe's persistent flag) and a runtime.delay longer than the budget
+      // (pendingTimers; runtime.persistent() alone does not cover those).
+      // A probe that reports neither is the hung-promise case, which is
+      // exactly what this branch reported before residency existed.
+      const ResidencyReport report =
+          parse_residency(runtime.evaluate_module(k_residency_probe, "residency-probe.mjs").get());
+      if (!report.ok || !report.resident) {
+        std::cerr << "QuickJS script did not settle: " << settled.message << '\n';
+        (void)runtime.stop();
+        return 1;
+      }
+      // Residency or a long delay explains the timeout: fall through into
+      // the residency pump instead of failing.
+    }
+    if (!runtime.exit_requested()) {
+      // Residency pump (AHK Persistent): settle only covers the work the
+      // host observes, so a resident script has to be kept alive here until
+      // it clears its registrations / force flag or calls runtime.exit. The
+      // probe is evaluated only while the loop is quiescent, so residency
+      // cannot change between the check and the answer, and wait_for paces
+      // the polls; exit outranks both, which is why it is checked first.
+      // The probe evaluation itself is safe here - stop() has not run, so
+      // the run loop is still alive to execute it.
+      for (;;) {
+        if (runtime.exit_requested()) break;
+        if (runtime.quiescent()) {
+          const ResidencyReport report = parse_residency(
+              runtime.evaluate_module(k_residency_probe, "residency-probe.mjs").get());
+          if (!report.ok || !report.persistent) break;  // residency over
+        }
+        runtime.wait_for(std::chrono::milliseconds(100));
+      }
     }
     if (!runtime.exit_requested()) {
       // Scripts report async failures by publishing globalThis.__rim_failure.

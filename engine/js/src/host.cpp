@@ -326,6 +326,28 @@ JSValue runtime_unsubscribe(JSContext* context, JSValueConst, int argc, JSValueC
   return JS_NewBool(context, host->remove_callback(static_cast<std::uint64_t>(raw_id)).ok());
 }
 
+// runtime.persistent(value?): AHK Persistent / script residency, host
+// lifecycle like ping, so no capability gate. No argument reports the
+// effective flag (force flag OR live declarative work); one argument stores
+// the force flag and reports the effective flag again, so a script can read
+// back what its registration count contributes.
+JSValue runtime_persistent(JSContext* context, JSValueConst, int argc, JSValueConst* argv) {
+  Host* host = host_of(context);
+  if (!host) return JS_ThrowInternalError(context, "runtime host is gone");
+  if (argc > 1) return JS_ThrowTypeError(context, "persistent(value?)");
+  if (argc == 1) {
+    // Strict by design: ToBoolean would silently turn any truthy script
+    // value (or a bare host->set_persistent JS_ToBool) into "stay alive",
+    // and a typo'd residency guard would then look like a working one. The
+    // argument has to be an actual boolean for the call to mean anything.
+    if (!JS_IsBool(argv[0])) {
+      return JS_ThrowTypeError(context, "persistent(value?): value must be a boolean");
+    }
+    host->set_persistent(JS_ToBool(context, argv[0]));
+  }
+  return JS_NewBool(context, host->persistent() ? 1 : 0);
+}
+
 JSValue runtime_inspect(JSContext* context, JSValueConst, int, JSValueConst*) {
   Host* host = host_of(context);
   if (!host) return JS_ThrowInternalError(context, "runtime host is gone");
@@ -366,6 +388,7 @@ int runtime_module_init(JSContext* context, JSModuleDef* module) {
            JS_NewCFunction(context, runtime_release_cancellation, "releaseCancellation", 1)) ||
       !set("subscribe", JS_NewCFunction(context, runtime_subscribe, "subscribe", 1)) ||
       !set("unsubscribe", JS_NewCFunction(context, runtime_unsubscribe, "unsubscribe", 1)) ||
+      !set("persistent", JS_NewCFunction(context, runtime_persistent, "persistent", 1)) ||
       !set("inspect", JS_NewCFunction(context, runtime_inspect, "inspect", 0)) ||
       !set("context", JS_NewCFunction(context, runtime_context, "context", 0)) ||
       !set("debug", JS_NewCFunction(context, runtime_debug, "debug", 1)) ||
@@ -650,6 +673,17 @@ bool Host::idle() const {
   if (std::this_thread::get_id() != owner_) return false;
   std::lock_guard lock(async_mutex_);
   return completions_.empty() && delay_timers_.empty() && events_->empty();
+}
+
+void Host::set_persistent(const bool force) { persistent_force_ = force; }
+
+void Host::set_declarative_probe(std::function<std::uint64_t()> probe) {
+  declarative_probe_ = std::move(probe);
+}
+
+bool Host::persistent() const {
+  if (persistent_force_) return true;
+  return declarative_probe_ ? declarative_probe_() != 0 : false;
 }
 
 rime::core::Error Host::begin_async(JSContext* context, JSValue& promise_out,
@@ -1279,6 +1313,24 @@ std::string Host::inspect(const std::string& request_json) {
     }
     result.set("errors", std::move(errors));
   }
+
+  // Residency additions (additive, present for every kind, no debug
+  // protocol): the effective persistent flag plus the host-owned delay
+  // timers and queued completions. The bootstrap pump reads these to tell
+  // "long runtime.delay / live registrations" (keep pumping) from "hung
+  // promise" (settle failed for no residency reason) - runtime.persistent()
+  // alone never covers plain delay timers, so pendingTimers is the
+  // authoritative signal for that half of the decision.
+  std::size_t pending_timers = 0;
+  std::size_t pending_completions = 0;
+  {
+    std::lock_guard lock(async_mutex_);
+    pending_timers = delay_timers_.size();
+    pending_completions = completions_.size();
+  }
+  result.set("persistent", json::Value::boolean(persistent()));
+  result.set("pendingTimers", json::Value::number(static_cast<double>(pending_timers)));
+  result.set("pendingCompletions", json::Value::number(static_cast<double>(pending_completions)));
 
   return json::stringify(result);
 }

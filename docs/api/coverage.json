@@ -2452,10 +2452,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "rime:runtime",
-      "status": "contract-only",
-      "async": "async",
+      "status": "implemented",
+      "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "tests/js/runtime_smoke.cpp,tests/js/js_bundle.cpp",
       "lane": "js",
       "cancellation": "deadline+AbortSignal"
     },

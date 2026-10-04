@@ -46,6 +46,16 @@ class Runtime final {
   // Blocks until the JS thread reports quiescence: no queued completion and
   // no armed timer. Returns ExecutionFailed on timeout.
   [[nodiscard]] rime::core::Error settle(std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // True when the run loop has nothing queued right now: host idle and no
+  // pending eval/inspect task - settle()'s predicate without the
+  // runtime.exit short-circuit, so the bootstrap residency pump can ask
+  // "quiet?" while exit/stop keep their own priority.
+  [[nodiscard]] bool quiescent() const;
+  // Residency pump pacing: sleeps up to `timeout`, returns early once an
+  // exit is requested or the runtime starts stopping. The predicate result
+  // is discarded - a timeout is not a failure, the caller re-checks its own
+  // condition either way.
+  void wait_for(std::chrono::milliseconds timeout);
   [[nodiscard]] rime::core::Error stop();
   [[nodiscard]] RuntimeState state() const;
 

@@ -27,6 +27,16 @@ if (WIN32 AND TARGET rime_win32_js)
            COMMAND rime_js_bundle ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/exit-basic.mjs 7)
   add_test(NAME quickjs_exit_pending
            COMMAND rime_js_bundle ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/exit-pending.mjs 3)
+  # Residency (AHK Persistent) fixtures: the second argument is the
+  # runtime.exit() code the bundle must come back with, so 0 here means the
+  # pump saw residency, kept the script alive, and the guard flag was
+  # cleared before the main check. Same desktop env as the exit tests.
+  add_test(NAME quickjs_persist_force
+           COMMAND rime_js_bundle ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/persist-force.mjs 0)
+  add_test(NAME quickjs_persist_hotkey
+           COMMAND rime_js_bundle ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/persist-hotkey.mjs 0)
+  add_test(NAME quickjs_persist_timer
+           COMMAND rime_js_bundle ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/persist-timer.mjs 0)
 endif()
 
 add_executable(rime_js_runtime runtime_smoke.cpp)

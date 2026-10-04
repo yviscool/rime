@@ -131,6 +131,24 @@ rime::core::Error Runtime::settle(std::chrono::milliseconds timeout) {
   return rime::core::Error::none();
 }
 
+bool Runtime::quiescent() const {
+  std::lock_guard lock(mutex_);
+  // settle()'s predicate minus the exit short-circuit: an exit outranks
+  // quiescence everywhere it matters, and the residency pump checks it
+  // first, so reporting exit as "quiet" here would only mask that order.
+  return idle_flag_ && tasks_.empty() && inspect_tasks_.empty();
+}
+
+void Runtime::wait_for(const std::chrono::milliseconds timeout) {
+  std::unique_lock lock(mutex_);
+  // The predicate result is deliberately dropped: "exit/stop woke us" and
+  // "the budget ran out" both mean "re-check the loop condition", and this
+  // is only pump pacing - no caller needs to tell the two apart.
+  (void)condition_.wait_for(lock, timeout, [this] {
+    return exit_requested_ || state_ == RuntimeState::Stopping;
+  });
+}
+
 rime::core::Error Runtime::stop() {
   std::lock_guard lifecycle_lock(lifecycle_mutex_);
   {

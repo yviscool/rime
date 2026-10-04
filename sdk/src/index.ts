@@ -50,6 +50,20 @@ export interface RuntimeBridge {
    * are 0..255. Ungated host lifecycle, like `ping`.
    */
   exit(code?: number): never;
+  /**
+   * Reads the effective residency flag (AHK `Persistent`): true while the
+   * force flag is set or while declarative work (input hooks, hotkeys,
+   * hotstrings, `setTimer` timers, live subscription objects) exists.
+   * Ungated host lifecycle, like `ping`.
+   */
+  persistent(): boolean;
+  /**
+   * Sets the force-residency flag and returns the effective flag afterwards.
+   * With `true` the host keeps pumping after the script body settles until
+   * `runtime.exit`, an explicit `persistent(false)`, or removal of all
+   * declarative work. Declarative work persists regardless of this flag.
+   */
+  persistent(value: boolean): boolean;
 }
 
 export { runtime } from "rime:runtime";

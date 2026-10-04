@@ -95,6 +95,65 @@ void test_context() {
   assert(runtime.stop().ok());
 }
 
+void test_persistent() {
+  rime::js::Runtime runtime;
+  assert(runtime.start().ok());
+
+  // runtime.persistent (AHK Persistent): the effective flag starts false
+  // and the force flag follows whatever the call returned; this host has no
+  // events module registered, so nothing but the force flag can make it
+  // true. inspect mirrors the flag plus the pending delay-timer and
+  // completion counts the bootstrap residency pump reads.
+  auto on = runtime.evaluate_module(
+      "import { runtime } from 'rime:runtime';\n"
+      "if (runtime.persistent() !== false)\n"
+      "  throw new Error('the runtime must start non-persistent');\n"
+      "if (runtime.persistent(true) !== true)\n"
+      "  throw new Error('persistent(true) must report the effective flag');\n"
+      "if (runtime.persistent() !== true)\n"
+      "  throw new Error('the force flag must stay set');\n"
+      "const report = JSON.parse(runtime.inspect());\n"
+      "if (report.persistent !== true)\n"
+      "  throw new Error('inspect must mirror the effective flag');\n"
+      "if (typeof report.pendingTimers !== 'number' ||\n"
+      "    typeof report.pendingCompletions !== 'number')\n"
+      "  throw new Error('inspect must expose the pending counts');",
+      "persistent-on.js");
+  assert(on.get().ok());
+
+  // The same payload the residency probe parses, asserted from the C++ side
+  // so the field names cannot drift without failing here.
+  const std::string report_on = runtime.inspect().get();
+  assert(report_on.find("\"persistent\":true") != std::string::npos);
+  assert(report_on.find("\"pendingTimers\":") != std::string::npos);
+  assert(report_on.find("\"pendingCompletions\":") != std::string::npos);
+
+  auto off = runtime.evaluate_module(
+      "import { runtime } from 'rime:runtime';\n"
+      "if (runtime.persistent(false) !== false)\n"
+      "  throw new Error('persistent(false) must clear the force flag');\n"
+      "if (runtime.persistent() !== false)\n"
+      "  throw new Error('the force flag must stay clear');",
+      "persistent-off.js");
+  assert(off.get().ok());
+  assert(runtime.inspect().get().find("\"persistent\":false") != std::string::npos);
+
+  // A non-boolean argument is a TypeError before it reaches the flag; one
+  // argument beyond that is arity, not a value, to keep the binding thin.
+  auto bad = runtime.evaluate_module(
+      "import { runtime } from 'rime:runtime';\n"
+      "let rejected = 0;\n"
+      "try { runtime.persistent('yes'); } catch (error) {\n"
+      "  if (error instanceof TypeError) rejected++;\n"
+      "}\n"
+      "if (rejected !== 1)\n"
+      "  throw new Error('persistent must reject a non-boolean');",
+      "persistent-bad.js");
+  assert(bad.get().ok());
+
+  assert(runtime.stop().ok());
+}
+
 void test_debug_and_cwd() {
   rime::js::Runtime runtime;
   assert(runtime.start().ok());
@@ -433,6 +492,7 @@ void test_host_abi() {
 int main() {
   test_threaded_runtime();
   test_context();
+  test_persistent();
   test_debug_and_cwd();
   test_busy_loop_interrupt();
   test_runtime_exit();
