@@ -7,6 +7,8 @@
 #include "rime/win32/clipboard.hpp"
 #include "rime/win32/clipboard_executor.hpp"
 
+#include <windows.h>
+
 #include <cassert>
 #include <chrono>
 #include <string>
@@ -117,6 +119,24 @@ int main() {
   const bool denied_registered = denied.register_executor("clipboard.write", executor).ok();
   const auto refused = denied.execute(write);
 
+  // --- Clipboard busy (real OS contention) ------------------------------
+  // A real owner window holds the clipboard open (a plain nullptr hold
+  // would not contend: the service also opens with a nullptr owner, and
+  // Windows treats a same-owner re-open as reentrant success). The held
+  // handle changes no content (OpenClipboard fails before any mutation), so
+  // the restore below is unaffected; the handle is released before it runs.
+  // The executor path proves the error propagates through the Kernel as a
+  // Result, not just as a service error.
+  const HWND hold_window =
+      CreateWindowExW(0, L"STATIC", L"rime-busy-holder", WS_OVERLAPPED, 0, 0, 1, 1, nullptr,
+                      nullptr, GetModuleHandleW(nullptr), nullptr);
+  const bool clipboard_held = hold_window != nullptr && OpenClipboard(hold_window);
+  const auto busy_write = service.write_text("rime-clip-busy-probe");
+  const auto busy_result = kernel.execute(write);
+  const auto busy_read = service.read_text(read_back);
+  if (clipboard_held) CloseClipboard();
+  if (hold_window != nullptr) DestroyWindow(hold_window);
+
   // Restore the original clipboard text before the first assert that could
   // abort: from here on a failure can no longer leave the user's clipboard
   // polluted.
@@ -145,6 +165,20 @@ int main() {
   assert(denied_registered);
   assert(!refused.succeeded);
   assert(refused.error.code == rime::core::Error::Code::CapabilityDenied);
+
+  // Held-open precondition is asserted (not skipped): if OpenClipboard had
+  // failed the three probes above would have mutated the clipboard and every
+  // busy assertion below would be meaningless.
+  assert(clipboard_held);
+  assert(!busy_write.ok());
+  assert(busy_write.code == rime::core::Error::Code::ExecutionFailed);
+  assert(busy_write.message == "clipboard is busy");
+  assert(!busy_result.succeeded);
+  assert(busy_result.error.code == rime::core::Error::Code::ExecutionFailed);
+  assert(busy_result.error.message == "clipboard is busy");
+  assert(!busy_read.ok());
+  assert(busy_read.code == rime::core::Error::Code::ExecutionFailed);
+  assert(busy_read.message == "clipboard is busy");
 
   assert(restored);
   return 0;

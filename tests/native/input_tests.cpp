@@ -5,6 +5,8 @@
 // Needs an interactive desktop, exclusive run: injects real keys/mouse and hooks global input.
 #include "rime/win32/input.hpp"
 
+#include "rime/win32/input_seam.hpp"
+
 #include <windows.h>
 
 #include <cassert>
@@ -72,6 +74,15 @@ bool wait_for(Predicate predicate, const std::chrono::milliseconds timeout = 3s)
     std::this_thread::sleep_for(10ms);
   }
   return predicate();
+}
+
+// OS seam substitutes (input_seam.hpp): swapped in for the real API, so the
+// failure surfaces from the real start()/send()/send_mouse() paths. WINAPI
+// calling convention must match the seam typedefs exactly.
+HHOOK WINAPI failing_hook_installer(int, HOOKPROC, HINSTANCE, DWORD) { return nullptr; }
+
+UINT WINAPI partial_send_input(const UINT count, LPINPUT, int) {
+  return count > 0 ? count - 1 : 0;
 }
 
 }  // namespace
@@ -493,6 +504,43 @@ int main() {
   assert(second.stop().ok());
   assert(third.start().ok());
   assert(third.stop().ok());
+
+  // --- Fault: hook install failure (OS seam) ----------------------------
+  // SetWindowsHookExW fails only on a broken desktop, so the seam substitutes
+  // that one call; the whole real start() path runs and must refuse with
+  // ExecutionFailed instead of reporting Running without hooks.
+  rime::win32::input_seam::set_hook_installer(&failing_hook_installer);
+  InputService faulted;
+  const auto install_failed = faulted.start();
+  rime::win32::input_seam::set_hook_installer(nullptr);
+  assert(!install_failed.ok());
+  assert(install_failed.code == rime::core::Error::Code::ExecutionFailed);
+  assert(install_failed.message.find("cannot install low-level keyboard/mouse hooks") !=
+         std::string::npos);
+  assert(faulted.state() == rime::win32::InputServiceState::Stopped);
+
+  // --- Fault: partial SendInput batch (OS seam) -------------------------
+  // The seam consumes fewer inputs than offered; send() and send_mouse()
+  // must report the injected/total counts instead of pretending the batch
+  // landed. The seam stays armed across both calls and is restored before
+  // the service stops (stop() clears block/force state; the seam is test
+  // state and only this test owns it).
+  rime::win32::input_seam::set_send_input(&partial_send_input);
+  InputService partial;
+  const auto partial_started = partial.start();
+  assert(partial_started.ok());
+  const auto partial_keys = partial.send({{VK_F24, true}, {VK_F24, false}});
+  const auto partial_mouse =
+      partial.send_mouse({{rime::win32::SendMouseAction::Move, 0, 0, 1}});
+  rime::win32::input_seam::set_send_input(nullptr);
+  assert(!partial_keys.ok());
+  assert(partial_keys.code == rime::core::Error::Code::ExecutionFailed);
+  assert(partial_keys.message.find("SendInput injected 1 of 2 key steps") != std::string::npos);
+  assert(!partial_mouse.ok());
+  assert(partial_mouse.code == rime::core::Error::Code::ExecutionFailed);
+  assert(partial_mouse.message.find("SendInput injected 0 of 1 mouse steps") !=
+         std::string::npos);
+  assert(partial.stop().ok());
 
   return 0;
 }

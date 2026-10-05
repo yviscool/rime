@@ -43,6 +43,10 @@
 | 2026-10-05 | `quickjs_events_slice` | 首跑注入键未进 edit（前台被抢占） | 第 1 次 | 环境抖动 | `061ef1e` |
 | 2026-10-05 | `quickjs_vertical_slice` | `FAIL: slice active-move could not take the foreground (focus requested ok=0)`：Chrome 持前台期间 `SetForegroundWindow` 连续 6s 全拒 | 第 4 次（前 3 次均在非空闲桌面下失败——违反协议第 6 条前置条件，未先核对空闲桌面；`build/fg-probe.cpp` 探针独立复现"Chrome 持前台 → 拒绝、空闲 → 成功"后，桌面空闲时复跑通过） | 环境抖动 | 结论含前置条件违反，不作纯协议通过 |
 | 2026-10-05 | `quickjs_events_slice` | `inputhook-capture-check.mjs: buffer must collect a,a: "aaaa"`：500ms 采样窗外来注入的 `a`（`D65i`/`U65i`，非 selfInjected）与自注入 `VK_PACKET`（`D231iS`）混入 InputHook 缓冲 | 第 2 次（第 1 次失败；第 2 次通过） | 环境抖动 | 桌面非独占（用户/外部程序在测试窗口期注入按键） |
+| 2026-10-05 | `rime_win32_input_service` | `relative-move probe 1/2 saw an externally moved cursor`，3 探针 2s 预算耗尽后显式失败（登记触发条件命中：外部程序/用户移动光标） | 第 1 次（复跑前 `build/fg-check.ps1` 确认 explorer 持前台、无抢夺者） | 环境抖动 | 本批（待提交） |
+| 2026-10-05 | `quickjs_vertical_slice` | `a foreign window owns it after the focus retry budget; focus requested ok=0` | 第 1 次（第 1 次复跑在 Chrome 持前台下进行——违反协议第 6 条前置条件，不计数；`fg-check` 轮询至本方 Terminal 持前台后复跑通过） | 环境抖动 | 本批（待提交） |
+| 2026-10-05 | `quickjs_events_slice` | `buffer must collect a,a`：采样窗内混入非 self 的 `D65i/U65i`（外部 `a` 按键） | 第 1 次（复跑时 Chrome 持前台——第 6 条前置条件未满足，如实记录；通过未依赖空闲条件，失败触发因素“外来按键注入”未再现） | 环境抖动 | 本批（待提交） |
+| 2026-10-05 | `quickjs_events_slice` | 同签名第 2 次（套件内，4×`D231iS` unicode 包 + 2×`D65i` 实键混入，`ih.Input` 变 `aaaa`） | 第 2 次（隔离复跑通过；同签名套件内已 2 次，若第 3 次按协议判定为缺陷并停复跑） | 环境抖动（待第 3 次定性） | 本批（待提交） |
 | 年-月-日 | `<测试名>` | `<一行输出摘要>` | 第 n 次（≤3） | 环境抖动 / 缺陷 | `<commit 或缺陷号>` |
 
 ## 批1（防假绿）整改后的语义变化

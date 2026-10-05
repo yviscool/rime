@@ -1,5 +1,7 @@
 #include "rime/win32/input.hpp"
 
+#include "rime/win32/input_seam.hpp"
+
 #include <windows.h>
 
 #include <array>
@@ -21,6 +23,12 @@ constexpr UINT kWakeMessage = WM_APP + 78;
 constexpr UINT kHookControlMessage = WM_APP + 79;
 constexpr std::size_t kPendingCapacity = 2048;
 constexpr auto kInstallTimeout = std::chrono::seconds(2);
+
+// Test-only OS substitution (input_seam.hpp): the default is the real API,
+// a test swaps in a failure and swaps back with nullptr. Read through
+// atomic loads at the call sites so a swap is visible across threads.
+std::atomic<input_seam::HookInstaller> g_hook_installer{::SetWindowsHookExW};
+std::atomic<input_seam::SendInputFn> g_send_input{::SendInput};
 
 bool async_key_down(const int virtual_key) {
   return (GetAsyncKeyState(virtual_key) & 0x8000) != 0;
@@ -67,6 +75,19 @@ int mouse_coord_to_abs(const int coord, const int extent) {
 }
 
 }  // namespace
+
+namespace input_seam {
+
+void set_hook_installer(const HookInstaller installer) {
+  g_hook_installer.store(installer ? installer : ::SetWindowsHookExW,
+                         std::memory_order_release);
+}
+
+void set_send_input(const SendInputFn sender) {
+  g_send_input.store(sender ? sender : ::SendInput, std::memory_order_release);
+}
+
+}  // namespace input_seam
 
 struct InputService::Impl {
   struct Entry {
@@ -153,9 +174,10 @@ struct InputService::Impl {
   // Hook thread: reconciles installed hooks with the wanted flags. A failed
   // install leaves wanted=true but installed=false (reported to waiters).
   void apply_hooks() {
+    const auto install = g_hook_installer.load(std::memory_order_acquire);
     const bool want_keyboard = keyboard_wanted.load(std::memory_order_acquire);
     if (want_keyboard && !keyboard_hook) {
-      keyboard_hook = SetWindowsHookExW(WH_KEYBOARD_LL, keyboard_proc, GetModuleHandleW(nullptr), 0);
+      keyboard_hook = install(WH_KEYBOARD_LL, keyboard_proc, GetModuleHandleW(nullptr), 0);
       if (keyboard_hook) seed_physical();
     } else if (!want_keyboard && keyboard_hook) {
       UnhookWindowsHookEx(keyboard_hook);
@@ -163,7 +185,7 @@ struct InputService::Impl {
     }
     const bool want_mouse = mouse_wanted.load(std::memory_order_acquire);
     if (want_mouse && !mouse_hook) {
-      mouse_hook = SetWindowsHookExW(WH_MOUSE_LL, mouse_proc, GetModuleHandleW(nullptr), 0);
+      mouse_hook = install(WH_MOUSE_LL, mouse_proc, GetModuleHandleW(nullptr), 0);
     } else if (!want_mouse && mouse_hook) {
       UnhookWindowsHookEx(mouse_hook);
       mouse_hook = nullptr;
@@ -739,8 +761,8 @@ rime::core::Error InputService::send(const std::vector<SendKeyEvent>& keys) {
     input.ki.dwExtraInfo = static_cast<ULONG_PTR>(k_self_injected_marker);
     inputs.push_back(input);
   }
-  const UINT sent =
-      SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+  const UINT sent = g_send_input.load(std::memory_order_acquire)(
+      static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
   if (sent != inputs.size()) {
     return {rime::core::Error::Code::ExecutionFailed,
             "SendInput injected " + std::to_string(sent) + " of " +
@@ -816,8 +838,8 @@ rime::core::Error InputService::send_mouse(const std::vector<SendMouseStep>& ste
     input.mi.dwExtraInfo = static_cast<ULONG_PTR>(k_self_injected_marker);
     inputs.push_back(input);
   }
-  const UINT sent =
-      SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+  const UINT sent = g_send_input.load(std::memory_order_acquire)(
+      static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
   if (sent != inputs.size()) {
     return {rime::core::Error::Code::ExecutionFailed,
             "SendInput injected " + std::to_string(sent) + " of " +
