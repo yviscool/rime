@@ -10,9 +10,19 @@
 #include <regex>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace rime::win32::detail {
+
+// TargetGone message for "the id behind this window is gone". The text is
+// observable (executor errors, JS rejections, tests), so every call site in
+// every translation unit shares this one spelling.
+inline constexpr const char* kWindowGoneMessage = "window no longer exists";
+
+// Shared by every WindowService entry point: a non-positive timeout is
+// rejected before any UI work is queued.
+rime::core::Error expired_deadline();
 
 std::wstring window_text(HWND window);
 
@@ -83,6 +93,18 @@ class WindowRegistry final {
   std::uint64_t next_id_{0};
 };
 
+// WinGroup state (AHK WinGroup): the named query-spec lists plus the shared
+// visited-window cycle driving activate/deactivate/close. UI-thread only, so
+// no lock protects it - every accessor runs inside ui.call. It lives beside
+// WindowRegistry rather than in window.hpp because the complete type needs
+// HWND; WindowService::Impl (window.cpp) owns one, window_groups.cpp owns
+// every mutation, and window.hpp only forward-declares it.
+struct WindowGroups {
+  std::unordered_map<std::string, std::vector<WindowQuery>> groups;
+  std::string last_group;
+  std::vector<HWND> visited;
+};
+
 rime::core::Error build_info(WindowRegistry& registry, HWND window, WindowInfo& out);
 
 // Compiles one AHK-style regex pattern: an optional run of option letters
@@ -101,6 +123,9 @@ rime::core::Error compile_window_regex(const std::string& utf8,
 // the UI hop: std::wregex touches no HWND, and an invalid pattern then
 // fails the service call without queueing UI work.
 struct ResolvedQuery {
+  // Null selects the list() baseline: the DetectHiddenWindows visibility
+  // filter carried in `include_hidden` plus the untitled-window skip, and no
+  // WinTitle selectors at all.
   const WindowQuery* query{nullptr};
   TitleMatchMode mode{TitleMatchMode::Contains};
   bool include_hidden{false};
@@ -114,7 +139,9 @@ rime::core::Error resolve_query(const WindowQuery& query, const WindowSettings& 
 
 bool has_selectors(const WindowQuery& query);
 
-// WinTitle-style matching evaluated on the UI lane only. `cache` dedupes
+// WinTitle-style matching evaluated on the UI lane only. A null
+// `resolved.query` is the list() baseline (see ResolvedQuery): visibility
+// plus untitled-window filter, no selectors. `cache` dedupes
 // pid -> basename lookups within one enumeration; pass nullptr for single
 // foreground lookups. Title matching is case-sensitive in every mode
 // (AHK WinTitle rule; only RegEx `i)` opts back in), class stays
@@ -122,15 +149,36 @@ bool has_selectors(const WindowQuery& query);
 bool matches_query(WindowRegistry& registry, HWND window, const ResolvedQuery& resolved,
                    PidImageCache* cache);
 
+// EnumWindows callback context for query() and list(). `resolved` is never
+// null: the list() baseline passes a ResolvedQuery with a null `query` (the
+// DetectHiddenWindows visibility flag lives there too, so the baseline has
+// one filter path). `images` is null on the baseline, so build_info falls
+// back to an uncached process-image read.
 struct EnumContext {
   WindowRegistry* registry;
-  const ResolvedQuery* resolved;   // null for the list() baseline enum
-  bool include_hidden;             // list() baseline only (DetectHiddenWindows)
+  const ResolvedQuery* resolved;
   bool selectors;
   std::vector<WindowInfo>* windows;
-  PidImageCache* images;  // per-query pid cache; null on the list() baseline
+  PidImageCache* images;
 };
 
 BOOL CALLBACK collect_matching(HWND window, LPARAM parameter);
+
+// Shared ClassNN numbering behind WinGetControls and the MouseGetPos control
+// probe: instance numbers run per class across the whole enumeration, matched
+// case-insensitively (CompareStringOrdinal) and capped at AHK's 99999. One
+// implementation so the two paths can never drift apart.
+struct ClassNNCounter {
+  // (class, instances seen so far)
+  std::vector<std::pair<std::wstring, int>> counts;
+};
+
+struct ClassNNInstance {
+  std::wstring class_name;
+  int number{0};  // 0: skip the control (no class name, or past the cap)
+};
+
+// Bumps the per-class count for `control` and returns its 1-based instance.
+ClassNNInstance next_class_nn(ClassNNCounter& counter, HWND control);
 
 }  // namespace rime::win32::detail

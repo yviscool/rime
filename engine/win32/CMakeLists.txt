@@ -1,6 +1,9 @@
 add_library(rime_win32 STATIC
   src/ui_thread.cpp
   src/window.cpp
+  src/window_groups.cpp
+  src/window_set.cpp
+  src/window_at.cpp
   src/window_parse.cpp
   src/window_geometry.cpp
   src/window_match.cpp

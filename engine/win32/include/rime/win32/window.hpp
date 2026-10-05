@@ -214,6 +214,14 @@ struct WaitEvaluation {
   std::optional<WindowInfo> target;
 };
 
+namespace detail {
+// Implementation types behind WindowService's PIMPL. They stay incomplete
+// here (the complete definitions live in the src-internal window_match.hpp,
+// which owns HWND) so this public header keeps no Win32 dependency.
+class WindowRegistry;
+struct WindowGroups;
+}  // namespace detail
+
 // Top-level window operations. Every call is routed to the UI thread; raw
 // HWND values never leave the UI lane. Window ids are stable per service
 // and fail with InvalidState once the underlying window is gone. `timeout`
@@ -398,6 +406,12 @@ class WindowService final {
  private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
+  // Impl is defined in window.cpp only, so the translation units that own a
+  // slice of the service (window_groups.cpp, window_set.cpp, window_at.cpp)
+  // reach the shared state through these instead of the PIMPL. Both return
+  // references into Impl; they are UI-lane resources like impl_ itself.
+  detail::WindowRegistry& registry();
+  detail::WindowGroups& group_state();
   // Shared body of set_style / set_ex_style (identical but for the index).
   rime::core::Error set_style_bits(std::uint64_t id, std::string_view value, int index,
                                    std::chrono::milliseconds timeout);

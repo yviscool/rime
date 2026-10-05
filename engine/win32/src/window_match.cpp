@@ -80,7 +80,7 @@ struct ProcessHandleGuard {
 lane::Error build_info_impl(WindowRegistry& registry, HWND window, WindowInfo& out,
                             PidImageCache* names) {
   if (!window || !IsWindow(window)) {
-    return {lane::Error::Code::TargetGone, "window no longer exists"};
+    return {lane::Error::Code::TargetGone, kWindowGoneMessage};
   }
   out = WindowInfo{};
   out.id = registry.id_for(window);
@@ -163,6 +163,38 @@ lane::Error build_info_impl(WindowRegistry& registry, HWND window, WindowInfo& o
 }
 
 }  // namespace
+
+rime::core::Error expired_deadline() {
+  return {rime::core::Error::Code::Timeout, "operation deadline exceeded"};
+}
+
+ClassNNInstance next_class_nn(ClassNNCounter& counter, HWND control) {
+  ClassNNInstance instance;
+  instance.class_name = window_class_name_w(control);
+  // AHK skips controls with no class name; they cannot be numbered.
+  if (instance.class_name.empty()) return instance;
+  int* count = nullptr;
+  for (auto& [known, occurrences] : counter.counts) {
+    if (CompareStringOrdinal(known.c_str(), -1, instance.class_name.c_str(), -1, TRUE) ==
+        CSTR_EQUAL) {
+      count = &occurrences;
+      break;
+    }
+  }
+  if (count == nullptr) {
+    counter.counts.emplace_back(instance.class_name, 1);
+    count = &counter.counts.back().second;
+  } else {
+    ++*count;
+  }
+  if (*count > 99999) {
+    // AHK's numbering cap: the control is enumerated but never reported.
+    instance.number = 0;
+    return instance;
+  }
+  instance.number = *count;
+  return instance;
+}
 
 std::wstring window_text(HWND window) {
   const int length = GetWindowTextLengthW(window);
@@ -253,8 +285,13 @@ bool has_selectors(const WindowQuery& query) {
 
 bool matches_query(WindowRegistry& registry, HWND window, const ResolvedQuery& resolved,
                    PidImageCache* cache) {
-  const WindowQuery& query = *resolved.query;
   if (!resolved.include_hidden && !IsWindowVisible(window)) return false;
+  if (resolved.query == nullptr) {
+    // list() baseline: DetectHiddenWindows already applied above, and - like
+    // a selector-less query below - untitled windows stay out of the dump.
+    return !window_text(window).empty();
+  }
+  const WindowQuery& query = *resolved.query;
   if (query.id != 0 && registry.id_for(window) != query.id) return false;
   if (!query.title.empty()) {
     const std::wstring text = window_text(window);
@@ -334,7 +371,8 @@ BOOL CALLBACK collect_matching(HWND window, LPARAM parameter) {
   assert(context->registry != nullptr);
   assert(context->resolved != nullptr);
   assert(context->windows != nullptr);
-  assert(context->images != nullptr);
+  // images is null on the list() baseline enum; build_info then reads the
+  // process image uncached (it already supports a null cache).
   if (!matches_query(*context->registry, window, *context->resolved, context->images)) {
     return TRUE;
   }
