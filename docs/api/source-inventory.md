@@ -5,12 +5,12 @@
 | 来源 | 代表文件 | 暴露内容 | 当前覆盖 |
 |---|---|---|---|
 | 库内建函数 | `source/lib/functions.h`、`source/lib/*.cpp` | 253 个函数的参数和返回值元数据及实现 | 已进入 `coverage.json`；大多数仅 contract-only |
-| 核心内建函数 | `source/script.cpp`、`source/script_func_impl.h` | `g_BIF` 注册的 101 个数学、字符串、对象、COM、声音、注册表和输入函数 | 见 [`core-builtins.md`](./core-builtins.md)，尚未并入逐项矩阵 |
-| 对象原型 | `script_object.cpp/.h` | Object、Array、Map、Func、Buffer、ClipboardAll、RegExMatch 对象的方法/属性 | 未进入 253 项矩阵 |
-| GUI 对象 | `script_gui.cpp/.h`、`Gui.*.cpp` | Gui、GuiCtrl、ListView、TreeView、StatusBar、Edit、Date、Tab 等方法/属性 | 仅领域概览 |
-| Menu 对象 | `script_menu.cpp/.h` | Menu/MenuBar 的 Add、Insert、Delete、Show、Check、Icon、Default、Handle 等 | 仅领域概览 |
-| InputHook | `input_object.cpp/.h`、`input.cpp` | InputHook 对象属性、Start/Stop/Wait/OnEnd、匹配和 EndKey 语义 | 未建独立矩阵 |
-| File 对象 | `TextIO.cpp/.h` | File 对象构造、读写、Seek、Tell、Encoding、AtEOF、Length 等 | 未建独立矩阵 |
+| 核心内建函数 | `source/script.cpp`、`source/script_func_impl.h` | `g_BIF` 注册的 101 个数学、字符串、对象、COM、声音、注册表和输入函数 | 已逐项进入 [`core-builtins.json`](./core-builtins.json)（见 [`core-builtins.md`](./core-builtins.md)） |
+| 对象原型 | `script_object.cpp/.h` | Object、Array、Map、Func、Buffer、ClipboardAll、RegExMatch 对象的方法/属性 | 已进入 [`objects.json`](./objects.json)（见 [`object-model.md`](./object-model.md)） |
+| GUI 对象 | `script_gui.cpp/.h`、`Gui.*.cpp` | Gui、GuiCtrl、ListView、TreeView、StatusBar、Edit、Date、Tab 等方法/属性 | 成员已进 `objects.json`；控件消息 fallback 仍缺（见 [`audit-gaps.md`](./audit-gaps.md)） |
+| Menu 对象 | `script_menu.cpp/.h` | Menu/MenuBar 的 Add、Insert、Delete、Show、Check、Icon、Default、Handle 等 | 成员已进 `objects.json`；API 面见 [`gui-menu.md`](./gui-menu.md) |
+| InputHook | `input_object.cpp/.h`、`input.cpp` | InputHook 对象属性、Start/Stop/Wait/OnEnd、匹配和 EndKey 语义 | 23 成员已进 `objects.json`，行为契约见 [`hotkey-events.md`](./hotkey-events.md) |
+| File 对象 | `TextIO.cpp/.h` | File 对象构造、读写、Seek、Tell、Encoding、AtEOF、Length 等 | 31 成员已进 `objects.json`；读写面仍 contract-only（M4 storage） |
 | COM 对象 | `script_com.cpp/.h`、`script_autoit.cpp` | ComObject、ComValue、ComValueRef、事件连接、SAFEARRAY、VARIANT 转换 | 仅隔离策略 |
 | 宿主 ABI | `ahklib.idl`、`abi.h/.cpp`、`README-LIB.md` | Main、LoadFile、Execute、OnProblem、Script、Funcs、Vars、Labels、Files 和描述接口 | 未纳入 Runtime Host contract |
 | 内置变量 | `globaldata.h/.cpp`、`script.h` | `A_*`/`A_...` 环境、脚本、输入、窗口、时间、路径和命令行状态 | 未建立变量清单 |

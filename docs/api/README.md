@@ -8,13 +8,16 @@
 
 [`compatibility-matrix.md`](./compatibility-matrix.md) 是面向评审和实现分派的逐函数表；它由覆盖矩阵生成，显示每个函数命中的 AHK 源码文件、目标 lane、同步性、权限、取消策略和当前状态。新增函数或调整映射时，必须同时更新 JSON 和生成表。
 
-当前状态含义：
+已具备行为契约的能力另有一层硬证据：[`contracts/golden/`](../../contracts/golden/) 的 15 个 Action golden（四层 `shape`/`lifecycle`/`semantic`/`failure`）由 `bun tools/golden-smoke.ts`、`rime_golden_tests`、`rime_golden_exec_tests` 与 QuickJS fixture 四个独立消费者交叉验证，其中 `tests/native/golden_exec_tests.cpp` 把 `failure` 与 `semantic` 层经真实桌面 executor 执行。对应 AHK 行的 `contractTest` 会引用该测试（映射见 [`../AHK99-IMPLEMENTATION-PLAN.md`](../AHK99-IMPLEMENTATION-PLAN.md) §1.2 与 [`contracts/golden/README.md`](../../contracts/golden/README.md)）。
 
-- `contract-only`：目标契约已在设计中，但没有完成 Native binding、Action executor 和 contract test（JSON 状态词，与旧文档中的 `specified` 同义）。
-- `sdk-owned`：由 TypeScript/ECMAScript 标准库承担，不进入 Windows Native binding。
-- `unsupported-by-policy`：保留能力边界说明，但默认不向脚本暴露危险的裸指针或任意进程内调用。
+当前状态含义（口径见 [`stdlib.md`](./stdlib.md) §3）：
+
+- `contract-only`：目标契约已在设计中，但没有完成 Native binding、Action executor 和 contract test（JSON 状态词，与旧文档中的 `specified` 同义）；不是终态。
+- `js-native`：由 ECMAScript 标准能力直接承担，零专属代码；等价表达式与可观察差异记录在 [`runtime-language.md`](./runtime-language.md)（或本域文档），以该记录替代测试 ID。终态。
+- `unsupported-by-policy`：保留能力边界说明，但默认不向脚本暴露危险的裸指针或任意进程内调用（理由入档，另有拒绝行为测试）。终态。
 - `excluded`：AHK v1 别名或版本差异条目，不计入分母；理由记录在各自的 `source` 字段。
-- `implemented`：Native binding、执行器和 contract test 均已完成。当前 Window 基础操作、窗口扩展读（WinGet 快照字段与 WinExist/WinActive 探针）、控件与文本读（WinGetControls/WinGetText）、窗口全局设置（SetTitleMatchMode/DetectHiddenWindows/DetectHiddenText）、`process.*` 查询与终止、`input.send`、剪贴板读写和 `A_Clipboard` 达到此标准。
+- `implemented`：Native binding、执行器和 contract test 均已完成，`contractTest` 指向真实存在的测试/契约路径。当前 Window 基础操作、窗口扩展读（WinGet 快照字段与 WinExist/WinActive 探针）、控件与文本读（WinGetControls/WinGetText）、窗口全局设置（SetTitleMatchMode/DetectHiddenWindows/DetectHiddenText）、`process.*` 查询与启动终止、`input.send`/`input.mouse` 注入族、键鼠读与键名解析（KeyWait/GetKeyState/BlockInput/KeyHistory/GetKeyName/GetKeyVK/GetKeySC/Set*LockState）、全局 Hook 之上的事件族（Hotkey/Hotstring/HotIf/Timer/OnMessage/OnClipboardChange/OnError/OnExit/InputHook/suspend/policy）、剪贴板读写和 `A_Clipboard`、`runtime-language` 还原族与生命周期 API 达到此标准（终态）。
+- 旧词 `sdk-owned` 已按 [`stdlib.md`](./stdlib.md) §3 收敛：纯标准能力的条目改判 `js-native` 或 `contract-only`，台账中不再出现该状态。
 
 当前矩阵的 `sourceFiles` 是基于函数名的源码命中结果，属于研究索引；在进入实现前，必须把它收敛到实际定义函数和关键 Win32 调用，并补充精确的错误和返回值语义。
 

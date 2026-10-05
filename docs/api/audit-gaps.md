@@ -4,8 +4,8 @@
 
 ## 已发现但尚未逐项提取
 
-- 对象成员矩阵已按真实源码签名提取进 `objects.json`：Gui、GuiControl、Menu、InputHook、File 以及 Object、Array、Map、Func、Buffer、ClipboardAll、RegExMatch、ComObject 的每个成员都补齐了 `name/kind/parameters/returnType/sourceDefinition/lane/async/ownership/error/compatibilityTest`；剩余缺口只是 `md_member*` 元数据层的参数个数与可选参数边界仍需 CI 做漂移检查。
-- `script.cpp` 的 101 个核心内建函数（`BIF1` 41 + `BIFn` 47 + `BIFi` 13）；它们不在 `functions.h`，必须建立独立来源字段和语义还原测试。
+- 对象成员矩阵已按真实源码签名提取进 `objects.json`：全部 20 个对象（Gui、GuiControl、Menu、InputHook、File、Object、Array、Map、Func、Buffer、ClipboardAll、RegExMatch、ComObject，以及 ListView、TreeView、StatusBar、Edit、DateTime、Tab、ComboBox）的每个成员都补齐了 `name/kind/parameters/returnType/sourceDefinition/lane/async/ownership/error/compatibilityTest`；剩余缺口只是 `md_member*` 元数据层的参数个数与可选参数边界仍需 CI 做漂移检查。
+- `script.cpp` 的 101 个核心内建函数（`BIF1` 41 + `BIFn` 47 + `BIFi` 13）：已逐项提取进 `core-builtins.json`（`domain`/`tsModule`/`lane`/`capability`/`status`/`contractTest`，口径见 [`core-builtins.md`](./core-builtins.md) 与计划 §M0）；剩余缺口是 18 条 `contract-only` 行的语义还原测试（`matrix:check` 对 `coverage ≡ md_func`、`core-builtins ≡ g_BIF` 的漂移检查已在 CI 守住）。
 - 内置变量：`builtins.json` 目前是按源码命中的分域清单，不是完整定义表；需要从 `globaldata` 的注册/解析逻辑提取所有动态变量、只读属性和更新时机。
 - `ahklib.idl` 的全部 ABI 与描述对象；需要生成版本化 Rime Host ABI contract，而不是把它归入普通函数。
 - COM/VARIANT/SAFEARRAY 互操作，包括事件 sink、引用计数、Apartment 和异常转换。
@@ -14,7 +14,7 @@
 - 内置错误原型、警告、`OnError` 继续/重抛规则、ErrorLevel/退出码语义。
 - `globaldata.*` 中的隐式状态、Timer 层、Hook 句柄、输入状态、GUI 链表、单实例和调度变量。
 - `Debugger.cpp` 的调试、暂停、检查和宿主诊断入口，以及 `script_registry.cpp` 的系统集成边界。
-- 控件专用对象：ListView、TreeView、StatusBar、Edit、Date、Tab、ComboBox 的成员和消息 fallback。
+- 控件专用对象：ListView、TreeView、StatusBar、Edit、Date、Tab、ComboBox 的成员已进 `objects.json`，缺口收敛为 Win32 消息 fallback 的实现与 contract 测试。
 - 资源和二进制对象：Buffer、ClipboardAll、ImageList、Picture、菜单句柄、File 对象的确定性关闭。
 
 ## 必须增加的验证

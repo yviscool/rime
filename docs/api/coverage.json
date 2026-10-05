@@ -1593,7 +1593,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.window.write",
-      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2205,7 +2205,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts,tests/native/golden_exec_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2221,7 +2221,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts,tests/native/golden_exec_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2255,7 +2255,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts,tests/native/golden_exec_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2525,7 +2525,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "process.terminate",
-      "contractTest": "tests/native/process_tests.cpp,tests/js/breadth_slice.cpp",
+      "contractTest": "tests/native/process_tests.cpp,tests/js/breadth_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2708,7 +2708,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "process.launch",
-      "contractTest": "tests/native/process_tests.cpp,tests/js/breadth_slice.cpp",
+      "contractTest": "tests/native/process_tests.cpp,tests/js/breadth_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2761,7 +2761,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts,tests/native/golden_exec_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2779,7 +2779,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "tests/sdk/send.test.ts,tests/js/input_slice.cpp",
+      "contractTest": "tests/sdk/send.test.ts,tests/js/input_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2800,7 +2800,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts,tests/native/golden_exec_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2878,7 +2878,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "tests/sdk/send.test.ts,tests/js/input_slice.cpp",
+      "contractTest": "tests/sdk/send.test.ts,tests/js/input_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2893,7 +2893,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts",
+      "contractTest": "tests/native/input_tests.cpp,tests/js/input_slice.cpp,tests/sdk/send.test.ts,tests/native/golden_exec_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2908,7 +2908,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "tests/js/input_slice.cpp",
+      "contractTest": "tests/js/input_slice.cpp,tests/sdk/keyboard-lock.test.ts",
       "lane": "js",
       "cancellation": "none"
     },
@@ -2991,7 +2991,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "tests/js/input_slice.cpp",
+      "contractTest": "tests/js/input_slice.cpp,tests/sdk/keyboard-lock.test.ts",
       "lane": "js",
       "cancellation": "none"
     },
@@ -3021,7 +3021,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "tests/js/input_slice.cpp",
+      "contractTest": "tests/js/input_slice.cpp,tests/sdk/keyboard-lock.test.ts",
       "lane": "js",
       "cancellation": "none"
     },
@@ -3401,7 +3401,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.window.write",
-      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3436,7 +3436,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.window.write",
-      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3788,7 +3788,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.window.write",
-      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3865,7 +3865,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.window.write",
-      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3880,7 +3880,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.window.write",
-      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3895,7 +3895,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.window.write",
-      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3985,7 +3985,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.window.write",
-      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -4017,7 +4017,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.window.write",
-      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -4047,7 +4047,7 @@
       "status": "implemented",
       "async": "async",
       "capability": "windows.window.write",
-      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp",
+      "contractTest": "tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp,tests/native/golden_exec_tests.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
