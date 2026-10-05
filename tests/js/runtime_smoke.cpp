@@ -588,6 +588,23 @@ void test_host_abi_pending_event() {
   assert(abi.state() == rime::js::HostAbiState::Unloaded);
 }
 
+// Duplicate native registrations fail at add time with InvalidContract and
+// the offending specifier, instead of surviving until start() where the
+// registry would silently keep only the first match.
+void test_native_registration_duplicates() {
+  rime::js::Runtime runtime;
+  auto factory = [](JSContext*) -> JSModuleDef* { return nullptr; };
+  assert(runtime.add_native_module("rime:test:dup", factory, nullptr).ok());
+  const auto duplicate = runtime.add_native_module("rime:test:dup", factory, nullptr);
+  assert(!duplicate.ok());
+  assert(duplicate.code == rime::core::Error::Code::InvalidContract);
+  assert(duplicate.message.find("rime:test:dup") != std::string::npos);
+  // An empty specifier and a null factory are rejected the same way.
+  const auto empty = runtime.add_native_module("", factory, nullptr);
+  assert(!empty.ok());
+  assert(empty.code == rime::core::Error::Code::InvalidContract);
+}
+
 }  // namespace
 
 int main() {
@@ -600,5 +617,6 @@ int main() {
   test_host_abi();
   test_host_abi_held_callback();
   test_host_abi_pending_event();
+  test_native_registration_duplicates();
   return 0;
 }

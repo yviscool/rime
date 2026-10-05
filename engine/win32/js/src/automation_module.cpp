@@ -291,8 +291,11 @@ rime::core::Error register_automation_module(rime::js::Host& host,
                                              AutomationModuleBinding* binding) {
   if (const auto error = check_binding(binding); !error.ok()) return error;
   host.set_module_data("rime:automation", binding);
-  host.modules().add_native("rime:automation",
-                            [](JSContext* context) { return create_automation_module(context); });
+  if (const auto error = host.modules().add_native(
+          "rime:automation", [](JSContext* context) { return create_automation_module(context); });
+      !error.ok()) {
+    return error;
+  }
   return rime::core::Error::none();
 }
 

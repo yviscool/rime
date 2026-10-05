@@ -50,6 +50,16 @@ struct Action {
   // decode_action() rejects unknown keys through has_only_keys, so this
   // member never reaches or leaves JSON.
   std::uint64_t accepted_unix_ms{0};
+  // Internal deadline budget. NOT part of the wire contract (same codec
+  // argument as accepted_unix_ms above): deadlineUnixMs resolved against the
+  // kernel clock's wall domain at first sight - Dispatcher::submit on
+  // accept, Kernel::execute for direct paths - and frozen into that clock's
+  // monotonic domain (now() - time_since_epoch), so a wall-clock jump (NTP
+  // step, manual set_unix_ms) can neither shorten nor extend the budget
+  // while the action waits in the queue or runs. Per-process only: never
+  // serialized, so cross-process comparability stays with the wall value.
+  // 0 means unresolved (checked in the wall domain as a fallback).
+  std::int64_t deadline_mono_ms{0};
 };
 
 struct Result {

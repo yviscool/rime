@@ -8,6 +8,9 @@
 //   1. cancel vs completion while an executor is inside Kernel::execute
 //   2. deadline expiry vs completion (ManualClock advanced concurrently)
 //   3. dispatcher close (stop) vs submit
+//   4. wall-clock jumps (ManualClock.set_unix_ms) while an action waits in
+//      the queue or runs inside the executor - the outcome may only change
+//      when steady time passes the frozen budget
 //
 // Expected values come from the kernel contract (kernel.cpp: cancellation
 // wins over the post-commit deadline recheck; an expired deadline reports
@@ -161,6 +164,33 @@ void assert_single_terminal(const std::shared_ptr<InMemoryTrace>& trace, const A
 
 enum class CancelOrder { CancelFirst, CompleteFirst, CancelRacesCompletion };
 
+// Mutates the ManualClock from inside the executor run so the post-commit
+// recheck observes a jumped wall clock. Steady time only moves when the
+// case says so (advance moves both domains, set_unix_ms moves the wall).
+class WallJumpExecutor final : public Executor {
+ public:
+  enum class Jump { WallForward, AdvanceThenWallBack };
+
+  WallJumpExecutor(ManualClock& clock, Jump jump) : clock_(clock), jump_(jump) {}
+
+  Result execute(const Action& action, CancellationToken) override {
+    if (jump_ == Jump::WallForward) {
+      clock_.set_unix_ms(clock_.unix_ms() + 60'000);
+    } else {
+      // Steady time really passes the deadline, then the wall is yanked
+      // back before the recheck: a wall compare would see a future deadline
+      // and spare the overrun, the frozen budget must still expire it.
+      clock_.advance(2'000ms);
+      clock_.set_unix_ms(clock_.unix_ms() - 60'000);
+    }
+    return {action.id, true, false, "clock jumped", Error::none()};
+  }
+
+ private:
+  ManualClock& clock_;
+  Jump jump_;
+};
+
 // Round 1: an action cancelled while its executor is parked inside the gate.
 void run_cancel_round(const CancelOrder order, const ActionId id) {
   auto trace = std::make_shared<InMemoryTrace>();
@@ -297,6 +327,108 @@ void run_deadline_round(const DeadlineOrder order, const ActionId id) {
   assert_single_terminal(trace, id, result);
 }
 
+// Round 2b: wall-clock jumps must never rewrite a deadline outcome - only
+// steady time passing the budget frozen at first sight may. Four
+// discriminating cases: on the old wall-only rule each one reported the
+// opposite of what the frozen budget allows.
+void run_wall_jump_round(const ActionId id) {
+  auto policy = std::make_shared<StaticCapabilityPolicy>(
+      std::unordered_set<std::string>{"windows.window.write"});
+
+  // (a) Queue wait, wall jumps forward: the pending action must still run.
+  {
+    auto trace = std::make_shared<InMemoryTrace>();
+    ManualClock clock;
+    Kernel kernel(policy, trace, &clock);
+    assert(kernel
+               .register_executor("window.move", std::make_shared<SuccessExecutor>())
+               .ok());
+    Dispatcher dispatcher(kernel, 8);
+    const Action queued =
+        make_action(id, static_cast<std::uint64_t>(clock.unix_ms()) + 1'000);
+    assert(dispatcher.submit(queued) == DispatchStatus::Accepted);
+    clock.set_unix_ms(clock.unix_ms() + 60'000);
+    const std::vector<Result> results = dispatcher.pump(8);
+    assert(results.size() == 1);
+    assert(results.front().succeeded);
+    assert(results.front().error.ok());
+    assert_single_terminal(trace, id, results.front());
+  }
+
+  // (b) Queue wait, steady time passes the deadline and the wall is then
+  // yanked back: must still report Timeout.
+  {
+    auto trace = std::make_shared<InMemoryTrace>();
+    ManualClock clock;
+    Kernel kernel(policy, trace, &clock);
+    assert(kernel
+               .register_executor("window.move", std::make_shared<SuccessExecutor>())
+               .ok());
+    Dispatcher dispatcher(kernel, 8);
+    const Action queued =
+        make_action(id + 1, static_cast<std::uint64_t>(clock.unix_ms()) + 1'000);
+    assert(dispatcher.submit(queued) == DispatchStatus::Accepted);
+    clock.advance(2'000ms);
+    clock.set_unix_ms(clock.unix_ms() - 60'000);
+    const std::vector<Result> results = dispatcher.pump(8);
+    assert(results.size() == 1);
+    assert(!results.front().succeeded);
+    assert(!results.front().cancelled);
+    assert(results.front().error.code == Error::Code::Timeout);
+    // Pre-dispatch refusal: the executor never ran, so the trace holds one
+    // Finished entry (from Kernel::fail) and no Started one - the generic
+    // assert_single_terminal requires the executor to have run and would
+    // not fit this outcome.
+    const std::vector<TraceEntry> entries = trace->snapshot();
+    assert(sequences_strictly_increasing(entries));
+    assert(entries_of(entries, TraceKind::ActionStarted, id + 1).empty());
+    const std::vector<TraceEntry> finished =
+        entries_of(entries, TraceKind::ActionFinished, id + 1);
+    assert(finished.size() == 1);
+    assert(finished[0].result_code ==
+           std::string(rime::core::error_code_name(Error::Code::Timeout)));
+  }
+
+  // (c) Direct execute, wall jumps forward inside the executor: the
+  // post-commit recheck must keep the success.
+  {
+    auto trace = std::make_shared<InMemoryTrace>();
+    ManualClock clock;
+    Kernel kernel(policy, trace, &clock);
+    assert(kernel
+               .register_executor("window.move",
+                                  std::make_shared<WallJumpExecutor>(
+                                      clock, WallJumpExecutor::Jump::WallForward))
+               .ok());
+    const Action direct =
+        make_action(id + 2, static_cast<std::uint64_t>(clock.unix_ms()) + 1'000);
+    const Result result = kernel.execute(direct);
+    assert(result.succeeded);
+    assert(result.error.ok());
+    assert_single_terminal(trace, id + 2, result);
+  }
+
+  // (d) Direct execute, steady time passes inside the executor and the wall
+  // is yanked back: must report Timeout (budget enforcement intact).
+  {
+    auto trace = std::make_shared<InMemoryTrace>();
+    ManualClock clock;
+    Kernel kernel(policy, trace, &clock);
+    assert(kernel
+               .register_executor("window.move",
+                                  std::make_shared<WallJumpExecutor>(
+                                      clock, WallJumpExecutor::Jump::AdvanceThenWallBack))
+               .ok());
+    const Action direct =
+        make_action(id + 3, static_cast<std::uint64_t>(clock.unix_ms()) + 1'000);
+    const Result result = kernel.execute(direct);
+    assert(!result.succeeded);
+    assert(!result.cancelled);
+    assert(result.error.code == Error::Code::Timeout);
+    assert_single_terminal(trace, id + 3, result);
+  }
+}
+
 // Round 3: stop (dispatcher close) racing a submitter thread. No ordering is
 // assumed; every submission must land in exactly one legal state, and the
 // actions accepted before the stop must still produce exactly one Result.
@@ -390,6 +522,7 @@ int main() {
     run_deadline_round(static_cast<DeadlineOrder>(round % 3),
                        20'000 + static_cast<ActionId>(round));
   }
+  run_wall_jump_round(40'000);
   run_stop_submit_race();
   return 0;
 }

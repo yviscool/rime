@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <functional>
 #include <future>
 #include <mutex>
@@ -106,8 +107,10 @@ class Runtime final {
   mutable std::mutex mutex_;
   std::mutex lifecycle_mutex_;
   std::condition_variable condition_;
-  std::vector<EvalTask> tasks_;
-  std::vector<InspectTask> inspect_tasks_;
+  // FIFO task queues drained from the front: std::deque keeps pop-front
+  // O(1) instead of vector's erase(begin) shifting every pending task.
+  std::deque<EvalTask> tasks_;
+  std::deque<InspectTask> inspect_tasks_;
   std::thread thread_;
   RuntimeState state_{RuntimeState::Created};
   rime::core::Error startup_error_;

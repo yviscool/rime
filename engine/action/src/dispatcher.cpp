@@ -69,6 +69,11 @@ DispatchStatus Dispatcher::submit(Action action) {
       action.accepted_unix_ms = static_cast<std::uint64_t>(
           rime::core::SystemClock::instance().unix_ms());
     }
+    // Freeze the wall deadline into the kernel clock's monotonic domain on
+    // accept: the queue wait must be spent against steady time, so a wall
+    // jump while the action sits in pending_ can neither shorten nor extend
+    // its budget. No-op if the submitter preset a resolved budget.
+    kernel_.resolve_deadline(action);
     decisions.push_back({rime::core::TraceKind::ActionAccepted, action.type, action.id,
                          action.capability, "queued", {}});
   };

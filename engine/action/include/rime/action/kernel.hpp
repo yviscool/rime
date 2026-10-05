@@ -37,6 +37,12 @@ class Kernel final {
 
   rime::core::Error register_executor(std::string action_type,
                                        std::shared_ptr<Executor> executor);
+  // Freezes Action::deadline_unix_ms into this kernel clock's monotonic
+  // domain (first sight wins; a no-op once resolved). Dispatcher::submit
+  // stamps on accept so the queue wait is measured in steady time;
+  // Kernel::execute stamps direct paths itself. Must be called on the thread
+  // that owns the clock read (the clock pointer is not synchronized here).
+  void resolve_deadline(Action& action) const;
   Result execute(const Action& action, rime::core::CancellationToken cancellation = {});
   // Read-only capability probe so native query paths enforce the same policy
   // as the action pipeline without building an Action.

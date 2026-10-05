@@ -132,8 +132,11 @@ rime::core::Error check_binding(const ClipboardModuleBinding* binding) {
 rime::core::Error register_clipboard_module(rime::js::Host& host, ClipboardModuleBinding* binding) {
   if (const auto error = check_binding(binding); !error.ok()) return error;
   host.set_module_data("rime:clipboard", binding);
-  host.modules().add_native("rime:clipboard",
-                            [](JSContext* context) { return create_clipboard_module(context); });
+  if (const auto error = host.modules().add_native(
+          "rime:clipboard", [](JSContext* context) { return create_clipboard_module(context); });
+      !error.ok()) {
+    return error;
+  }
   return rime::core::Error::none();
 }
 

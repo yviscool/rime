@@ -1339,8 +1339,11 @@ rime::core::Error check_binding(const InputModuleBinding* binding) {
 rime::core::Error register_input_module(rime::js::Host& host, InputModuleBinding* binding) {
   if (const auto error = check_binding(binding); !error.ok()) return error;
   host.set_module_data("rime:input", binding);
-  host.modules().add_native("rime:input",
-                            [](JSContext* context) { return create_input_module(context); });
+  if (const auto error = host.modules().add_native(
+          "rime:input", [](JSContext* context) { return create_input_module(context); });
+      !error.ok()) {
+    return error;
+  }
   return rime::core::Error::none();
 }
 

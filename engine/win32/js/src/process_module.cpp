@@ -236,8 +236,11 @@ rime::core::Error check_binding(const ProcessModuleBinding* binding) {
 rime::core::Error register_process_module(rime::js::Host& host, ProcessModuleBinding* binding) {
   if (const auto error = check_binding(binding); !error.ok()) return error;
   host.set_module_data("rime:process", binding);
-  host.modules().add_native("rime:process",
-                            [](JSContext* context) { return create_process_module(context); });
+  if (const auto error = host.modules().add_native(
+          "rime:process", [](JSContext* context) { return create_process_module(context); });
+      !error.ok()) {
+    return error;
+  }
   return rime::core::Error::none();
 }
 

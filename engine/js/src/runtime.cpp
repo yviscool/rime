@@ -49,6 +49,15 @@ rime::core::Error Runtime::add_native_module(std::string name,
     return {rime::core::Error::Code::InvalidState,
             "native modules must be registered before the runtime starts"};
   }
+  // Fail at add time instead of letting start() discover the duplicate when
+  // the list is copied into the registry (the registry checks again for
+  // names registered by other paths, e.g. the rime:runtime builtin).
+  for (const auto& existing : native_modules_) {
+    if (std::get<0>(existing) == name) {
+      return {rime::core::Error::Code::InvalidContract,
+              "native module is already registered: " + name};
+    }
+  }
   native_modules_.emplace_back(std::move(name), std::move(factory), data);
   return rime::core::Error::none();
 }
@@ -235,12 +244,22 @@ void Runtime::run() {
     // Ownership stays with the add_native_module caller for the host's
     // lifetime; never hand the raw pointer to another thread - pass stable
     // ids or serialized snapshots instead.
+    bool ready = true;
     for (auto& [name, factory, data] : native_modules_) {
       if (data) host.set_module_data(name, data);
-      host.modules().add_native(name, factory);
+      if (const auto native_error = host.modules().add_native(name, factory);
+          !native_error.ok()) {
+        // A registry-level duplicate (e.g. a name that collides with the
+        // host's rime:runtime builtin) fails startup with the offending
+        // specifier instead of shadowing the first match at load time.
+        ready = false;
+        std::lock_guard lock(mutex_);
+        state_ = RuntimeState::Failed;
+        startup_error_ = native_error;
+        condition_.notify_all();
+      }
     }
 
-    bool ready = true;
     if (!file_root_.empty()) {
       if (const auto root_error = host.modules().set_file_root(file_root_); !root_error.ok()) {
         ready = false;
@@ -310,15 +329,11 @@ void Runtime::run() {
           }
           if (!tasks_.empty()) {
             eval_task = std::move(tasks_.front());
-            // TODO(perf): vector-as-queue erase(front) is O(N); kept as vector
-            // to avoid header churn (deque would touch the public header).
-            // Switch to std::deque if queues grow.
-            tasks_.erase(tasks_.begin());
+            tasks_.pop_front();
             has_eval = true;
           } else if (!inspect_tasks_.empty()) {
             inspect_task = std::move(inspect_tasks_.front());
-            // TODO(perf): see above - vector-as-queue erase(front) is O(N).
-            inspect_tasks_.erase(inspect_tasks_.begin());
+            inspect_tasks_.pop_front();
             has_inspect = true;
           }
         }

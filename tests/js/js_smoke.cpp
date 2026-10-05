@@ -31,6 +31,25 @@ int main(int argc, char** argv) {
 
   rime::js::Host host;
 
+  // The registry refuses empty and duplicate native registrations with
+  // InvalidContract instead of letting load()'s first-match lookup silently
+  // shadow the second one ("rime:runtime" is already registered by the Host
+  // constructor).
+  const auto empty_registration =
+      host.modules().add_native("", [](JSContext*) -> JSModuleDef* { return nullptr; });
+  assert(!empty_registration.ok());
+  assert(empty_registration.code == rime::core::Error::Code::InvalidContract);
+  const auto null_factory_registration = host.modules().add_native("rime:test:nullfactory", {});
+  assert(!null_factory_registration.ok());
+  assert(null_factory_registration.code == rime::core::Error::Code::InvalidContract);
+  const auto duplicate_registration =
+      host.modules().add_native("rime:runtime", [](JSContext*) -> JSModuleDef* {
+        return nullptr;
+      });
+  assert(!duplicate_registration.ok());
+  assert(duplicate_registration.code == rime::core::Error::Code::InvalidContract);
+  assert(duplicate_registration.message.find("rime:runtime") != std::string::npos);
+
   // Native module binding through the module loader.
   assert(host.eval_module("import { runtime } from 'rime:runtime';\n"
                           "if (runtime.ping() !== 'pong') throw new Error('bad native binding');")

@@ -8,14 +8,29 @@
 namespace rime::action {
 namespace {
 
-// Wall-clock semantics: deadlines are absolute Unix-epoch milliseconds and
-// are read from the clock's wall domain (SystemClock by default, not
-// steady_clock) so they stay comparable with the Action contract's
-// deadlineUnixMs across processes.
-// Expired means deadline <= now: an action whose deadline equals the current
-// time is already out of budget (no test pins the ==now boundary; kernel
-// and executors share this <=now rule).
+// Monotonic reading of a clock's now() domain, as milliseconds since that
+// domain's epoch (steady_clock epoch for SystemClock/ManualClock). Only
+// meaningful inside one process: Action::deadline_mono_ms is never
+// serialized.
+std::int64_t mono_ms(const rime::core::Clock& clock) {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(clock.now().time_since_epoch())
+      .count();
+}
+
+// Two-domain deadline rule. The wire value (deadlineUnixMs) stays absolute
+// Unix-epoch ms - comparable across processes and what executors re-derive
+// their timeouts from. At runtime the kernel freezes it against the clock's
+// wall domain once (resolve_deadline) and enforces the frozen monotonic
+// budget, so a wall-clock jump between submit and completion cannot grant
+// extra time or fail an action early. Direct execute paths that arrive
+// unresolved fall back to a wall comparison (identical at that instant).
+// Expired means deadline <= now: an action whose deadline equals the
+// current time is already out of budget (no test pins the ==now boundary;
+// kernel and executors share this <=now rule).
 bool deadline_expired(const Action& action, const rime::core::Clock& clock) {
+  if (action.deadline_mono_ms != 0) {
+    return action.deadline_mono_ms <= mono_ms(clock);
+  }
   return static_cast<std::int64_t>(action.deadline_unix_ms) <= clock.unix_ms();
 }
 
@@ -60,6 +75,15 @@ rime::core::Error Kernel::register_executor(std::string action_type,
   return rime::core::Error::none();
 }
 
+void Kernel::resolve_deadline(Action& action) const {
+  if (action.deadline_unix_ms == 0 || action.deadline_mono_ms != 0) {
+    return;
+  }
+  const std::int64_t wall_delta = static_cast<std::int64_t>(action.deadline_unix_ms) -
+                                  clock_->unix_ms();
+  action.deadline_mono_ms = mono_ms(*clock_) + wall_delta;
+}
+
 Result Kernel::execute(const Action& action, rime::core::CancellationToken cancellation) {
   using Code = rime::core::Error::Code;
   constexpr rime::core::ActionId max_safe_integer = 9'007'199'254'740'991ULL;
@@ -86,9 +110,19 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
   if (cancellation.cancelled()) {
     return fail(action, Code::Cancelled, "action was cancelled before execution");
   }
-  // Deadline is absolute and enforced at dispatch: an expired action never
-  // reaches an executor and reports Timeout (not ExecutionFailed).
-  if (deadline_expired(action, *clock_)) {
+  // Freeze the deadline on first sight (submit already stamped queued
+  // actions; direct callers resolve here) and keep the resolved copy alive
+  // for the post-commit recheck below.
+  Action resolved;
+  const Action* effective = &action;
+  if (action.deadline_mono_ms == 0) {
+    resolved = action;
+    resolve_deadline(resolved);
+    effective = &resolved;
+  }
+  // Deadline is enforced at dispatch: an expired action never reaches an
+  // executor and reports Timeout (not ExecutionFailed).
+  if (deadline_expired(*effective, *clock_)) {
     return fail(action, Code::Timeout, "action deadline exceeded");
   }
   if (!policy_ || !policy_->allows(action.capability)) {
@@ -133,10 +167,12 @@ Result Kernel::execute(const Action& action, rime::core::CancellationToken cance
                     "action cancelled during execution (after commit; side effects may have "
                     "occurred)"};
     result.detail = result.error.message;
-  } else if (result.succeeded && deadline_expired(action, *clock_)) {
+  } else if (result.succeeded && deadline_expired(*effective, *clock_)) {
     // Post-commit deadline recheck: the executor already ran, so a success
     // that overran the deadline is rewritten to Timeout. The side effects
-    // cannot be undone, hence the note below.
+    // cannot be undone, hence the note below. Evaluated against the
+    // monotonic budget frozen above, so a wall jump during the executor run
+    // cannot rewrite (or spare) the outcome.
     result.succeeded = false;
     result.error = {Code::Timeout,
                     "action deadline exceeded after commit; side effects may have occurred"};

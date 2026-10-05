@@ -1650,8 +1650,11 @@ rime::core::Error check_binding(const WindowModuleBinding* binding) {
 rime::core::Error register_window_module(rime::js::Host& host, WindowModuleBinding* binding) {
   if (const auto error = check_binding(binding); !error.ok()) return error;
   host.set_module_data("rime:window", binding);
-  host.modules().add_native("rime:window",
-                            [](JSContext* context) { return create_window_module(context); });
+  if (const auto error = host.modules().add_native(
+          "rime:window", [](JSContext* context) { return create_window_module(context); });
+      !error.ok()) {
+    return error;
+  }
   return rime::core::Error::none();
 }
 

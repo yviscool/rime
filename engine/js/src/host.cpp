@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <string>
 #include <utility>
@@ -500,12 +501,19 @@ Host::Host() : owner_(std::this_thread::get_id()) {
   JS_SetModuleLoaderFunc(runtime_, normalize_thunk, loader_thunk, this);
   JS_SetInterruptHandler(runtime_, interrupt_thunk, this);
   JS_SetHostPromiseRejectionTracker(runtime_, rejection_thunk, this);
-  modules_.add_native("rime:runtime", [](JSContext* context) -> JSModuleDef* {
-    JSModuleDef* module = JS_NewCModule(context, "rime:runtime", runtime_module_init);
-    if (!module) return nullptr;
-    if (JS_AddModuleExport(context, module, "runtime") < 0) return nullptr;
-    return module;
-  });
+  const auto builtin_error =
+      modules_.add_native("rime:runtime", [](JSContext* context) -> JSModuleDef* {
+        JSModuleDef* module = JS_NewCModule(context, "rime:runtime", runtime_module_init);
+        if (!module) return nullptr;
+        if (JS_AddModuleExport(context, module, "runtime") < 0) return nullptr;
+        return module;
+      });
+  if (!builtin_error.ok()) {
+    // Unreachable: a fresh registry, a fixed name and a valid factory are
+    // the only inputs. Fail loudly instead of booting a host whose builtin
+    // rime:runtime module silently never loads.
+    std::abort();
+  }
 }
 
 Host::~Host() {

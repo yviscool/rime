@@ -19,7 +19,11 @@ class ModuleRegistry final {
  public:
   using NativeFactory = std::function<JSModuleDef*(JSContext*)>;
 
-  void add_native(std::string name, NativeFactory factory);
+  // Registers a native `rime:*` module. An empty name, a null factory or a
+  // name that is already registered fails with InvalidContract, so two
+  // registrations can never silently shadow each other in load()'s
+  // first-match lookup.
+  rime::core::Error add_native(std::string name, NativeFactory factory);
   // Enables on-disk ES modules confined to `root`. Empty disables file modules.
   rime::core::Error set_file_root(std::string root);
 

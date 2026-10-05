@@ -33,12 +33,23 @@ char* duplicate(JSContext* context, const std::string& value) {
 
 }  // namespace
 
-void ModuleRegistry::add_native(std::string name, NativeFactory factory) {
-  // NOTE: return type intentionally stays void (changing it cascades).
-  // Callers guarantee a non-empty, unique name and a valid factory; empty or
-  // duplicate registrations are caller bugs. load() resolves by first match.
+rime::core::Error ModuleRegistry::add_native(std::string name, NativeFactory factory) {
+  if (name.empty() || !factory) {
+    return {rime::core::Error::Code::InvalidContract,
+            "native module registration requires a name and factory"};
+  }
   std::lock_guard lock(mutex_);
+  // Exact-match duplicate check mirrors load()'s exact-match lookup: a
+  // second registration of the same specifier would otherwise be silently
+  // unreachable behind the first match.
+  for (const auto& entry : natives_) {
+    if (entry.first == name) {
+      return {rime::core::Error::Code::InvalidContract,
+              "native module is already registered: " + name};
+    }
+  }
   natives_.emplace_back(std::move(name), std::move(factory));
+  return rime::core::Error::none();
 }
 
 rime::core::Error ModuleRegistry::set_file_root(std::string root) {
