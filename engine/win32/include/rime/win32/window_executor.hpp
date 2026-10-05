@@ -3,7 +3,14 @@
 #include "rime/action/action.hpp"
 #include "rime/win32/window.hpp"
 
+#include <unordered_set>
+
 namespace rime::win32 {
+
+// Every action type WindowExecutor dispatches (its accept set). The
+// production Bootstrap registers exactly this set, so a type added to the
+// executor cannot ship unregistered on the production wiring.
+const std::unordered_set<std::string>& window_action_types();
 
 // Executes the `window.*` write actions (capability `windows.window.write`)
 // against a WindowService: move/focus/close/kill/redraw/hide/show/minimize/

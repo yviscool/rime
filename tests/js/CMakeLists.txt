@@ -37,6 +37,14 @@ if (WIN32 AND TARGET rime_win32_js)
            COMMAND rime_js_bundle ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/persist-hotkey.mjs 0)
   add_test(NAME quickjs_persist_timer
            COMMAND rime_js_bundle ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/persist-timer.mjs 0)
+  # Golden failure layer as a QuickJS consumer: the generated fixture lists
+  # every contracts/golden failure entry as executed or skipped-with-reason
+  # (bun tools/golden-fixture.ts) and asserts the executed ones. --production
+  # grants production_capabilities(), so a capability denial can never be what
+  # the assertions observe. Same desktop env as the bundle tests above.
+  add_test(NAME quickjs_golden_failures
+           COMMAND rime_js_bundle --production
+                   ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/golden-violations.generated.mjs)
 endif()
 
 add_executable(rime_js_runtime runtime_smoke.cpp)

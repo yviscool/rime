@@ -10,9 +10,14 @@
 // imported because tools/schema-smoke.ts is read-only for this task; keep the
 // two implementations in sync - tests/native/golden_tests.cpp mirrors the
 // same subset a third time.
+// It finishes by running tools/golden-fixture.ts --check (see the bottom of
+// this file), so the generated QuickJS consumer of the failure layer cannot
+// drift from the golden files validated here.
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
+
+import { check_drift } from "./golden-fixture";
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
@@ -372,7 +377,8 @@ for (const file of golden_files) {
     semantic_checked += 1;
   }
 
-  // failure: executor-layer rejections (runtime wiring lands in R4-B).
+  // failure: executor-layer rejections; the QuickJS mapping of every entry
+  // lives in tools/golden-fixture.ts and is drift-checked at the end.
   assert.ok(Array.isArray(golden.failure), `${label}: failure must be an array`);
   for (const entry of golden.failure) {
     const where = `${label}: failure[${entry.name}]`;
@@ -407,4 +413,14 @@ console.log(
   `Golden contract smoke passed (${golden_files.length} files, ${valid_checked} valid, ` +
     `${violations_checked} violations, ${lifecycle_checked} lifecycle, ${semantic_checked} semantic, ` +
     `${failure_checked} failure, ${envelope_checked} envelope)`,
+);
+
+// The QuickJS consumer of the failure layer is generated from the very files
+// validated above, so it is regenerated and re-checked here: a golden edit
+// that is not reflected in tests/js/fixtures/golden-violations.generated.mjs
+// fails contract:smoke with the regenerate hint instead of shipping a stale
+// expressibility audit.
+const fixture = await check_drift();
+console.log(
+  `Golden fixture in sync with QuickJS consumer (${fixture.executed} executed, ${fixture.skipped} skipped)`,
 );

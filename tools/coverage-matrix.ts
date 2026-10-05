@@ -196,6 +196,69 @@ async function checkActionRegistry(
   console.log(
     `Action registry checked: ${registry_types.size} types across ${executors.length} executor files`,
   );
+  await checkProductionRegistration(root, registry, fail);
+}
+
+// Production wiring drift: Bootstrap::register_executors must cover every
+// implemented action type, or the desktop bundle answers `unsupported` for a
+// type the executors dispatch (17 window types once shipped exactly that
+// way). The window family is covered by iterating the executor's exported
+// window_action_types(); every other implemented type must appear as a
+// literal in the register_executors body, and that body must not register a
+// type the registry no longer declares.
+async function checkProductionRegistration(
+  root: string,
+  registry: {
+    actions: Array<{ type: string; status?: string }>;
+  },
+  fail: (message: string) => never,
+): Promise<void> {
+  const bootstrap = await readFile(resolve(root, "engine/win32/js/src/bootstrap.cpp"), "utf8");
+  const start = bootstrap.indexOf("Bootstrap::register_executors");
+  if (start < 0) fail("bootstrap.cpp no longer defines Bootstrap::register_executors");
+  const next = bootstrap.indexOf("Bootstrap::", start + 1);
+  const body = bootstrap.slice(start, next > 0 ? next : undefined);
+
+  const exec_source = await readFile(resolve(root, "engine/win32/src/window_executor.cpp"), "utf8");
+  const accept_start = exec_source.indexOf("window_action_types() {");
+  const accept_end = exec_source.indexOf("return types;", accept_start);
+  if (accept_start < 0 || accept_end < 0) {
+    fail("window_executor.cpp no longer defines window_action_types()");
+  }
+  const accept_body = exec_source.slice(accept_start, accept_end);
+  const window_accept = new Set(
+    [...accept_body.matchAll(/"([a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+)"/g)].map((m) => m[1]),
+  );
+
+  const implemented = registry.actions
+    .filter((action) => (action.status ?? "implemented") === "implemented")
+    .map((action) => action.type);
+  const registry_window = new Set(implemented.filter((type) => type.startsWith("window.")));
+  for (const type of registry_window) {
+    if (!window_accept.has(type)) fail(`window_action_types() misses registry type ${type}`);
+  }
+  for (const type of window_accept) {
+    if (!registry_window.has(type)) fail(`window_action_types() has unregistered type ${type}`);
+  }
+
+  if (!/for \(const std::string& type : window_action_types\(\)\)/.test(body)) {
+    fail("register_executors must register the window family via window_action_types()");
+  }
+  const body_literals = new Set(
+    [...body.matchAll(/"([a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+)"/g)].map((m) => m[1]),
+  );
+  for (const type of implemented) {
+    if (type.startsWith("window.")) continue;
+    if (!body_literals.has(type)) fail(`register_executors misses implemented type ${type}`);
+  }
+  for (const type of body_literals) {
+    if (!registry_window.has(type) && !implemented.includes(type)) {
+      fail(`register_executors registers type ${type} the registry does not declare`);
+    }
+  }
+  console.log(
+    `Production bootstrap registers all ${implemented.length} implemented action types`,
+  );
 }
 
 const columns = [

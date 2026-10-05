@@ -129,13 +129,15 @@ rime::core::Error Bootstrap::register_modules(rime::js::Runtime& runtime) {
 }
 
 rime::core::Error Bootstrap::register_executors() {
-  // The 15 action types in contracts/registry/actions.json. Each executor
-  // re-validates its own type on every call, so a mismatch between this list
-  // and an executor's accept set fails loudly in the slice tests.
+  // Every implemented action type in contracts/registry/actions.json: the
+  // window family comes from window_action_types(), the executor's own accept
+  // set, so the production wiring cannot fall behind it (it once did - six
+  // golden types answered `unsupported` here while the executor dispatched
+  // them). Each executor re-validates its own type on every call, so a
+  // mismatch between this list and an executor's accept set fails loudly in
+  // the slice tests.
   const auto window_executor = std::make_shared<WindowExecutor>(window_service_);
-  for (const char* type : {"window.move", "window.focus", "window.close", "window.hide",
-                           "window.show", "window.minimize", "window.maximize",
-                           "window.restore"}) {
+  for (const std::string& type : window_action_types()) {
     if (const auto error = kernel_.register_executor(type, window_executor); !error.ok()) {
       return error;
     }

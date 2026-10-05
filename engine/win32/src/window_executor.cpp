@@ -13,13 +13,11 @@
 #include <unordered_set>
 
 namespace rime::win32 {
-namespace {
-
-using Result = rime::action::Result;
-using Code = rime::core::Error::Code;
 
 // Every action type this executor dispatches; capability for all of them is
-// `windows.window.write` (the kernel checks it before dispatch).
+// `windows.window.write` (the kernel checks it before dispatch). Exported so
+// the production Bootstrap registers exactly this set instead of a hand
+// maintained copy that can fall behind the accept set.
 const std::unordered_set<std::string>& window_action_types() {
   static const std::unordered_set<std::string> types = {
       "window.move",       "window.focus",  "window.close",
@@ -33,6 +31,11 @@ const std::unordered_set<std::string>& window_action_types() {
       "window.set.transcolor", "window.set.region"};
   return types;
 }
+
+namespace {
+
+using Result = rime::action::Result;
+using Code = rime::core::Error::Code;
 
 // The group subset dispatches against a named group (target kind "group",
 // target id = the group name) instead of a window identity.
