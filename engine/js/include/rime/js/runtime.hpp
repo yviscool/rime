@@ -37,6 +37,11 @@ class Runtime final {
   rime::core::Error add_native_module(std::string name,
                                       ModuleRegistry::NativeFactory factory,
                                       void* data = nullptr);
+  // Number of reloads the embedder already performed for this script path;
+  // run() hands it to every Host it creates as runtime.reloadState().count,
+  // so the diagnostic survives the teardown/rebuild a reload does. Only
+  // valid before start (same convention as set_file_root).
+  rime::core::Error set_reload_count(std::uint64_t count);
   [[nodiscard]] rime::core::Error start();
   [[nodiscard]] std::future<rime::core::Error> evaluate_module(std::string source,
                                                                std::string filename = "<module>");
@@ -44,17 +49,19 @@ class Runtime final {
   // tasks, errors) without executing unknown script.
   std::future<std::string> inspect(std::string request = "{}");
   // Blocks until the JS thread reports quiescence: no queued completion and
-  // no armed timer. Returns ExecutionFailed on timeout.
+  // no armed timer. Returns ExecutionFailed on timeout. A pending exit or
+  // reload abandons the wait early - both unwind the script, so queued work
+  // is no longer owed an answer.
   [[nodiscard]] rime::core::Error settle(std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // True when the run loop has nothing queued right now: host idle and no
   // pending eval/inspect task - settle()'s predicate without the
-  // runtime.exit short-circuit, so the bootstrap residency pump can ask
-  // "quiet?" while exit/stop keep their own priority.
+  // runtime.exit / runtime.reload short-circuit, so the bootstrap residency
+  // pump can ask "quiet?" while exit/reload/stop keep their own priority.
   [[nodiscard]] bool quiescent() const;
   // Residency pump pacing: sleeps up to `timeout`, returns early once an
-  // exit is requested or the runtime starts stopping. The predicate result
-  // is discarded - a timeout is not a failure, the caller re-checks its own
-  // condition either way.
+  // exit or a reload is requested or the runtime starts stopping. The
+  // predicate result is discarded - a timeout is not a failure, the caller
+  // re-checks its own condition either way.
   void wait_for(std::chrono::milliseconds timeout);
   [[nodiscard]] rime::core::Error stop();
   [[nodiscard]] RuntimeState state() const;
@@ -73,6 +80,15 @@ class Runtime final {
   void set_exit_notifier(std::function<void(int)> notifier);
   [[nodiscard]] bool exit_requested() const;
   [[nodiscard]] int exit_code() const;
+
+  // runtime.reload() observability (AHK Reload), the exit mirror: the JS
+  // thread's Host writes the state through the reload notifier run()
+  // installs, the embedder loop reads it after evaluate / settle / pump /
+  // stop to decide between exit and reload. Exit always outranks it, so the
+  // loop checks exit_requested() first. Like an exit, a pending reload
+  // abandons queued work: settle() returns as soon as it is requested and
+  // wait_for() wakes the residency pump on it.
+  [[nodiscard]] bool reload_requested() const;
 
  private:
   struct EvalTask {
@@ -105,6 +121,13 @@ class Runtime final {
   // Embedder observer installed through set_exit_notifier (before start);
   // copied out of the lock by run()'s notifier before it fires.
   std::function<void(int)> exit_notifier_;
+  // Guarded by mutex_; written from the JS thread through the reload notifier
+  // run() installs on the Host, read by reload_requested(), settle(),
+  // wait_for() and the embedder loop.
+  bool reload_requested_{false};
+  // Pre-start configuration (see set_reload_count); read by run() on the JS
+  // thread, so it is immutable from start() onwards.
+  std::uint64_t reload_count_{0};
   std::string file_root_;
   // NOTE: void* wiring pointers are caller-owned (see add_native_module);
   // never dereference them here or share them across threads.

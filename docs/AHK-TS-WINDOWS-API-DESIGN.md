@@ -197,15 +197,15 @@ export const hooks: { keyboard(cb: (e: KeyboardEvent)=>void, o?: HookOptions): S
 |---|---|---|---|
 | 窗口查询/操作 | WinActivate、WinClose、WinGet*、WinMove、WinSet*、WinWait*、WinGroup*、WinMoveTop/Bottom、WinActivateBottom、WinKill、WinRedraw、WinMinimizeAll/Undo（约 55） | 已定义目标接口及 WinTitle 映射；`region` 已实现（含快照读回扩展） | `list`（含 WinTitle 查询）/`active/info/move/focus/close/kill/redraw/hide/show/minimize/maximize/restore/zorder/minimizeAll/minimizeAllUndo`/`setTitle/setEnabled/setAlwaysOnTop/setStyle/setExStyle/setTransparent/setTransColor/setRegion`/`exists/isActive/wait`（WinWait 家族经 `until`）/`groups`（WinGroup 家族经 `window.group.*` 动作）已实现（WinActivateBottom 经 list+focus 组合承载）；WinSet* 全部实现 |
 | 控件/UIA | Control* 全集、Edit*、ListViewGetContent、StatusBar*、Gui*（约 48） | 仅定义通用 `controls` 抽象，未逐函数列签名/返回值/失败语义 | 未实现 UIA/Win32 fallback |
-| 键鼠/热键/Hook | MouseClick*、Send*、Hotkey、Hotstring、KeyWait、Install*Hook、BlockInput、GetKey*、Set*KeyState | 定义基础 `keyboard`/`mouse`/`hooks`；AHK 解析细节尚未形成语法规范 | 仅低级输入事件订阅；注入和热键未实现 |
-| 剪贴板/消息 | ClipWait、OnClipboardChange、SendMessage、OnMessage | 仅概念提及 | `clipboard.read/write` binding 已实现（`windows.clipboard.read/write` capability）；`ClipWait`/`OnClipboardChange`/`OnMessage` 未实现 |
+| 键鼠/热键/Hook | MouseClick*、Send*、Hotkey、Hotstring、KeyWait、Install*Hook、BlockInput、GetKey*、Set*KeyState | 定义基础 `keyboard`/`mouse`/`hooks`，Send 字符串语言对照见 `input.md`、事件契约见 `hotkey-events.md` | 注入与热键已实现：Send 字符串语言与结构化注入（`input.send`，golden `input.send.*`）、鼠标族（`input.mouse`）、`GetKeyState`/`KeyWait`/`BlockInput`/`KeyHistory`/`GetKeyName`/`Set*LockState`、`keyboard`/`mouse`/`hooks` 事件订阅与 Hotkey/Hotstring；`SendLevel` 未实现 |
+| 剪贴板/消息 | ClipWait、OnClipboardChange、SendMessage、OnMessage | 仅概念提及 | `clipboard.read/write` binding 已实现（`windows.clipboard.read/write` capability）；`OnClipboardChange`/`OnMessage` 事件已实现（`hotkey-events.md`）；`ClipWait`/`SendMessage` 未实现 |
 | 进程/启动 | Run、RunWait、RunAs、Process*、Shutdown | 定义 `process` 目标 API 和权限 | `process.list/info/launch/terminate` binding 已实现（`process.launch/terminate`、`process.inspect`）；`Run*`/`Shutdown` 未实现 |
 | 屏幕/图像 | PixelGetColor、PixelSearch、ImageSearch、MonitorGet*、SysGet* | 定义 `screen.pixel*`；monitor/system 信息缺少接口 | 未实现 |
 | 文件/目录/环境 | File*、Dir*、Env*、Ini*、Download、Drive*、SplitPath | 未定义 TS 模块或权限模型 | 未实现 |
-| 定时/调度/运行时 | SetTimer、Sleep、Critical、Persistent、ExitApp、Reload、Suspend、Pause、OnExit/OnError | 仅 `timers.every/after` 草案；生命周期契约在核心文档 | 未实现 JS API |
+| 定时/调度/运行时 | SetTimer、Sleep、Critical、Persistent、ExitApp、Reload、Suspend、Pause、OnExit/OnError | `timers.every/after` 与生命周期契约见核心文档 | 已实现：`timers.every/after`（SetTimer）、`runtime.delay`（Sleep）、`runtime.persistent`（Persistent）、`runtime.exit`（Exit/ExitApp）、`runtime.reload()`（Reload：exit 优先、宿主每文件 8 次上限、每趟重读文件）、`input.suspend`（Suspend）、`OnExit`/`OnError` 事件；`Critical`/`Pause` 判 `unsupported-by-policy` |
 | GUI/菜单/托盘/声音 | Gui*、Menu*、Tray*、ToolTip、MsgBox、InputBox、Sound*、LoadPicture、IL_* | 未覆盖 | 未实现 |
 | 注册表/COM/原生扩展 | Reg*、DllCall、ComCall、Obj*DataPtr、Callback* | 明确禁止裸能力；没有受权限插件 API 的签名 | 未实现（按设计应保持隔离） |
-| 纯语言/字符串 | RegEx*、StrSplit、StrReplace、DateAdd/DateDiff、IsLabel 等 | 应由 TS/标准库直接承担，语义差异以还原测试守住 | 不属于 Runtime binding |
+| 纯语言/字符串 | RegEx*、StrSplit、StrReplace、DateAdd/DateDiff、IsLabel 等 | 应由 TS/标准库直接承担，语义差异以还原测试守住 | 不属于 Runtime binding；由 L4 还原保留层 `@rime/runtime-language` 与 TS 标准库承担（多数已 `implemented`/`js-native`，见 `runtime-language.md`） |
 
 ### 完备性结论与验收门槛
 

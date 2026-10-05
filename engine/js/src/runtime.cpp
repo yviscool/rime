@@ -53,6 +53,16 @@ rime::core::Error Runtime::add_native_module(std::string name,
   return rime::core::Error::none();
 }
 
+rime::core::Error Runtime::set_reload_count(std::uint64_t count) {
+  std::lock_guard lock(mutex_);
+  if (state_ != RuntimeState::Created) {
+    return {rime::core::Error::Code::InvalidState,
+            "reload count must be configured before the runtime starts"};
+  }
+  reload_count_ = count;
+  return rime::core::Error::none();
+}
+
 rime::core::Error Runtime::start() {
   std::lock_guard lifecycle_lock(lifecycle_mutex_);
   {
@@ -121,9 +131,10 @@ rime::core::Error Runtime::settle(std::chrono::milliseconds timeout) {
   }
   if (!condition_.wait_for(lock, timeout, [this] {
         // Mirrors the hpp quiescence promise: host idle AND no queued work.
-        // runtime.exit abandons queued work, so settle must not sit out the
-        // timeout once an exit is requested.
-        return exit_requested_ || (idle_flag_ && tasks_.empty() && inspect_tasks_.empty());
+        // runtime.exit / runtime.reload abandon queued work, so settle must
+        // not sit out the timeout once either is requested.
+        return exit_requested_ || reload_requested_ ||
+               (idle_flag_ && tasks_.empty() && inspect_tasks_.empty());
       })) {
     return {rime::core::Error::Code::ExecutionFailed,
             "runtime did not become idle before the timeout"};
@@ -133,9 +144,10 @@ rime::core::Error Runtime::settle(std::chrono::milliseconds timeout) {
 
 bool Runtime::quiescent() const {
   std::lock_guard lock(mutex_);
-  // settle()'s predicate minus the exit short-circuit: an exit outranks
-  // quiescence everywhere it matters, and the residency pump checks it
-  // first, so reporting exit as "quiet" here would only mask that order.
+  // settle()'s predicate minus the exit/reload short-circuits: an exit (or a
+  // reload) outranks quiescence everywhere it matters, and the residency
+  // pump checks both first, so reporting them as "quiet" here would only
+  // mask that order.
   return idle_flag_ && tasks_.empty() && inspect_tasks_.empty();
 }
 
@@ -145,7 +157,7 @@ void Runtime::wait_for(const std::chrono::milliseconds timeout) {
   // "the budget ran out" both mean "re-check the loop condition", and this
   // is only pump pacing - no caller needs to tell the two apart.
   (void)condition_.wait_for(lock, timeout, [this] {
-    return exit_requested_ || state_ == RuntimeState::Stopping;
+    return exit_requested_ || reload_requested_ || state_ == RuntimeState::Stopping;
   });
 }
 
@@ -197,6 +209,11 @@ int Runtime::exit_code() const {
   return exit_code_;
 }
 
+bool Runtime::reload_requested() const {
+  std::lock_guard lock(mutex_);
+  return reload_requested_;
+}
+
 void Runtime::run() {
   if (const auto lane_error = rime::core::LaneRegistry::instance().claim(rime::core::Lane::Js);
       !lane_error.ok()) {
@@ -209,6 +226,11 @@ void Runtime::run() {
 
   {
     Host host;
+    // Pre-start configuration like file_root_/native_modules_: set by the
+    // embedder before start() and read here on the JS thread, so no lock is
+    // needed. The count survives only as data - this Host is torn down by a
+    // reload, the next one gets the incremented value.
+    host.set_reload_count(reload_count_);
     // NOTE: `data` keeps its void* type to avoid a signature cascade.
     // Ownership stays with the add_native_module caller for the host's
     // lifetime; never hand the raw pointer to another thread - pass stable
@@ -252,6 +274,17 @@ void Runtime::run() {
         }
         condition_.notify_all();
         if (observer) observer(code);
+      });
+      // Reload notifier: records the runtime.reload() request and wakes any
+      // settle()/wait_for() waiter, mirroring the exit notifier above. It
+      // only publishes the flag - the embedder loop decides what a pending
+      // reload means, and it always checks exit first.
+      host.set_reload_notifier([this] {
+        {
+          std::lock_guard lock(mutex_);
+          reload_requested_ = true;
+        }
+        condition_.notify_all();
       });
 
       {
@@ -311,12 +344,15 @@ void Runtime::run() {
     // Exit contract: JS exit handlers run on the JS thread after the loop
     // stops and before ~Host tears the context down (idempotent with the
     // destructor fallback). Exit/ExitApp drain observes reason "exit" plus
-    // the requested code; a normal stop keeps "stop". Read from the host on
-    // this thread instead of the runtime members - it is the same owner.
+    // the requested code, a runtime.reload() teardown observes "reload", and
+    // a normal stop keeps "stop". Read from the host on this thread instead
+    // of the runtime members - it is the same owner.
+    const bool reloading = reload_requested();
     const auto payload = host.exit_requested()
                              ? (std::string("{\"reason\":\"exit\",\"code\":") +
                                 std::to_string(host.exit_code()) + "}")
-                             : std::string("{\"reason\":\"stop\"}");
+                             : (reloading ? std::string("{\"reason\":\"reload\"}")
+                                          : std::string("{\"reason\":\"stop\"}"));
     host.run_exit_handlers(payload);
   }
 

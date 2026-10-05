@@ -2687,12 +2687,12 @@
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
       "tsModule": "rime:runtime",
-      "status": "contract-only",
-      "async": "async",
+      "status": "implemented",
+      "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "tests/js/reload_slice.cpp,tests/js/fixtures/reload-basic.mjs",
       "lane": "js",
-      "cancellation": "deadline+AbortSignal"
+      "cancellation": "none"
     },
     {
       "ahkName": "Run",

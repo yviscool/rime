@@ -1,6 +1,6 @@
 # Runtime API（rime:runtime）
 
-状态：`implemented`；由 Host 内建模块提供，contract 覆盖见 `tests/js/runtime_smoke.cpp`、`tests/js/js_smoke.cpp`。
+状态：`implemented`；由 Host 内建模块提供，contract 覆盖见 `tests/js/runtime_smoke.cpp`、`tests/js/js_smoke.cpp`、`tests/js/reload_slice.cpp`。
 
 源码证据：`engine/js/src/host.cpp` 的 `runtime_*` 函数；TypeScript 声明为 `sdk/src/index.ts` 的 `RuntimeBridge`。
 
@@ -73,6 +73,20 @@ interface RuntimeContext {
 ```
 
 用于 CLI/调试器轮询所有权，与 `inspect` 的区别是：`context` 面向稳定的 schema，`inspect` 面向完整调试信息。
+
+### `reload(): never`
+
+AHK `Reload` 的宿主镜像：宿主重读同一脚本文件，在**新的 JS Runtime** 中重新执行；Win32 服务与 Bootstrap 跨趟存活，只有脚本侧被拆建。
+
+- 无参数；调用同步抛出 `reload requested`（与 `exit` 同款解卷机制），armed interrupt 随之落下，当前回合之后的脚本任务全部中止。
+- `exit` 恒压 `reload`：已请求退出后再调用抛出 `exit already requested: reload is ignored`；同一脚本文件的重载上限为 8 次，超出后宿主在 stderr 报错并以退出码 1 结束（脚本不可绕过）。
+- 每趟重新读取文件（文件句柄在脚本运行前释放，运行期间文件可被替换），重载次数经 `reloadState().count` 传入新实例。
+- 退出处理器收到 `{"reason": "reload"}`（`exit` 为 `"exit"`，`stop` 为 `"stop"`）；排队的 `__rim_failure` 归属被替换的实例，不作为失败上报。
+- 诊断面 `reloadState()` 与 `ping` 同级，无需 capability。
+
+### `reloadState(): { count: number; pending: boolean }`
+
+只读重载诊断：`count` 为宿主在本进程已对该脚本文件执行的重载次数（首跑为 0，跨重载存续）；`pending` 为当前 Runtime 是否正在为重载解卷。契约见 `tests/js/reload_slice.cpp` 与 `tests/js/fixtures/reload-*.mjs`（ctest `quickjs_reload_*`、`quickjs_desktop_reload`）。
 
 ## 错误格式
 

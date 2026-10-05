@@ -45,6 +45,32 @@ if (WIN32 AND TARGET rime_win32_js)
   add_test(NAME quickjs_golden_failures
            COMMAND rime_js_bundle --production
                    ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/golden-violations.generated.mjs)
+  # Reload (AHK Reload): the harness returns the code the reloaded pass
+  # asked for, so the expected code proves the host loop re-read the file and
+  # evaluated it a second time in a fresh runtime (count carried across).
+  add_test(NAME quickjs_reload_basic
+           COMMAND rime_js_bundle ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reload-basic.mjs 5)
+  # Exit outranks a reload that is already being torn down: the teardown
+  # handler observed reason "reload" (4) instead of anything else (6), and no
+  # second pass ran (9). Same desktop env as quickjs_bundle_smoke.
+  add_test(NAME quickjs_reload_exit_priority
+           COMMAND rime_js_bundle
+                   ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reload-exit-priority.mjs 4)
+  # Exit first: a reload attempted from the teardown of a pending exit is
+  # refused, so the requested code (4) stands and no second pass ran (9).
+  add_test(NAME quickjs_reload_exit_first
+           COMMAND rime_js_bundle
+                   ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/reload-exit-first.mjs 4)
+  # Reload slice: production host loop (reload ceiling + on-disk replacement
+  # + handshake), the refusal boundary and the reload flag, all in one binary.
+  add_executable(rime_reload_slice reload_slice.cpp)
+  target_link_libraries(rime_reload_slice PRIVATE rime_js rime_win32_js rime_action rime_test_support)
+  target_compile_features(rime_reload_slice PRIVATE cxx_std_20)
+  if (MINGW)
+    target_link_options(rime_reload_slice PRIVATE -static-libstdc++ -static-libgcc)
+  endif()
+  add_test(NAME quickjs_reload_slice
+           COMMAND rime_reload_slice ${CMAKE_CURRENT_SOURCE_DIR}/fixtures)
 endif()
 
 add_executable(rime_js_runtime runtime_smoke.cpp)

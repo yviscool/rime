@@ -188,6 +188,24 @@ class Host final {
   // request_exit. JS-thread only, so it needs no lock.
   void set_exit_notifier(std::function<void(int)> notifier);
 
+  // JS thread: runtime.reload() - asks the embedder to re-read the script
+  // file and run it again in a fresh runtime (AHK Reload). Same shape as
+  // request_exit: the first request wins, the interrupt that unwinds the
+  // current script is armed, and the notifier reports to the owning Runtime.
+  // Exit outranks reload everywhere, so while an exit is pending the request
+  // is refused with InvalidState and leaves no trace behind.
+  rime::core::Error request_reload();
+  [[nodiscard]] bool reload_requested() const { return reload_requested_; }
+  // JS thread only: how many reloads the embedder already performed for this
+  // script path. The owning Runtime hands it over before any script runs, so
+  // the count survives the teardown/rebuild a reload does.
+  void set_reload_count(std::uint64_t count) { reload_count_ = count; }
+  [[nodiscard]] std::uint64_t reload_count() const { return reload_count_; }
+  // Thread convention matches set_exit_notifier: installed by the owning
+  // Runtime on the JS thread before any script runs, invoked on the JS thread
+  // from request_reload. JS-thread only, so it needs no lock.
+  void set_reload_notifier(std::function<void()> notifier);
+
   // JS thread: native teardown hooks (unsubscribe services, remove UI
   // observers). run_teardowns() runs them exactly once; ~Host and a
   // successful HostAbi::unload both call it. Unlike exit handlers these run
@@ -271,6 +289,15 @@ class Host final {
   bool exit_requested_{false};
   int exit_code_{0};
   std::function<void(int)> exit_notifier_;
+
+  // JS thread only: runtime.reload bookkeeping (see request_reload). The
+  // notifier mirrors the request to the owning Runtime, which guards it
+  // under its own mutex for the embedder loop to read.
+  bool reload_requested_{false};
+  // Pre-start configuration handed over by the owning Runtime; read on the
+  // JS thread by runtime.reloadState().
+  std::uint64_t reload_count_{0};
+  std::function<void()> reload_notifier_;
 
   // JS thread only: residency (see set_persistent / set_declarative_probe).
   bool persistent_force_{false};

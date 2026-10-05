@@ -235,6 +235,56 @@ JSValue runtime_exit(JSContext* context, JSValueConst, int argc, JSValueConst* a
   return JS_ThrowPlainError(context, "exit requested (code %d)", code);
 }
 
+// runtime.reload(): AHK Reload - re-read the same script file and run it
+// again in a fresh JS runtime, without restarting the process (the Win32
+// services stay up; only the script side is rebuilt). Like runtime.exit the
+// call always throws so the current turn unwinds, request_reload arms the
+// interrupt that aborts everything after it, and the host loop owns the
+// teardown/rebuild. An exit already requested wins: the request is refused
+// and reported instead of silently accepted.
+JSValue runtime_reload(JSContext* context, JSValueConst, int argc, JSValueConst*) {
+  Host* host = host_of(context);
+  if (!host) return JS_ThrowInternalError(context, "runtime host is gone");
+  if (argc > 0) return JS_ThrowTypeError(context, "reload()");
+  if (const auto error = host->request_reload(); !error.ok()) {
+    return JS_ThrowPlainError(context, "%s", error.message.c_str());
+  }
+  return JS_ThrowPlainError(context, "reload requested");
+}
+
+// runtime.reloadState(): read-only reload diagnostics for deterministic
+// tests and debuggers - how many times the embedder already reloaded this
+// script file in this process (0 on the first run) and whether this runtime
+// is unwinding for a reload right now. Host lifecycle like ping, so no
+// capability gate and no mutation path.
+JSValue runtime_reload_state(JSContext* context, JSValueConst, int, JSValueConst*) {
+  Host* host = host_of(context);
+  if (!host) return JS_ThrowInternalError(context, "runtime host is gone");
+  JSValue object = JS_NewObject(context);
+  if (JS_IsException(object)) return JS_EXCEPTION;
+  const JSValue count = JS_NewInt64(context, static_cast<int64_t>(host->reload_count()));
+  const JSValue pending = JS_NewBool(context, host->reload_requested() ? 1 : 0);
+  // Both allocations are cheap and never throw in practice; if one does the
+  // other is released here so the degraded path leaks nothing.
+  if (JS_IsException(count) || JS_IsException(pending)) {
+    JS_FreeValue(context, count);
+    JS_FreeValue(context, pending);
+    JS_FreeValue(context, object);
+    return JS_EXCEPTION;
+  }
+  // JS_SetPropertyStr consumes `count` on both success and failure.
+  if (JS_SetPropertyStr(context, object, "count", count) < 0) {
+    JS_FreeValue(context, pending);
+    JS_FreeValue(context, object);
+    return JS_EXCEPTION;
+  }
+  if (JS_SetPropertyStr(context, object, "pending", pending) < 0) {
+    JS_FreeValue(context, object);
+    return JS_EXCEPTION;
+  }
+  return object;
+}
+
 JSValue runtime_ping(JSContext* context, JSValueConst, int, JSValueConst*) {
   return JS_NewString(context, "pong");
 }
@@ -394,7 +444,9 @@ int runtime_module_init(JSContext* context, JSModuleDef* module) {
       !set("debug", JS_NewCFunction(context, runtime_debug, "debug", 1)) ||
       !set("cwd", JS_NewCFunction(context, runtime_cwd, "cwd", 0)) ||
       !set("setCwd", JS_NewCFunction(context, runtime_set_cwd, "setCwd", 1)) ||
-      !set("exit", JS_NewCFunction(context, runtime_exit, "exit", 1))) {
+      !set("exit", JS_NewCFunction(context, runtime_exit, "exit", 1)) ||
+      !set("reload", JS_NewCFunction(context, runtime_reload, "reload", 0)) ||
+      !set("reloadState", JS_NewCFunction(context, runtime_reload_state, "reloadState", 0))) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "runtime", object);
@@ -1036,6 +1088,28 @@ rime::core::Error Host::request_exit(const int code) {
 
 void Host::set_exit_notifier(std::function<void(int)> notifier) {
   exit_notifier_ = std::move(notifier);
+}
+
+rime::core::Error Host::request_reload() {
+  if (const auto thread_error = check_thread(); !thread_error.ok()) return thread_error;
+  // Exit outranks reload: a script that already asked to exit must not be
+  // revived by a reload request that arrived afterwards (or raced it).
+  if (exit_requested_) {
+    return {rime::core::Error::Code::InvalidState,
+            "exit already requested: reload is ignored"};
+  }
+  if (reload_requested_) return rime::core::Error::none();  // first call wins
+  reload_requested_ = true;
+  // Same abort runtime.exit arms: the throw unwinds the current turn and the
+  // interrupt stops everything after it, so no callback from this script can
+  // keep running while the embedder tears the runtime down.
+  interrupt_.store(true, std::memory_order_relaxed);
+  if (reload_notifier_) reload_notifier_();
+  return rime::core::Error::none();
+}
+
+void Host::set_reload_notifier(std::function<void()> notifier) {
+  reload_notifier_ = std::move(notifier);
 }
 
 void Host::add_teardown(std::function<void()> teardown) {

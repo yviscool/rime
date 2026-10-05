@@ -20,5 +20,12 @@ if (WIN32 AND TARGET rime_win32_js)
     add_test(NAME quickjs_desktop_script
              COMMAND rime_host
                      ${CMAKE_SOURCE_DIR}/tests/js/fixtures/ping.mjs)
+    # Reload (AHK Reload) through the production entry point: the fixture only
+    # returns 0 when exactly one reload happened with the count carried into
+    # the new instance - a reload that never reached the embedder unwinds into
+    # a failure (1), a loop or a lost count lands on 9.
+    add_test(NAME quickjs_desktop_reload
+             COMMAND rime_host
+                     ${CMAKE_SOURCE_DIR}/tests/js/fixtures/reload-desktop.mjs)
   endif()
 endif()

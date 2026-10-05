@@ -134,14 +134,14 @@
 | `RegDeleteKey` | CB | `@rime/registry` | M4 | 同 RegCreateKey（32/64 视图依赖 SetRegView） | `script_registry.cpp:632` |
 | `RegRead` | CB | `@rime/registry` | M4 | 同 RegCreateKey（读也走 windows.registry.read 能力与不可变快照） | `script_registry.cpp:632` |
 | `RegWrite` | CB | `@rime/registry` | M4 | 同 RegCreateKey | `script_registry.cpp:632` |
-| `Reload` | COV | `rime:runtime` | M3（HostLifecycle） | 重载 = 卸载并重新装载脚本，须走版本化 Host ABI 的 load/unload 契约（AGENTS：有活动 Hook/回调时 unload 必须失败并说明原因） | `script.cpp:1188` |
-| `SetCapsLockState` | COV | `@rime/input` | M3（计划 line 97） | 改键状态经 SendInput 注入，属 input 能力；input.md:3 记 Set*KeyState 未实现 | `lib/functions.h:257` |
+| `Reload` | COV | `rime:runtime` | M3（HostLifecycle） | 已实现为 `runtime.reload()`（exit 优先；宿主每文件 8 次上限；每趟重读文件、全新 JS Runtime；诊断 `runtime.reloadState()`，契约 `tests/js/reload_slice.cpp`）；版本化 Host ABI 的 load/unload 合同（有活动 Hook/回调时 unload 必须失败）属嵌入式轨道，仍待落地 | `script.cpp:1188` |
+| `SetCapsLockState` | COV | `@rime/input` | M3（计划 line 97） | 改键状态经 SendInput 注入，属 input 能力；`keyboard.setLockState` 已实现（`input.md`，契约 `tests/sdk/keyboard-lock.test.ts`） | `lib/functions.h:257` |
 | `SetControlDelay` | COV | `@rime/automation` | M3 | 延迟是每次调用的 options / 显式 settings，不是隐式全局（stdlib.md §2；settings.window 先例） | `lib/functions.h:258` |
 | `SetNumLockState` | COV | `@rime/input` | M3 | 同 SetCapsLockState | `lib/functions.h:262` |
 | `SetRegView` | COV | `@rime/registry` | M4（计划 line 105 明确点名） | 注册表 32/64 视图是 registry 服务配置，需并入 registry service 而非全局开关 | `lib/functions.h:263` |
 | `SetScrollLockState` | COV | `@rime/input` | M3 | 同 SetCapsLockState | `lib/functions.h:264` |
 | `SetWinDelay` | COV | `@rime/window` | M3 | 同 SetControlDelay（窗口操作延迟应是调用选项） | `lib/functions.h:270` |
-| `SetWorkingDir` | COV | `rime:runtime` | M3（计划 line 97） | 进程 cwd 是 process 域状态，需 capability 与 Trace；当前 SDK 无 set cwd 面 | `lib/functions.h:271` |
+| `SetWorkingDir` | COV | `rime:runtime` | M3（计划 line 97） | 进程 cwd 是 process 域状态，需 capability 与 Trace；已实现为 `runtime.cwd`/`runtime.setCwd` | `lib/functions.h:271` |
 | `SoundGetMute` | CB | `@rime/sound` | M5（winmm） | 音频端点状态需 winmm 调用与能力门禁，非纯函数；stdlib.md §1 未列 sound 模块，按计划 M5 新建，台账原值 @rime/gui-menu 为跨域暂挂 | `lib/sound.cpp:292` |
 | `SoundGetName` | CB | `@rime/sound` | M5（winmm） | 同 SoundGetMute | `lib/sound.cpp:292` |
 | `SoundGetVolume` | CB | `@rime/sound` | M5（winmm） | 同 SoundGetMute | `lib/sound.cpp:292` |
@@ -224,7 +224,7 @@
 
 ## 5. 分批与计划对齐注记
 
-- **M3（纯 JS 快铺）**：67 项 `js-native`（等价式与差异入档，零专属代码）排在 M3；10 项 L4 还原保留**已实现**（`sdk/src/runtime-language/` + `tests/sdk/runtime-language.test.ts`，命名提案见计划 §M3，残留清单见本页 §3 报告注记）；`contract-only` 中的 `Reload`（计划 §M3 第三条）仍属 M3 的显式 API/HostLifecycle 映射待实现（批 4 已分流：`Persistent` 实现为 `runtime.persistent` + 驻留泵、`SetControlDelay`/`SetWinDelay`/`IsLabel` 改判 §2.1 `js-native`、`CoordMode` 与 `Exit`/`ExitApp` 实现、`Pause` 判 §2.4；`SetKeyDelay`/`SetMouseDelay`/`ListVars` 等 5 项 M3 盘点早已改判 §2.1，`OutputDebug`/`SetWorkingDir` 已由批 2 绑定实现）；`GetKeyVK`/`GetKeyName`/`ListHotkeys`/`Set*LockState` 归 `@rime/input` 的 M3 输入映射（批 2/3 已全部实现）。
+- **M3（纯 JS 快铺）**：67 项 `js-native`（等价式与差异入档，零专属代码）排在 M3；10 项 L4 还原保留**已实现**（`sdk/src/runtime-language/` + `tests/sdk/runtime-language.test.ts`，命名提案见计划 §M3，残留清单见本页 §3 报告注记）；`Reload`（计划 §M3 第三条）已实现为 `runtime.reload()`（批 4 已分流：`Persistent` 实现为 `runtime.persistent` + 驻留泵、`SetControlDelay`/`SetWinDelay`/`IsLabel` 改判 §2.1 `js-native`、`CoordMode` 与 `Exit`/`ExitApp` 实现、`Pause` 判 §2.4；`SetKeyDelay`/`SetMouseDelay`/`ListVars` 等 5 项 M3 盘点早已改判 §2.1，`OutputDebug`/`SetWorkingDir` 已由批 2 绑定实现）；`GetKeyVK`/`GetKeyName`/`ListHotkeys`/`Set*LockState` 归 `@rime/input` 的 M3 输入映射（批 2/3 已全部实现）。
 - **M4**：`FileOpen`（fs service + `File` 对象）、`Reg*` 5 项 + `SetRegView`（registry service，计划 line 105 点名）。
 - **M5**：`Sound*` 5 项（winmm，计划 line 112）。
 - **M7**：`PostMessage`（Control 三层执行的 Win32 消息层）。

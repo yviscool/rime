@@ -16,6 +16,13 @@ export interface RuntimeContext {
   cancellations: number;
 }
 
+export interface RuntimeReloadState {
+  /** Reloads the embedder already performed for this script file (0 before the first one). */
+  count: number;
+  /** True while the current turn is unwinding for a reload. */
+  pending: boolean;
+}
+
 export interface RuntimeBridge {
   ping(): string;
   /** Resolves `value` after `milliseconds`, rejecting early when cancelled. */
@@ -50,6 +57,24 @@ export interface RuntimeBridge {
    * are 0..255. Ungated host lifecycle, like `ping`.
    */
   exit(code?: number): never;
+  /**
+   * Asks the embedder to re-read this script file from disk and run it again
+   * in a fresh runtime (AHK `Reload`). Synchronous: the call always throws to
+   * unwind the current turn, `input.onExit` handlers run with
+   * `{reason: "reload"}`, the host abandons the current instance and starts
+   * the next one with `reloadState().count` incremented. A pending
+   * `runtime.exit` outranks a reload, so calling this after `exit` throws the
+   * refusal error instead. Ungated host lifecycle, like `ping`.
+   */
+  reload(): never;
+  /**
+   * Reads the reload diagnostics: how many times the embedder already
+   * reloaded this script file, and whether the current turn is unwinding for
+   * a reload right now. The count survives the teardown a reload does, so the
+   * next instance observes the incremented value. Ungated host lifecycle,
+   * like `ping`.
+   */
+  reloadState(): RuntimeReloadState;
   /**
    * Reads the effective residency flag (AHK `Persistent`): true while the
    * force flag is set or while declarative work (input hooks, hotkeys,

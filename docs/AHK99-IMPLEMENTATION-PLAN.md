@@ -27,12 +27,12 @@
 
 | 清单 | implemented | js-native | unsupported | 终态合计 | 剩余（`contract-only`） |
 |---|---:|---:|---:|---:|---:|
-| coverage 253 | 109 | 10 | 8 | 127 | 126 |
+| coverage 253 | 110 | 10 | 8 | 128 | 125 |
 | core-builtins 101 | 8 | 57 | 18 | 83 | 18 |
 | objects 243（成员） | 0 | 0 | 0 | 0 | 243 |
 | builtins 134（145 − 11 `excluded`） | 5 | 0 | 0 | 5 | 129 |
 
-注：已落地能力已回填（M0-M2）：`process.*` 6 项、`Send`/`SendInput`（`input.send`）、`A_Clipboard`（`clipboard.read`/`clipboard.write`）、`Click/WinActive/WinExist`、`Sleep`（`runtime.delay`）、`GetKeyState` 等；15 个 action 的真值源在 `contracts/registry/actions.json`（`automation.*` 等无独立 AHK 函数条目，其状态记录在该注册表，`matrix:check` 校验 type 集 == executor 注册集）。138 项纯语言分类已入 `core-builtins`/`coverage`（映射表 `docs/api/runtime-language.md`）。当前终态 215 / 731 ≈ 29.4%（四个 JSON，不含指令）。
+注：已落地能力已回填（M0-M2）：`process.*` 6 项、`Send`/`SendInput`（`input.send`）、`A_Clipboard`（`clipboard.read`/`clipboard.write`）、`Click/WinActive/WinExist`、`Sleep`（`runtime.delay`）、`GetKeyState` 等；15 个 action 的真值源在 `contracts/registry/actions.json`（`automation.*` 等无独立 AHK 函数条目，其状态记录在该注册表，`matrix:check` 校验 type 集 == executor 注册集）。138 项纯语言分类已入 `core-builtins`/`coverage`（映射表 `docs/api/runtime-language.md`）。当前终态 216 / 731 ≈ 29.5%（四个 JSON，不含指令）。
 
 R4 行为契约（15 个 golden，四层 `shape`/`lifecycle`/`semantic`/`failure`，见 `contracts/golden/README.md`）到 AHK 行的映射，已作为硬证据写进 `coverage.json` 的 `contractTest`（`tests/native/golden_exec_tests.cpp` 经真实桌面 executor 执行 `failure` + `semantic`，`semantic` 层有副作用断言的只有 `window.move`→`WinMove`、`process.launch`→`Run`、`clipboard.write`）：
 
@@ -48,7 +48,7 @@ R4 行为契约（15 个 golden，四层 `shape`/`lifecycle`/`semantic`/`failure
 ### 1.3 代码现状（结构事实，M0 之后）
 
 - **已有**：15 个 action type、16 个 capability（12 `implemented` + 1 `test-only` + 3 `planned`）、5 个 service（window/input/process/clipboard/automation）+ UiThread + Dispatcher/Kernel + TimerService + 完整垂直切片模板（七段式 slice 测试）；`Lane::Worker` + `WorkerService`（异步读/泵与 5 个 executor 的 lane 检查）；中央真值源 `contracts/registry/actions.json` + `matrix:check` 漂移检查；共享 `rime::win32::Bootstrap` 生产接线（`tests/js/js_bundle.cpp` 与 `hosts/desktop` 同源，`rime_host <script>` 走同一生命周期）。
-- **缺失**：registry/screen/fs/通用 COM/GUI 零实现；`RunWait`/`RunAs`/`Shutdown`/`ProcessWait*`/`ProcessSetPriority`、`ClipWait`、`SendMessage`/`SendLevel`、`Reload` 等待类与消息类能力未落地（`contract-only`，见 `docs/api/process-shell.md`、`clipboard.md`、`input.md`）。（已从本清单移除：declarative `Hotkey`/`Hotstring`/`HotIf`/`SetTimer`/`OnMessage`/`OnClipboardChange`/`OnError`/`OnExit` 与 `Send` 字符串语言均已由 M2-C/M2-D 落地，见 `docs/api/hotkey-events.md`、`docs/api/input.md`。）
+- **缺失**：registry/screen/fs/通用 COM/GUI 零实现；`RunWait`/`RunAs`/`Shutdown`/`ProcessWait*`/`ProcessSetPriority`、`ClipWait`、`SendMessage`/`SendLevel` 等等待类与消息类能力未落地（`contract-only`，见 `docs/api/process-shell.md`、`clipboard.md`、`input.md`）。（已从本清单移除：declarative `Hotkey`/`Hotstring`/`HotIf`/`SetTimer`/`OnMessage`/`OnClipboardChange`/`OnError`/`OnExit` 与 `Send` 字符串语言均已由 M2-C/M2-D 落地，见 `docs/api/hotkey-events.md`、`docs/api/input.md`；`Reload` 已由 `runtime.reload` 落地，见 `docs/api/runtime.md`。）
 - **原版规模参考**（`rime-research/AutoHotkey-alpha`，≈103,700 行）：语言核心 ≈30k（排除）、GUI+Menu ≈15.5k、Hook/Hotkey/Send ≈13.3k、BIF 实现面 ≈12.5k、调度内核 ≈3.5k。我们的对应面：GUI/Menu 与 Hook/事件中枢是两个最大战役，BIF 面广而浅。
 
 ## 2. 阶段总览
