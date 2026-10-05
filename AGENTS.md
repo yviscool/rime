@@ -37,7 +37,7 @@ tools/    Bun 构建、测试、诊断和开发工具
 - 长操作必须声明可中断区间。窗口激活、SendInput、剪贴板交换等临界区内，新事件只能排队或按明确策略合并。
 - Hook、Timer、窗口过程、COM callback 和 JS function reference 必须是可取消的订阅对象，拥有明确的关闭状态和回调计数。
 - Runtime 关闭必须可重复、可观察：先拒绝新输入和新 Action，取消并等待任务/订阅，卸载 Hook 和窗口回调，停止插件与 Worker，再销毁 UI/COM 资源，最后关闭 JS；任何未释放引用都必须产生诊断。
-- 嵌入式 Host ABI 必须提供版本化的 load/execute/error/exit/unload 契约；存在活动 Hook、窗口过程、COM 引用或 JS 回调时，unload 必须失败并说明原因。
+- 嵌入式 Host ABI 必须提供版本化的 load/execute/error/exit/unload 契约；存在 Host 自己登记的活动资源（Hook 订阅、未投递的宿主事件、未解决 Promise、武装 Timer、JS 回调）时，unload 必须失败并逐项说明原因。窗口过程与 COM 元素引用由 Bootstrap 的服务生命周期持有，随 `Bootstrap::stop()` 释放，不进入 unload 判定；仅当它们以订阅/回调/事件队列条目被 Host 登记时才计入。
 
 ## 架构规则
 
@@ -73,7 +73,7 @@ tools/    Bun 构建、测试、诊断和开发工具
 - UI Thread、JS Thread 和 Automation MTA 的边界可被测试。
 - Action Trace 能记录输入、Context、执行器、结果和错误。
 - 消息泵、Hook、Timer、COM 回调和 JS task 的顺序在压力、嵌套消息泵、队列满载和取消竞态下可重放。
-- 卸载测试必须证明 Hook、窗口过程、COM 引用、订阅和 JS 回调全部退出，并覆盖“仍有外部引用/Hook 未卸载”的失败路径。
+- 卸载测试必须证明 Host 登记的 Hook 订阅、未投递宿主事件、Promise、Timer 和 JS 回调全部退出，并覆盖“仍有订阅/回调/未投递事件”的失败路径；窗口过程与 COM 元素引用的释放由 Win32/Automation 服务的 stop 测试独立证明。
 - Host ABI 的 load/execute/error/exit/unload 以及脚本检查接口有版本化 contract 测试。
 - Native 代码使用 ASan/WinDbg 验证句柄、内存和线程问题。
 - 时间窗、deadline 与 timer 调度的原生单测注入 `ManualClock` 推进判定，不以 `sleep` 等待真实时间流逝；真时钟只留给必须真实投递的切片级测试。`ManualClock` 必须比注册了监听器的组件活得久。
@@ -103,7 +103,7 @@ tools/    Bun 构建、测试、诊断和开发工具
 1. 禁恒真断言：`expect(true)`、只断言“没抛异常”而不检查返回值、副作用或 Trace。
 2. 禁测自己：期望值不得由测试内与被测对象同一份逻辑算出（测试里再实现一遍算法，会一起错一起绿）；期望必须来自 golden、OS 观察或协议对端。
 3. 禁吞错：catch 后不失败、错误只打印不断言、`finally` 中的断言掩盖主错误。
-4. 禁静默跳过：资源缺失即 skip 并算通过等于失败；只能显式失败，或按已记录的环境抖动协议隔离复跑后记录。
+4. 禁静默跳过：资源缺失即 skip 并算通过等于失败；只能显式失败，或按已记录的环境抖动协议隔离复跑后记录（协议与台账见 `docs/FLAKY.md`）。
 5. 禁 sleep 当同步：等待必须是带超时的条件轮询、事件通知或 `ManualClock` 推进；纯 sleep 定时断言禁止（见时间策略条目）。
 6. 禁重试洗绿：逻辑性失败不得循环重跑；只有已记录的环境抖动允许隔离复跑 ≤3 次并记录结论。
 7. 禁 mock 被测者：桩只许替代环境（OS、时钟、桥），不许替代被测单元本身；对 mock 的断言不作契约证据。

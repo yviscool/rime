@@ -1,3 +1,7 @@
+// Realism: L2 - pure window matching, selector parsing and geometry
+// resolution logic; no HWND is touched and every expectation is a literal
+// in the test.
+
 #include "rime/win32/window.hpp"
 
 #include "window_geometry.hpp"

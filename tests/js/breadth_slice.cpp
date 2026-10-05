@@ -1,3 +1,7 @@
+// Realism: L5 - production JS wiring across modules performs a real
+// clipboard read/write roundtrip with value assertions plus a typed-error
+// negative path; the clipboard state is restored by the test.
+
 #include "rime/action/dispatcher.hpp"
 #include "rime/action/kernel.hpp"
 #include "rime/core/json.hpp"

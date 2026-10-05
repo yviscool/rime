@@ -1,3 +1,7 @@
+// Realism: L3 - the real Dispatcher, Kernel and event queue run in process
+// with ManualClock-driven time and injected queue/scheduling policy; stress
+// loops assert queue-full merge/drop counts instead of sleeping.
+
 #include "rime/action/dispatcher.hpp"
 #include "rime/action/kernel.hpp"
 #include "rime/core/clock.hpp"

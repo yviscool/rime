@@ -1,3 +1,6 @@
+// Realism: L5 - real clipboard roundtrip through the real Kernel and
+// clipboard executor; the test saves and restores the clipboard it touches.
+
 #include "rime/action/kernel.hpp"
 #include "rime/core/lane.hpp"
 #include "rime/core/json.hpp"

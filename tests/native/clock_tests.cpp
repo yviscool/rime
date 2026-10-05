@@ -1,3 +1,7 @@
+// Realism: L3 - the real clock abstractions run in process; only the time
+// source is substituted (ManualClock advanced by the test) plus bounded
+// stress loops that assert ordering counts, never wall-clock sleeps.
+
 #include "rime/core/clock.hpp"
 
 #include <cassert>

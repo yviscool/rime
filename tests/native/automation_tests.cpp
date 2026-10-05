@@ -1,3 +1,7 @@
+// Realism: L5 - real UI Automation from a dedicated COM MTA thread against
+// a fixture window the test creates, asserts and destroys itself; needs an
+// interactive desktop and runs exclusively.
+
 // Needs an interactive desktop, exclusive run: builds a real target window
 // and drives it through UI Automation from a dedicated COM MTA thread.
 #include "rime/automation/uia_service.hpp"

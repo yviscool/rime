@@ -1,3 +1,7 @@
+// Realism: L6 - production wiring (JS runtime + Kernel + real UIA service
+// and executor) drives a fixture window the test builds itself, including
+// denied/invoke failure paths asserted through Trace and side effects.
+
 // Needs an interactive desktop, exclusive run: builds a real target window
 // and drives it through the rime:automation module (find/read/invoke).
 #include "rime/action/dispatcher.hpp"

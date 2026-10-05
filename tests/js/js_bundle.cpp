@@ -1,3 +1,7 @@
+// Realism: L6 - the production rime_js_bundle executable is spawned end to
+// end and its full module export surface is asserted against the registry,
+// so two independent consumers must agree on the declared API.
+
 #include "rime/win32/bootstrap.hpp"
 
 #include <cstdio>

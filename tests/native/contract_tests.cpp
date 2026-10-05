@@ -1,3 +1,7 @@
+// Realism: L2 - pure golden decoding through the real codec and JSON value
+// model: parse, roundtrip and rejection cases with expectations taken from
+// contracts/golden, no OS, clock or scheduler involved.
+
 #include "rime/action/codec.hpp"
 #include "rime/core/json.hpp"
 

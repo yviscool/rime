@@ -1,3 +1,7 @@
+// Realism: L6 - production wiring with global hooks under stress: real
+// keystrokes into a test-owned window, probe messages and clipboard writes;
+// ordering and counts are asserted from Trace across retries and races.
+
 // Needs an interactive desktop, exclusive run: installs global hooks, types
 // real keys into a window it creates, posts probe messages and writes the
 // clipboard.

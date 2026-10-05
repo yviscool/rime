@@ -1,3 +1,7 @@
+// Realism: L3 - the real Kernel runs each golden through decode, ManualClock
+// deadline rewrite and the static capability policy; only the clock is
+// injected, while shape and semantic layers stay pure validation.
+
 // Golden contract consumer (C++ side), the twin of tools/golden-smoke.ts.
 //
 // Every file under contracts/golden is parsed and checked on four layers:

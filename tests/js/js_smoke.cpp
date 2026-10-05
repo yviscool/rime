@@ -1,3 +1,7 @@
+// Realism: L4 - the real QuickJS host loads and evaluates modules
+// in process with deterministic exit and asserted failure messages; no OS
+// side effects beyond the script's own process exit codes.
+
 #include "rime/js/host.hpp"
 
 #include <cassert>
