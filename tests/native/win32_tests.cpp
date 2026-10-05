@@ -1,3 +1,7 @@
+// Realism: L5 - real Win32 fixture windows with focus, close, group and
+// placement assertions on an interactive desktop; the test creates every
+// window it uses and cleans up its process tree itself.
+
 #include "rime/action/kernel.hpp"
 #include "rime/core/lane.hpp"
 #include "rime/core/trace.hpp"
@@ -9,6 +13,7 @@
 #include <cassert>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <memory>
 #include <optional>
 #include <string>
@@ -44,11 +49,12 @@ LRESULT CALLBACK count_paint_proc(HWND window, UINT message, WPARAM wparam, LPAR
 }
 
 // Answers queries (so snapshots do not block) but stalls on WM_CLOSE for
-// longer than the kill budget - a deterministic stand-in for a window that
-// refuses to close.
+// longer than the kill budget (500ms) and longer than the 300ms close()
+// budget below - a deterministic stand-in for a window that refuses to
+// close.
 LRESULT CALLBACK stall_close_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
   if (message == WM_CLOSE) {
-    Sleep(700);  // kill waits at most 500ms
+    Sleep(700);  // kill waits at most 500ms, close 300ms in its timeout test
     return 0;    // handled-but-ignored: the window survives
   }
   return DefWindowProcW(window, message, wparam, lparam);
@@ -126,12 +132,37 @@ int main() {
   assert(service.info(id, partial_resized).ok());
   assert(partial_resized.rect == (Rect{75, 60, 475, 360}));
 
-  // focus is a weak assertion by necessity: SetForegroundWindow may refuse
-  // while another window owns the foreground (interactive/CI dependent), so
-  // a foreground-lock ExecutionFailed is acceptable; stale ids are not.
-  const auto focus_result = service.focus(id);
-  assert(focus_result.ok() ||
-         focus_result.code == rime::core::Error::Code::ExecutionFailed);
+  // focus: SetForegroundWindow needs foreground permission, which Windows
+  // refuses while another process owns the foreground, so the call is
+  // retried against a deadline. Each failed attempt first unlocks the input
+  // queue with the bare Alt tap the production path uses (window_set.cpp,
+  // set_always_on_top), which is what makes the retry a condition poll
+  // instead of a blind sleep. Only a success is accepted: when the deadline
+  // expires the code and message are printed and the test fails outright -
+  // no silent downgrade to a weak assertion.
+  rime::core::Error focus_result = rime::core::Error::none();
+  bool focused = false;
+  const auto focus_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+  do {
+    focus_result = service.focus(id);
+    focused = focus_result.ok();
+    if (!focused) {
+      INPUT tap[2] = {};
+      tap[0].type = INPUT_KEYBOARD;
+      tap[0].ki.wVk = VK_MENU;
+      tap[1].type = INPUT_KEYBOARD;
+      tap[1].ki.wVk = VK_MENU;
+      tap[1].ki.dwFlags = KEYEVENTF_KEYUP;
+      SendInput(2, tap, sizeof(INPUT));
+      std::this_thread::sleep_for(50ms);
+    }
+  } while (!focused && std::chrono::steady_clock::now() < focus_deadline);
+  if (!focused) {
+    std::fprintf(stderr, "focus was never granted: %s - %s\n",
+                 rime::core::error_code_name(focus_result.code), focus_result.message.c_str());
+    std::fflush(stderr);
+  }
+  assert(focused);
 
   // Snapshot fields beyond geometry: class, process image and state.
   WindowInfo snapshot;
@@ -777,6 +808,57 @@ int main() {
   hung.join();
   // After the thread destroyed its window the id is stale.
   assert(service.kill(hung_match.front().id).code == rime::core::Error::Code::TargetGone);
+
+  // close() timeout branch: the stall fixture answers queries but sleeps
+  // 700ms inside WM_CLOSE, so a 300ms close budget expires while the
+  // message is still being processed. That is exactly the SendMessageTimeoutW
+  // delivery timeout (window.cpp close(): Timeout, "WM_CLOSE was not
+  // delivered in time"), and nothing else may come back.
+  std::atomic<bool> stall_ready{false};
+  std::atomic<bool> stall_quit{false};
+  HWND stall_victim = nullptr;
+  std::thread stall([&] {
+    stall_victim = CreateWindowExW(0, L"STATIC", L"Rime Close Stall Target", WS_OVERLAPPED, 10,
+                                   10, 160, 120, nullptr, nullptr, GetModuleHandleW(nullptr),
+                                   nullptr);
+    SetWindowLongPtrW(stall_victim, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(stall_close_proc));
+    stall_ready.store(true);
+    MSG message{};
+    while (!stall_quit.load()) {
+      while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+        if (message.message == WM_QUIT) break;
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+      }
+      if (stall_quit.load()) break;
+      MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    }
+    if (stall_victim) DestroyWindow(stall_victim);
+  });
+  while (!stall_ready.load()) std::this_thread::sleep_for(5ms);
+  rime::win32::WindowQuery stall_query;
+  stall_query.title = "Rime Close Stall Target";
+  stall_query.include_hidden = true;
+  std::vector<WindowInfo> stall_match;
+  assert(service.query(stall_query, stall_match).ok());
+  assert(stall_match.size() == 1);
+  const auto stall_close =
+      service.close(stall_match.front().id, std::chrono::milliseconds(300));
+  if (stall_close.code != rime::core::Error::Code::Timeout ||
+      stall_close.message.find("WM_CLOSE was not delivered in time") == std::string::npos) {
+    std::fprintf(stderr, "close() timeout branch returned: %s - %s\n",
+                 rime::core::error_code_name(stall_close.code), stall_close.message.c_str());
+    std::fflush(stderr);
+  }
+  assert(stall_close.code == rime::core::Error::Code::Timeout);
+  assert(stall_close.message.find("WM_CLOSE was not delivered in time") != std::string::npos);
+  // Cleanup before anything else can fail: the owner thread tears the stall
+  // window down as soon as it quits.
+  stall_quit.store(true);
+  stall.join();
+  WindowInfo stall_gone;
+  assert(service.info(stall_match.front().id, stall_gone).code ==
+         rime::core::Error::Code::TargetGone);
 
   // minimize_all (AHK WinMinimizeAll / WinMinimizeAllUndo): posts the shell
   // tray command; the effect is asynchronous, so both halves poll the
@@ -1710,13 +1792,29 @@ int main() {
   assert(!expired_result.succeeded);
   assert(expired_result.error.code == rime::core::Error::Code::Timeout);
 
-  // A slow task occupies the pump; a queued call hits its deadline with the
-  // dedicated Timeout code.
+  // A task occupies the pump; a call queued behind it hits its deadline with
+  // the dedicated Timeout code. The occupier holds the pump until it is
+  // explicitly released (instead of sleeping a fixed 500ms), and the main
+  // thread waits for the flag that proves the pump took it - deadline bounded,
+  // condition polled - so the queued 20ms call can never race the release,
+  // and neither side waits on a blind sleep.
+  std::atomic<bool> slow_running{false};
+  std::atomic<bool> slow_release{false};
   std::thread slow([&] {
-    assert(service.ui().call([] { std::this_thread::sleep_for(500ms); }).ok());
+    assert(service.ui()
+               .call([&] {
+                 slow_running.store(true);
+                 while (!slow_release.load()) std::this_thread::sleep_for(5ms);
+               })
+               .ok());
   });
-  std::this_thread::sleep_for(100ms);
+  const auto running_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!slow_running.load() && std::chrono::steady_clock::now() < running_deadline) {
+    std::this_thread::sleep_for(5ms);
+  }
+  assert(slow_running.load());  // explicit failure: the pump never took the task
   const auto queued_timeout = service.ui().call([] {}, 20ms);
+  slow_release.store(true);
   assert(!queued_timeout.ok());
   assert(queued_timeout.code == rime::core::Error::Code::Timeout);
   slow.join();

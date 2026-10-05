@@ -1,3 +1,8 @@
+// Realism: L5 - the golden failure layer executes through the real Kernel
+// and real desktop executors while proving zero side effects (clipboard
+// witness), and the semantic layer launches real fixture windows/processes
+// that the test creates, asserts and tears down itself.
+
 // Golden contract executor consumer (C++ desktop side): the runtime twin of
 // the `failure` and `semantic` layers in contracts/golden.
 //
@@ -500,34 +505,14 @@ bool cleanup_fixture_processes(const rime::win32::ProcessService& service,
   }
 }
 
-// ProcessService::launch hands the bare command to CreateProcessW as
-// lpApplicationName, which Win32 resolves against the parent's current
-// directory only - no PATH or system-directory search. The golden payload
-// ships a bare "notepad.exe", so the launch runs with the system directory
-// as the current directory and the previous directory is restored as soon
-// as the action returns.
-class ScopedCurrentDirectory {
- public:
-  explicit ScopedCurrentDirectory(const wchar_t* directory) {
-    const DWORD written = GetCurrentDirectoryW(MAX_PATH, previous_);
-    if (written > 0 && written < MAX_PATH) {
-      has_previous_ = SetCurrentDirectoryW(directory) != 0;
-    }
-  }
-  ~ScopedCurrentDirectory() {
-    if (has_previous_) static_cast<void>(SetCurrentDirectoryW(previous_));
-  }
-  ScopedCurrentDirectory(const ScopedCurrentDirectory&) = delete;
-  ScopedCurrentDirectory& operator=(const ScopedCurrentDirectory&) = delete;
-
- private:
-  wchar_t previous_[MAX_PATH]{};
-  bool has_previous_ = false;
-};
-
-// Phase 3: process.exists. The golden payload launches the fixture process;
-// everything is captured, the process tree is terminated, and only then are
-// the outcomes asserted.
+// Phase 3: process.exists. The golden payload launches the fixture process
+// through a bare "notepad.exe"; ProcessService::launch resolves it with the
+// Win32 search path (application directory, current directory, system
+// directory, Windows directory, PATH) and hands the absolute path to
+// CreateProcessW, so the command is found from the test's own current
+// directory. No directory is switched around the launch and the payload is
+// never rewritten. Everything is captured, the process tree is terminated,
+// and only then are the outcomes asserted.
 std::size_t run_process_semantics(const std::vector<SemanticCase>& cases,
                                   rime::action::Kernel& kernel,
                                   rime::win32::ProcessService& service) {
@@ -541,14 +526,7 @@ std::size_t run_process_semantics(const std::vector<SemanticCase>& cases,
 
     const rime::action::Action action =
         make_action(item.type, item.capability, "process", "new", item.payload);
-    const rime::action::Result result = [&] {
-      wchar_t system_dir[MAX_PATH];
-      const DWORD system_len = GetSystemDirectoryW(system_dir, MAX_PATH);
-      expect(system_len > 0 && system_len < MAX_PATH,
-             label + ": the Windows system directory must resolve");
-      const ScopedCurrentDirectory fixture_cwd(system_dir);
-      return kernel.execute(action);
-    }();
+    const rime::action::Result result = kernel.execute(action);
     std::string failure;
     if (!result.succeeded) {
       failure = std::string(rime::core::error_code_name(result.error.code)) + ": " +
@@ -559,16 +537,26 @@ std::size_t run_process_semantics(const std::vector<SemanticCase>& cases,
         result.succeeded && launched_pid != nullptr && launched_pid->is_number()) {
       pid = static_cast<std::uint32_t>(launched_pid->as_number());
     }
+    // The bare command resolved through the search path: the fixture must be
+    // queryable right away, but the snapshot is polled against a deadline so
+    // a slow process list cannot turn a successful launch into a false
+    // negative. Nothing waits for a process that never appears - the loop
+    // ends on the deadline and the assertion below fails.
     bool exists = false;
     if (pid != 0) {
-      rime::win32::ProcessInfo info;
-      exists = service.info(pid, info).ok();
+      const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(6);
+      do {
+        rime::win32::ProcessInfo info;
+        exists = service.info(pid, info).ok();
+        if (!exists) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      } while (!exists && std::chrono::steady_clock::now() < deadline);
     }
     const bool cleaned = cleanup_fixture_processes(service, before);
 
     expect(result.succeeded, label + ": process.launch did not run: " + failure);
     expect(pid != 0, label + ": the launch result must carry a pid");
-    expect(exists, label + ": the launched fixture process must exist right after launch");
+    expect(exists,
+           label + ": the launched fixture process must exist after the bare-command launch");
     expect(cleaned, label + ": every fixture process must be terminated (no orphans)");
     expect(item.expect.is_bool() && item.expect.as_bool(), label + ": expects the process to exist");
     std::printf("[semantic] %-28s %-30s PASS (process.exists, pid %u)\n", item.file.c_str(),

@@ -102,12 +102,22 @@ How `rime_golden_exec` executes each kind:
 - `window.rect` - creates a fixture window, runs the payload, and compares the
   window rectangle with the work-area placement for that position name.
 - `process.exists` - runs the payload verbatim, then checks the launched pid.
-  `ProcessService::launch` passes the bare `command` to `CreateProcessW` as
-  `lpApplicationName`, which Win32 resolves against the current directory only
-  (no PATH search), so the launch runs with the Windows system directory as the
-  current directory and the previous directory is restored immediately
-  afterwards; the golden payload itself is never rewritten. The whole fixture
-  process tree is terminated before the assertion and before the test ends.
+  `ProcessService::launch` resolves a bare command (no drive and no path
+  separator) through the Win32 search path (`SearchPathW`: application
+  directory, current directory, system directory, Windows directory, `PATH`)
+  and passes the resolved absolute path to `CreateProcessW` as
+  `lpApplicationName`, so the golden's bare `notepad.exe` starts from any
+  current directory and the payload itself is never rewritten. A command that
+  already carries a path is never searched; when no search-path entry matches
+  and `CreateProcessW` also fails, the `execution_failed` message says the
+  PATH search failed. The whole fixture process tree is terminated before the
+  assertion and before the test ends, and the runner additionally polls the
+  launched pid against a deadline before asserting it exists. History: the
+  bare command used to be handed to `lpApplicationName` unresolved, which
+  Win32 resolves against the current directory only, so the runner had to
+  switch the current directory to the Windows system directory around the
+  launch; that adapter is gone now that the resolution happens inside
+  `ProcessService::launch`.
 - `clipboard.text` - writes the payload, reads the text back, then restores the
   clipboard captured before the case.
 
