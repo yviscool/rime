@@ -1,3 +1,7 @@
+// Realism: L3 - real Runtime, Dispatcher and Kernel run in process; only
+// the clock seam is injected (ManualClock) so deadline and timer outcomes
+// are decided by advancing time instead of sleeping.
+
 #include "rime/core/runtime.hpp"
 #include "rime/action/kernel.hpp"
 #include "rime/action/dispatcher.hpp"
@@ -194,8 +198,18 @@ int main() {
       // Envelope is action-only: event/state entries never carry it.
       assert(entry.capability.empty());
       assert(entry.result_code.empty());
-      assert(entry.duration_ms == 0);
+      if (entry.kind == rime::core::TraceKind::EventDispatchFinished) {
+        // Handler segment timing is measured (SystemClock here), so it may
+        // exceed 0 ms; it only has to stay inside a sane wall window.
+        assert(entry.duration_ms < 60'000);
+      } else {
+        assert(entry.duration_ms == 0);
+      }
+      // Queue wait is a Started-only field: never filled elsewhere.
+      assert(entry.queue_wait_ms == 0);
     }
+    // Every entry is stamped with its record time by the sink.
+    assert(entry.unix_ms > 0);
   }
   // Result codes reflect the pipeline outcome, not just the executor's.
   auto result_code_for = [&](rime::core::ActionId id) {

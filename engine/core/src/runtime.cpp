@@ -1,5 +1,6 @@
 #include "rime/core/runtime.hpp"
 
+#include <chrono>
 #include <utility>
 
 namespace rime::core {
@@ -28,13 +29,25 @@ class ScopeGuard final {
   bool active_;
 };
 
+// Handler-segment length in milliseconds, measured in the Clock's monotonic
+// domain (SystemClock in production, ManualClock in tests). Clamped at 0 so a
+// manual clock override can never report a negative duration.
+std::uint64_t elapsed_ms(const Clock& clock, const Clock::time_point& since) {
+  const auto delta =
+      std::chrono::duration_cast<std::chrono::milliseconds>(clock.now() - since);
+  return delta.count() > 0 ? static_cast<std::uint64_t>(delta.count()) : 0;
+}
+
 }  // namespace
 
-Runtime::Runtime(const std::size_t queue_capacity, std::shared_ptr<TraceSink> trace)
-    : Runtime(SchedulerPolicy::bounded(queue_capacity), std::move(trace)) {}
+Runtime::Runtime(const std::size_t queue_capacity, std::shared_ptr<TraceSink> trace,
+                 const Clock* clock)
+    : Runtime(SchedulerPolicy::bounded(queue_capacity), std::move(trace), clock) {}
 
-Runtime::Runtime(SchedulerPolicy policy, std::shared_ptr<TraceSink> trace)
-    : queue_(policy), trace_(std::move(trace)) {}
+Runtime::Runtime(SchedulerPolicy policy, std::shared_ptr<TraceSink> trace, const Clock* clock)
+    : queue_(policy),
+      trace_(std::move(trace)),
+      clock_(clock ? clock : &SystemClock::instance()) {}
 
 Runtime::~Runtime() { stop(); }
 
@@ -124,25 +137,33 @@ std::size_t Runtime::pump(const std::size_t budget) {
       break;
     }
     if (!event) break;
+    // Segment timing: dispatch start -> handler return. Both reads go
+    // through the injected Clock so a ManualClock test gets a deterministic
+    // EventDispatchFinished.duration_ms instead of wall-clock jitter.
+    const Clock::time_point dispatch_started = clock_->now();
     try {
       trace(TraceKind::EventDispatchStarted, event->name, "dispatch");
     } catch (...) {
       // Tracing must never break dispatch; detail loss is acceptable.
     }
+    const auto finish = [&](const std::string& detail) {
+      trace(TraceKind::EventDispatchFinished, event->name, detail,
+            elapsed_ms(*clock_, dispatch_started));
+    };
     try {
       handler(*event, shutdown_.token());
       try {
-        trace(TraceKind::EventDispatchFinished, event->name, "dispatch");
+        finish("dispatch");
       } catch (...) {
       }
     } catch (const std::exception& exception) {
       try {
-        trace(TraceKind::EventDispatchFinished, event->name, exception.what());
+        finish(exception.what());
       } catch (...) {
       }
     } catch (...) {
       try {
-        trace(TraceKind::EventDispatchFinished, event->name, "handler threw an unknown exception");
+        finish("handler threw an unknown exception");
       } catch (...) {
       }
     }
@@ -189,12 +210,13 @@ RuntimeState Runtime::state() const {
   return state_;
 }
 
-void Runtime::trace(const TraceKind kind, std::string subject, std::string detail) {
+void Runtime::trace(const TraceKind kind, std::string subject, std::string detail,
+                    const std::uint64_t duration_ms) {
   // TraceSink::record may throw (user-provided sink); tracing must never
   // propagate into dispatch/shutdown paths, so failures are swallowed.
   try {
     if (trace_) {
-      trace_->record({0, kind, std::move(subject), std::move(detail)});
+      trace_->record({0, kind, std::move(subject), std::move(detail), 0, {}, {}, duration_ms});
     }
   } catch (...) {
   }

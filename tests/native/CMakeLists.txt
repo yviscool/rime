@@ -46,6 +46,24 @@ if (MINGW)
 endif()
 add_test(NAME rime_scheduler_policies COMMAND rime_scheduler_tests)
 
+add_executable(rime_race_tests race_tests.cpp)
+target_link_libraries(rime_race_tests PRIVATE rime_action rime_core rime_test_support)
+target_compile_features(rime_race_tests PRIVATE cxx_std_20)
+if (MINGW)
+  # std::thread/std::future pull in winpthread; link statically like the other
+  # multi-threaded tests so the binary never depends on host MinGW DLLs.
+  target_link_options(rime_race_tests PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+add_test(NAME rime_action_races COMMAND rime_race_tests)
+
+add_executable(rime_trace_tests trace_tests.cpp)
+target_link_libraries(rime_trace_tests PRIVATE rime_action rime_core rime_test_support)
+target_compile_features(rime_trace_tests PRIVATE cxx_std_20)
+if (MINGW)
+  target_link_options(rime_trace_tests PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+add_test(NAME rime_trace_contracts COMMAND rime_trace_tests)
+
 if (WIN32)
   add_executable(rime_win32_tests win32_tests.cpp)
   target_link_libraries(rime_win32_tests PRIVATE rime_win32 rime_core rime_test_support)

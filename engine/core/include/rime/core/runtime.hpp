@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rime/core/cancellation.hpp"
+#include "rime/core/clock.hpp"
 #include "rime/core/event_queue.hpp"
 #include "rime/core/trace.hpp"
 
@@ -20,8 +21,14 @@ using EventHandler = std::function<void(const Event&, CancellationToken)>;
 
 class Runtime final {
  public:
-  explicit Runtime(std::size_t queue_capacity, std::shared_ptr<TraceSink> trace = {});
-  explicit Runtime(SchedulerPolicy policy, std::shared_ptr<TraceSink> trace = {});
+  // `clock` is the time seam for event dispatch timing (Finished
+  // duration_ms). Defaults to SystemClock; tests inject ManualClock for
+  // deterministic handler-segment durations. The Runtime only reads it: the
+  // pointed-to Clock must outlive the Runtime (declare it first).
+  explicit Runtime(std::size_t queue_capacity, std::shared_ptr<TraceSink> trace = {},
+                   const Clock* clock = nullptr);
+  explicit Runtime(SchedulerPolicy policy, std::shared_ptr<TraceSink> trace = {},
+                   const Clock* clock = nullptr);
   ~Runtime();
 
   // NOTE: destroying a Runtime from inside its own event handler is
@@ -46,7 +53,10 @@ class Runtime final {
   [[nodiscard]] const SchedulerPolicy& policy() const { return queue_.policy(); }
 
  private:
-  void trace(TraceKind kind, std::string subject, std::string detail);
+  // duration_ms defaults to 0 so every existing call site compiles
+  // unchanged; only EventDispatchFinished supplies a measured segment.
+  void trace(TraceKind kind, std::string subject, std::string detail,
+             std::uint64_t duration_ms = 0);
 
   mutable std::mutex mutex_;
   std::condition_variable condition_;
@@ -55,6 +65,7 @@ class Runtime final {
   CancellationSource shutdown_;
   EventHandler handler_;
   std::shared_ptr<TraceSink> trace_;
+  const Clock* clock_{nullptr};
   std::atomic<Sequence> next_sequence_{1};
   int pump_depth_{0};
   std::thread::id pump_thread_{};

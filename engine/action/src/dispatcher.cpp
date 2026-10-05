@@ -1,5 +1,7 @@
 #include "rime/action/dispatcher.hpp"
 
+#include "rime/core/clock.hpp"
+
 #include <algorithm>
 #include <utility>
 
@@ -58,6 +60,15 @@ DispatchStatus Dispatcher::submit(Action action) {
   };
   std::vector<Decision> decisions;
   const auto accept = [&] {
+    // Queue-wait start point: the accepted wall time rides along with the
+    // action itself so the Kernel can compute TraceEntry::queue_wait_ms on
+    // ActionStarted. Stamped only when unset: production actions arrive with
+    // 0 (codec never decodes this field), in-process tests may preset it to
+    // inject a deterministic accept time. Not serialized anywhere.
+    if (action.accepted_unix_ms == 0) {
+      action.accepted_unix_ms = static_cast<std::uint64_t>(
+          rime::core::SystemClock::instance().unix_ms());
+    }
     decisions.push_back({rime::core::TraceKind::ActionAccepted, action.type, action.id,
                          action.capability, "queued", {}});
   };

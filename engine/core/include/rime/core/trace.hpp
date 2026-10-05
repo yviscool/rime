@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rime/core/clock.hpp"
 #include "rime/core/types.hpp"
 
 #include <atomic>
@@ -50,7 +51,14 @@ inline Sequence next_trace_sequence() {
 // error-code name of the outcome ("none" for success), empty on Started and
 // Accepted because no result exists yet; `duration_ms` measures executor
 // wall time (steady_clock) and stays 0 on Started, Accepted, Refused and on
-// pre-dispatch failures that never reach an executor.
+// pre-dispatch failures that never reach an executor. On
+// EventDispatchFinished it measures the handler segment (dispatch start ->
+// handler return, same Clock domain); EventDispatchStarted keeps 0.
+//
+// `unix_ms` and `queue_wait_ms` are appended last so every existing brace
+// initializer (which supplies at most the eight fields above) keeps its
+// meaning: missing trailing members take their default 0. Producers leave
+// `unix_ms` at 0; InMemoryTrace stamps it at record time (see below).
 struct TraceEntry {
   Sequence sequence{0};
   TraceKind kind{TraceKind::EventAccepted};
@@ -60,6 +68,15 @@ struct TraceEntry {
   std::string capability;
   std::string result_code;
   std::uint64_t duration_ms{0};
+  // Wall-clock write time: system_clock milliseconds since the Unix epoch,
+  // stamped when the entry is recorded (data for replay/correlation, never a
+  // test control). 0 only on entries whose sink does not stamp.
+  std::uint64_t unix_ms{0};
+  // Queue wait measured on ActionStarted only: accepted_unix_ms -> start of
+  // execution, in the Kernel's Clock wall domain (0 when the accepted time
+  // is unknown or the clock went backwards). Stays 0 on Accepted, Refused,
+  // Finished and event/state entries.
+  std::uint64_t queue_wait_ms{0};
 };
 
 class TraceSink {
@@ -73,6 +90,14 @@ class InMemoryTrace final : public TraceSink {
   void record(TraceEntry entry) override {
     std::lock_guard lock(mutex_);
     entry.sequence = next_trace_sequence();
+    // Stamping under the same lock as the sequence assignment keeps unix_ms
+    // monotone with sequence by construction: write time == record time for
+    // every producer (runtime, kernel, dispatcher, shutdown, win32 modules).
+    // A producer-supplied value is kept, so an external sink stays free to
+    // stamp on its own.
+    if (entry.unix_ms == 0) {
+      entry.unix_ms = static_cast<std::uint64_t>(SystemClock::instance().unix_ms());
+    }
     entries_.push_back(std::move(entry));
   }
 

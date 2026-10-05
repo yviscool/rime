@@ -165,13 +165,25 @@ Result Kernel::fail(const Action& action, const rime::core::Error::Code code,
 
 void Kernel::record(const Action& action, const rime::core::TraceKind kind, std::string detail,
                     std::string result_code, const std::uint64_t duration_ms) {
+  // Queue wait is a Started-only envelope field: accepted time comes from
+  // the Dispatcher (system wall domain, or an injected Clock in tests) and
+  // must be read in the same domain as this Kernel's Clock. 0 when the
+  // action never passed through a Dispatcher (accepted_unix_ms == 0) or the
+  // clock reports a time before acceptance (domain mismatch / backwards
+  // jump) rather than reporting a bogus negative.
+  std::uint64_t queue_wait_ms = 0;
+  if (kind == rime::core::TraceKind::ActionStarted && action.accepted_unix_ms > 0) {
+    const auto accepted = static_cast<std::int64_t>(action.accepted_unix_ms);
+    const std::int64_t started = clock_->unix_ms();
+    if (started >= accepted) queue_wait_ms = static_cast<std::uint64_t>(started - accepted);
+  }
   // TraceSink::record may throw (user-provided sink); tracing must never
   // propagate out of the action pipeline, so failures are swallowed and every
   // action still yields exactly one Result instead of throwing.
   try {
     if (trace_) {
       trace_->record({0, kind, action.type, std::move(detail), action.id, action.capability,
-                      std::move(result_code), duration_ms});
+                      std::move(result_code), duration_ms, 0, queue_wait_ms});
     }
   } catch (...) {
   }

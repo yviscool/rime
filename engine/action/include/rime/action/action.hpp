@@ -39,6 +39,17 @@ struct Action {
   rime::core::ActionId parent_action_id{0};
   std::string payload;
   std::string idempotency_key;
+  // Internal diagnostics field. NOT part of the wire contract: the wall-clock
+  // ms (system_clock) at which the Dispatcher accepted this action into its
+  // queue, stamped by Dispatcher::submit when it is 0; the Kernel turns the
+  // delta into TraceEntry::queue_wait_ms on ActionStarted. A pre-set value is
+  // preserved so in-process tests can inject a deterministic accept time.
+  // codec.cpp cannot leak it: encode_action() writes an explicit field list
+  // (schemaVersion/id/source/type/capability/target/preconditions/
+  // deadlineUnixMs/parentActionId/payload/idempotencyKey) and
+  // decode_action() rejects unknown keys through has_only_keys, so this
+  // member never reaches or leaves JSON.
+  std::uint64_t accepted_unix_ms{0};
 };
 
 struct Result {
