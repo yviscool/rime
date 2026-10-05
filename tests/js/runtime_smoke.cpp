@@ -1,3 +1,7 @@
+// Realism: L6 - the embedded host ABI runs load/execute/error/exit/unload
+// against the real QuickJS host, including adversarial unload paths (held
+// callbacks, undelivered host events) asserted item by item.
+
 #include "rime/js/abi.hpp"
 #include "rime/js/host.hpp"
 #include "rime/js/runtime.hpp"
@@ -487,6 +491,103 @@ void test_host_abi() {
   assert(empty_load.code == rime::core::Error::Code::InvalidContract);
 }
 
+// The held-callback reason (abi.cpp: "N JS callback(s) still held") in the
+// same positive/negative shape as the three reasons above: a script that
+// keeps a JS callback refuses unload and names it, releasing the callback
+// lets unload finish.
+void test_host_abi_held_callback() {
+  rime::js::HostAbi abi;
+  assert(abi.load("import { runtime } from 'rime:runtime';\n"
+                  "globalThis.held = runtime.subscribe(() => {});",
+                  "held-callback.mjs")
+             .ok());
+  assert(abi.execute().ok());
+
+  // Held: the reason list names the callback and the subscription it is
+  // registered under (add_callback registers both together, host.cpp), and
+  // the host stays executable instead of being torn down.
+  const auto busy = abi.unload();
+  assert(!busy.ok());
+  assert(busy.code == rime::core::Error::Code::InvalidState);
+  assert(busy.message.find("unload refused while host is still active") != std::string::npos);
+  assert(busy.message.find("JS callback(s) still held") != std::string::npos);
+  assert(busy.message.find("subscription(s)") != std::string::npos);
+  assert(abi.state() == rime::js::HostAbiState::Executed);
+
+  // Released: unsubscribe drops the callback and its registry entry, so the
+  // second unload has no reason left to report.
+  assert(abi.execute("import { runtime } from 'rime:runtime';\n"
+                     "runtime.unsubscribe(globalThis.held);",
+                     "release-held-callback.mjs")
+             .ok());
+  assert(abi.unload().ok());
+  assert(abi.state() == rime::js::HostAbiState::Unloaded);
+  assert(abi.unload().ok());
+}
+
+// The pending-host-event reason (abi.cpp: "pending host event(s)") in the
+// same shape: a native producer queues an event the JS thread has not
+// drained yet, unload names it, drain() delivers it and the reason goes away.
+void test_host_abi_pending_event() {
+  rime::js::HostAbi abi;
+  assert(abi.load("import { runtime } from 'rime:runtime';\n"
+                  "globalThis.watched = runtime.subscribe((payload) => {\n"
+                  "  globalThis.delivered = payload.message;\n"
+                  "});",
+                  "watch-event.mjs")
+             .ok());
+  assert(abi.execute().ok());
+
+  // The live callback id, read back through the inspect protocol - the event
+  // below has to reach a real JS handler, not a made-up destination.
+  const std::string subscriptions = abi.inspect(R"({"kind":"subscriptions"})");
+  const std::size_t marker = subscriptions.find("js#");
+  assert(marker != std::string::npos);
+  const std::uint64_t callback_id = std::stoull(subscriptions.substr(marker + 3));
+
+  // Held: a producer queues an undelivered event through the same
+  // HostEventQueue::push every input-hook/clipboard relay uses.
+  const auto queue = abi.host().event_queue();
+  assert(queue);
+  assert(queue->empty());
+  const bool pushed = queue->push(callback_id, "{\"message\":\"queued event\"}");
+  assert(pushed);
+  assert(!queue->empty());
+
+  const auto busy = abi.unload();
+  assert(!busy.ok());
+  assert(busy.code == rime::core::Error::Code::InvalidState);
+  assert(busy.message.find("pending host event(s)") != std::string::npos);
+  // Multi-reason list: the two other live resources are named in the same
+  // message, so an embedder sees the whole backlog at once.
+  assert(busy.message.find("subscription(s)") != std::string::npos);
+  assert(busy.message.find("JS callback(s) still held") != std::string::npos);
+  assert(abi.state() == rime::js::HostAbiState::Executed);
+
+  // Delivered: drain() hands the payload to the callback and empties the
+  // queue, so the event reason vanishes while the other two remain.
+  assert(abi.drain() >= 1);
+  assert(queue->empty());
+  const auto after_drain = abi.unload();
+  assert(!after_drain.ok());
+  assert(after_drain.code == rime::core::Error::Code::InvalidState);
+  assert(after_drain.message.find("pending host event(s)") == std::string::npos);
+  assert(after_drain.message.find("subscription(s)") != std::string::npos);
+  assert(abi.execute(
+             "if (globalThis.delivered !== 'queued event')\n"
+             "  throw new Error('event was not delivered: ' + globalThis.delivered);",
+             "check-delivery.mjs")
+             .ok());
+
+  // Released: dropping the last callback clears every reason and unload runs.
+  assert(abi.execute("import { runtime } from 'rime:runtime';\n"
+                     "runtime.unsubscribe(globalThis.watched);",
+                     "release-watched.mjs")
+             .ok());
+  assert(abi.unload().ok());
+  assert(abi.state() == rime::js::HostAbiState::Unloaded);
+}
+
 }  // namespace
 
 int main() {
@@ -497,5 +598,7 @@ int main() {
   test_busy_loop_interrupt();
   test_runtime_exit();
   test_host_abi();
+  test_host_abi_held_callback();
+  test_host_abi_pending_event();
   return 0;
 }
