@@ -1,0 +1,169 @@
+{
+  "type": "window.set.transparent",
+  "capability": "windows.window.write",
+  "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/setTransparentPayload",
+  "shape": {
+    "valid": [
+      {
+        "name": "alpha-200",
+        "payload": {
+          "value": 200
+        }
+      },
+      {
+        "name": "transparency-off",
+        "payload": {
+          "value": -1
+        }
+      }
+    ],
+    "violations": [
+      {
+        "name": "value-missing",
+        "payload": {},
+        "code": "invalid_contract"
+      },
+      {
+        "name": "value-above-255",
+        "payload": {
+          "value": 300
+        },
+        "code": "invalid_contract"
+      },
+      {
+        "name": "value-not-an-integer",
+        "payload": {
+          "value": 1.5
+        },
+        "code": "invalid_contract"
+      }
+    ]
+  },
+  "semantic": [],
+  "lifecycle": [
+    {
+      "name": "expired-deadline",
+      "deadlineMode": "past",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1060,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.set.transparent",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "value": 200
+        },
+        "idempotencyKey": "golden-window.set.transparent-1060"
+      },
+      "expect": {
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "capability-mismatch",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1061,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.set.transparent",
+        "capability": "windows.window.read",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "value": 200
+        },
+        "idempotencyKey": "golden-window.set.transparent-1061"
+      },
+      "expect": {
+        "code": "capability_denied"
+      }
+    },
+    {
+      "name": "precondition-not-evaluated",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1062,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.set.transparent",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [
+          {
+            "type": "window.foreground",
+            "expected": "true"
+          }
+        ],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "value": 200
+        },
+        "idempotencyKey": "golden-window.set.transparent-1062"
+      },
+      "expect": {
+        "code": "unsupported"
+      }
+    }
+  ],
+  "failure": [
+    {
+      "name": "value-out-of-range",
+      "payload": {
+        "value": 300
+      },
+      "code": "invalid_contract",
+      "messageContains": "window.set.transparent payload value must be"
+    }
+  ],
+  "envelope": [
+    {
+      "name": "missing-target",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1065,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.set.transparent",
+        "capability": "windows.window.write",
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "value": 200
+        },
+        "idempotencyKey": "golden-window.set.transparent-1065"
+      },
+      "expect": {
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}

@@ -1,0 +1,146 @@
+{
+  "type": "window.kill",
+  "capability": "windows.window.write",
+  "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/emptyPayload",
+  "shape": {
+    "valid": [
+      {
+        "name": "empty-object",
+        "payload": {}
+      }
+    ],
+    "violations": [
+      {
+        "name": "payload-is-an-array",
+        "payload": [],
+        "code": "invalid_contract"
+      },
+      {
+        "name": "payload-is-a-string",
+        "payload": "not-an-object",
+        "code": "invalid_contract"
+      }
+    ]
+  },
+  "semantic": [],
+  "lifecycle": [
+    {
+      "name": "expired-deadline",
+      "deadlineMode": "past",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1030,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.kill",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-window.kill-1030"
+      },
+      "expect": {
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "capability-mismatch",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1031,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.kill",
+        "capability": "windows.window.read",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-window.kill-1031"
+      },
+      "expect": {
+        "code": "capability_denied"
+      }
+    },
+    {
+      "name": "precondition-not-evaluated",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1032,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.kill",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [
+          {
+            "type": "window.foreground",
+            "expected": "true"
+          }
+        ],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-window.kill-1032"
+      },
+      "expect": {
+        "code": "unsupported"
+      }
+    }
+  ],
+  "failure": [
+    {
+      "name": "target-kind-is-group",
+      "payload": {},
+      "code": "invalid_contract",
+      "messageContains": "window actions require target kind 'window'",
+      "target": {
+        "kind": "group",
+        "id": "golden"
+      }
+    }
+  ],
+  "envelope": [
+    {
+      "name": "missing-target",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1035,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.kill",
+        "capability": "windows.window.write",
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-window.kill-1035"
+      },
+      "expect": {
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}

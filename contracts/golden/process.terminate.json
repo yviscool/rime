@@ -1,0 +1,135 @@
+{
+  "type": "process.terminate",
+  "capability": "process.terminate",
+  "payloadSchema": null,
+  "shape": {
+    "valid": [
+      {
+        "name": "payload-carries-no-fields",
+        "payload": {}
+      }
+    ],
+    "violations": []
+  },
+  "semantic": [],
+  "lifecycle": [
+    {
+      "name": "expired-deadline",
+      "deadlineMode": "past",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1120,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "process.terminate",
+        "capability": "process.terminate",
+        "target": {
+          "kind": "process",
+          "id": "4242"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-process.terminate-1120"
+      },
+      "expect": {
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "capability-mismatch",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1121,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "process.terminate",
+        "capability": "process.inspect",
+        "target": {
+          "kind": "process",
+          "id": "4242"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-process.terminate-1121"
+      },
+      "expect": {
+        "code": "capability_denied"
+      }
+    },
+    {
+      "name": "precondition-not-evaluated",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1122,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "process.terminate",
+        "capability": "process.terminate",
+        "target": {
+          "kind": "process",
+          "id": "4242"
+        },
+        "preconditions": [
+          {
+            "type": "window.foreground",
+            "expected": "true"
+          }
+        ],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-process.terminate-1122"
+      },
+      "expect": {
+        "code": "unsupported"
+      }
+    }
+  ],
+  "failure": [
+    {
+      "name": "target-id-is-not-a-pid",
+      "payload": {},
+      "code": "invalid_contract",
+      "messageContains": "process.terminate target id must be a positive integer",
+      "target": {
+        "kind": "process",
+        "id": "not-a-pid"
+      }
+    }
+  ],
+  "envelope": [
+    {
+      "name": "missing-target",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1125,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "process.terminate",
+        "capability": "process.terminate",
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-process.terminate-1125"
+      },
+      "expect": {
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}

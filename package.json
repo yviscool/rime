@@ -13,7 +13,7 @@
     "check": "bun tools/check.ts",
     "typecheck": "bun x tsc --noEmit",
     "sdk:test": "bun test --isolate tests/sdk",
-    "contract:smoke": "bun tools/schema-smoke.ts",
+    "contract:smoke": "bun tools/schema-smoke.ts && bun tools/golden-smoke.ts",
     "contract:check": "bun tools/contract.ts",
     "contract:gen": "bun tools/contract.ts --write",
     "matrix:check": "bun tools/coverage-matrix.ts",

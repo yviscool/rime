@@ -10,6 +10,14 @@ target_link_libraries(rime_contract_tests PRIVATE rime_action rime_core rime_tes
 target_compile_features(rime_contract_tests PRIVATE cxx_std_20)
 add_test(NAME rime_contract_codec COMMAND rime_contract_tests ${CMAKE_SOURCE_DIR})
 
+add_executable(rime_golden_tests golden_tests.cpp)
+target_link_libraries(rime_golden_tests PRIVATE rime_action rime_core rime_test_support)
+target_compile_features(rime_golden_tests PRIVATE cxx_std_20)
+if (MINGW)
+  target_link_options(rime_golden_tests PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+add_test(NAME rime_golden_contract COMMAND rime_golden_tests ${CMAKE_SOURCE_DIR})
+
 add_executable(rime_clock_tests clock_tests.cpp)
 target_link_libraries(rime_clock_tests PRIVATE rime_action rime_core rime_test_support)
 target_compile_features(rime_clock_tests PRIVATE cxx_std_20)

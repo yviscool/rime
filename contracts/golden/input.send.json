@@ -1,0 +1,194 @@
+{
+  "type": "input.send",
+  "capability": "windows.input.inject",
+  "payloadSchema": null,
+  "shape": {
+    "valid": [
+      {
+        "name": "enter-down-up",
+        "payload": [
+          {
+            "vk": 13,
+            "down": true
+          },
+          {
+            "vk": 13,
+            "down": false
+          }
+        ]
+      },
+      {
+        "name": "unicode-code-unit",
+        "payload": [
+          {
+            "vk": 65,
+            "down": true,
+            "unicode": true
+          },
+          {
+            "vk": 65,
+            "down": false,
+            "unicode": true
+          }
+        ]
+      }
+    ],
+    "violations": [
+      {
+        "name": "payload-is-not-an-array",
+        "payload": {
+          "steps": []
+        },
+        "code": "invalid_contract"
+      },
+      {
+        "name": "empty-step-list",
+        "payload": [],
+        "code": "invalid_contract"
+      },
+      {
+        "name": "step-without-vk",
+        "payload": [
+          {
+            "down": true
+          }
+        ],
+        "code": "invalid_contract"
+      }
+    ]
+  },
+  "semantic": [],
+  "lifecycle": [
+    {
+      "name": "expired-deadline",
+      "deadlineMode": "past",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1090,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "input.send",
+        "capability": "windows.input.inject",
+        "target": {
+          "kind": "input",
+          "id": "keyboard"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-input.send-1090"
+      },
+      "expect": {
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "capability-mismatch",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1091,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "input.send",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "input",
+          "id": "keyboard"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-input.send-1091"
+      },
+      "expect": {
+        "code": "capability_denied"
+      }
+    },
+    {
+      "name": "precondition-not-evaluated",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1092,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "input.send",
+        "capability": "windows.input.inject",
+        "target": {
+          "kind": "input",
+          "id": "keyboard"
+        },
+        "preconditions": [
+          {
+            "type": "window.foreground",
+            "expected": "true"
+          }
+        ],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-input.send-1092"
+      },
+      "expect": {
+        "code": "unsupported"
+      }
+    }
+  ],
+  "failure": [
+    {
+      "name": "payload-is-an-object",
+      "payload": {
+        "steps": [
+          {
+            "vk": 13,
+            "down": true
+          }
+        ]
+      },
+      "code": "invalid_contract",
+      "messageContains": "payload must be a JSON array of key steps"
+    },
+    {
+      "name": "target-kind-is-window",
+      "payload": {},
+      "code": "invalid_contract",
+      "messageContains": "input.send requires target kind 'input'",
+      "target": {
+        "kind": "window",
+        "id": "active"
+      }
+    }
+  ],
+  "envelope": [
+    {
+      "name": "missing-target",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1095,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "input.send",
+        "capability": "windows.input.inject",
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-input.send-1095"
+      },
+      "expect": {
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}

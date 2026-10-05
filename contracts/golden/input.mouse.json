@@ -1,0 +1,238 @@
+{
+  "type": "input.mouse",
+  "capability": "windows.input.inject",
+  "payloadSchema": null,
+  "shape": {
+    "valid": [
+      {
+        "name": "absolute-move",
+        "payload": {
+          "steps": [
+            {
+              "action": "move",
+              "x": 10,
+              "y": 20
+            }
+          ]
+        }
+      },
+      {
+        "name": "click-left-with-speed",
+        "payload": {
+          "steps": [
+            {
+              "action": "down",
+              "button": 1
+            },
+            {
+              "action": "up",
+              "button": 1
+            }
+          ],
+          "speed": 5
+        }
+      }
+    ],
+    "violations": [
+      {
+        "name": "steps-missing",
+        "payload": {},
+        "code": "invalid_contract"
+      },
+      {
+        "name": "empty-step-list",
+        "payload": {
+          "steps": []
+        },
+        "code": "invalid_contract"
+      },
+      {
+        "name": "unknown-step-action",
+        "payload": {
+          "steps": [
+            {
+              "action": "click"
+            }
+          ]
+        },
+        "code": "invalid_contract"
+      },
+      {
+        "name": "button-outside-1-2-3",
+        "payload": {
+          "steps": [
+            {
+              "action": "down",
+              "button": 5
+            }
+          ]
+        },
+        "code": "invalid_contract"
+      }
+    ]
+  },
+  "semantic": [],
+  "lifecycle": [
+    {
+      "name": "expired-deadline",
+      "deadlineMode": "past",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1100,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "input.mouse",
+        "capability": "windows.input.inject",
+        "target": {
+          "kind": "input",
+          "id": "mouse"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "steps": [
+            {
+              "action": "move",
+              "x": 10,
+              "y": 20
+            }
+          ]
+        },
+        "idempotencyKey": "golden-input.mouse-1100"
+      },
+      "expect": {
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "capability-mismatch",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1101,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "input.mouse",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "input",
+          "id": "mouse"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "steps": [
+            {
+              "action": "move",
+              "x": 10,
+              "y": 20
+            }
+          ]
+        },
+        "idempotencyKey": "golden-input.mouse-1101"
+      },
+      "expect": {
+        "code": "capability_denied"
+      }
+    },
+    {
+      "name": "precondition-not-evaluated",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1102,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "input.mouse",
+        "capability": "windows.input.inject",
+        "target": {
+          "kind": "input",
+          "id": "mouse"
+        },
+        "preconditions": [
+          {
+            "type": "window.foreground",
+            "expected": "true"
+          }
+        ],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "steps": [
+            {
+              "action": "move",
+              "x": 10,
+              "y": 20
+            }
+          ]
+        },
+        "idempotencyKey": "golden-input.mouse-1102"
+      },
+      "expect": {
+        "code": "unsupported"
+      }
+    }
+  ],
+  "failure": [
+    {
+      "name": "steps-not-an-array",
+      "payload": {
+        "steps": 42
+      },
+      "code": "invalid_contract",
+      "messageContains": "steps must be an array"
+    },
+    {
+      "name": "button-outside-1-2-3",
+      "payload": {
+        "steps": [
+          {
+            "action": "down",
+            "button": 5
+          }
+        ]
+      },
+      "code": "invalid_contract",
+      "messageContains": "buttons must be 1 (left), 2 (right) or 3 (middle)"
+    }
+  ],
+  "envelope": [
+    {
+      "name": "missing-target",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1105,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "input.mouse",
+        "capability": "windows.input.inject",
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "steps": [
+            {
+              "action": "move",
+              "x": 10,
+              "y": 20
+            }
+          ]
+        },
+        "idempotencyKey": "golden-input.mouse-1105"
+      },
+      "expect": {
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}

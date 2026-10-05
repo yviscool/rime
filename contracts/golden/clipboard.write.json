@@ -1,0 +1,179 @@
+{
+  "type": "clipboard.write",
+  "capability": "windows.clipboard.write",
+  "payloadSchema": null,
+  "shape": {
+    "valid": [
+      {
+        "name": "plain-text",
+        "payload": {
+          "text": "Rime clipboard golden"
+        }
+      }
+    ],
+    "violations": [
+      {
+        "name": "text-missing",
+        "payload": {},
+        "code": "invalid_contract"
+      },
+      {
+        "name": "text-not-a-string",
+        "payload": {
+          "text": 42
+        },
+        "code": "invalid_contract"
+      }
+    ]
+  },
+  "semantic": [
+    {
+      "name": "clipboard-receives-text",
+      "payload": {
+        "text": "Rime clipboard golden"
+      },
+      "check": {
+        "kind": "clipboard.text",
+        "expect": "Rime clipboard golden"
+      }
+    }
+  ],
+  "lifecycle": [
+    {
+      "name": "expired-deadline",
+      "deadlineMode": "past",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1130,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "clipboard.write",
+        "capability": "windows.clipboard.write",
+        "target": {
+          "kind": "clipboard",
+          "id": "default"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "text": "Rime clipboard golden"
+        },
+        "idempotencyKey": "golden-clipboard.write-1130"
+      },
+      "expect": {
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "capability-mismatch",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1131,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "clipboard.write",
+        "capability": "windows.clipboard.read",
+        "target": {
+          "kind": "clipboard",
+          "id": "default"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "text": "Rime clipboard golden"
+        },
+        "idempotencyKey": "golden-clipboard.write-1131"
+      },
+      "expect": {
+        "code": "capability_denied"
+      }
+    },
+    {
+      "name": "precondition-not-evaluated",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1132,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "clipboard.write",
+        "capability": "windows.clipboard.write",
+        "target": {
+          "kind": "clipboard",
+          "id": "default"
+        },
+        "preconditions": [
+          {
+            "type": "window.foreground",
+            "expected": "true"
+          }
+        ],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "text": "Rime clipboard golden"
+        },
+        "idempotencyKey": "golden-clipboard.write-1132"
+      },
+      "expect": {
+        "code": "unsupported"
+      }
+    }
+  ],
+  "failure": [
+    {
+      "name": "text-not-a-string",
+      "payload": {
+        "text": 42
+      },
+      "code": "invalid_contract",
+      "messageContains": "requires a string text"
+    },
+    {
+      "name": "target-id-is-not-default",
+      "payload": {
+        "text": "x"
+      },
+      "code": "invalid_contract",
+      "messageContains": "clipboard.write target id must be 'default'",
+      "target": {
+        "kind": "clipboard",
+        "id": "system"
+      }
+    }
+  ],
+  "envelope": [
+    {
+      "name": "missing-target",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1135,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "clipboard.write",
+        "capability": "windows.clipboard.write",
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "text": "Rime clipboard golden"
+        },
+        "idempotencyKey": "golden-clipboard.write-1135"
+      },
+      "expect": {
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}

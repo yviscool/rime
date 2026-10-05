@@ -1,0 +1,135 @@
+{
+  "type": "automation.invoke",
+  "capability": "windows.automation.invoke",
+  "payloadSchema": null,
+  "shape": {
+    "valid": [
+      {
+        "name": "payload-carries-no-fields",
+        "payload": {}
+      }
+    ],
+    "violations": []
+  },
+  "semantic": [],
+  "lifecycle": [
+    {
+      "name": "expired-deadline",
+      "deadlineMode": "past",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1140,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "automation.invoke",
+        "capability": "windows.automation.invoke",
+        "target": {
+          "kind": "element",
+          "id": "12345"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-automation.invoke-1140"
+      },
+      "expect": {
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "capability-mismatch",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1141,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "automation.invoke",
+        "capability": "windows.automation.read",
+        "target": {
+          "kind": "element",
+          "id": "12345"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-automation.invoke-1141"
+      },
+      "expect": {
+        "code": "capability_denied"
+      }
+    },
+    {
+      "name": "precondition-not-evaluated",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1142,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "automation.invoke",
+        "capability": "windows.automation.invoke",
+        "target": {
+          "kind": "element",
+          "id": "12345"
+        },
+        "preconditions": [
+          {
+            "type": "window.foreground",
+            "expected": "true"
+          }
+        ],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-automation.invoke-1142"
+      },
+      "expect": {
+        "code": "unsupported"
+      }
+    }
+  ],
+  "failure": [
+    {
+      "name": "target-kind-is-window",
+      "payload": {},
+      "code": "invalid_contract",
+      "messageContains": "element actions require target",
+      "target": {
+        "kind": "window",
+        "id": "12345"
+      }
+    }
+  ],
+  "envelope": [
+    {
+      "name": "missing-target",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1145,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "automation.invoke",
+        "capability": "windows.automation.invoke",
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {},
+        "idempotencyKey": "golden-automation.invoke-1145"
+      },
+      "expect": {
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}

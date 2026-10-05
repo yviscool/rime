@@ -1,0 +1,176 @@
+{
+  "type": "window.set.region",
+  "capability": "windows.window.write",
+  "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/setRegionPayload",
+  "shape": {
+    "valid": [
+      {
+        "name": "restore-normal-region",
+        "payload": {
+          "value": ""
+        }
+      },
+      {
+        "name": "ellipse-shape",
+        "payload": {
+          "value": "E 0-0 400-300"
+        }
+      },
+      {
+        "name": "three-point-polygon",
+        "payload": {
+          "value": "0-0 100-0 100-100"
+        }
+      }
+    ],
+    "violations": [
+      {
+        "name": "value-missing",
+        "payload": {},
+        "code": "invalid_contract"
+      },
+      {
+        "name": "value-not-a-string",
+        "payload": {
+          "value": 42
+        },
+        "code": "invalid_contract"
+      }
+    ]
+  },
+  "semantic": [],
+  "lifecycle": [
+    {
+      "name": "expired-deadline",
+      "deadlineMode": "past",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1070,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.set.region",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "value": ""
+        },
+        "idempotencyKey": "golden-window.set.region-1070"
+      },
+      "expect": {
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "capability-mismatch",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1071,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.set.region",
+        "capability": "windows.window.read",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "value": ""
+        },
+        "idempotencyKey": "golden-window.set.region-1071"
+      },
+      "expect": {
+        "code": "capability_denied"
+      }
+    },
+    {
+      "name": "precondition-not-evaluated",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1072,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.set.region",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [
+          {
+            "type": "window.foreground",
+            "expected": "true"
+          }
+        ],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "value": ""
+        },
+        "idempotencyKey": "golden-window.set.region-1072"
+      },
+      "expect": {
+        "code": "unsupported"
+      }
+    }
+  ],
+  "failure": [
+    {
+      "name": "unknown-region-option",
+      "payload": {
+        "value": "Q"
+      },
+      "code": "invalid_contract",
+      "messageContains": "region value must be '<x>-<y>' coordinate pairs"
+    },
+    {
+      "name": "single-pair-is-not-a-polygon",
+      "payload": {
+        "value": "10-10"
+      },
+      "code": "invalid_contract",
+      "messageContains": "region value must be '<x>-<y>' coordinate pairs"
+    }
+  ],
+  "envelope": [
+    {
+      "name": "missing-target",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1075,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.set.region",
+        "capability": "windows.window.write",
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "value": ""
+        },
+        "idempotencyKey": "golden-window.set.region-1075"
+      },
+      "expect": {
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}

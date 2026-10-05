@@ -1,0 +1,222 @@
+{
+  "type": "window.move",
+  "capability": "windows.window.write",
+  "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/movePayload",
+  "shape": {
+    "valid": [
+      {
+        "name": "position-left",
+        "payload": {
+          "position": "left"
+        }
+      },
+      {
+        "name": "position-full",
+        "payload": {
+          "position": "full"
+        }
+      },
+      {
+        "name": "rect-resize",
+        "payload": {
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "w": 800,
+            "h": 600
+          }
+        }
+      }
+    ],
+    "violations": [
+      {
+        "name": "neither-position-nor-rect",
+        "payload": {},
+        "code": "invalid_contract"
+      },
+      {
+        "name": "position-outside-placement-enum",
+        "payload": {
+          "position": "diagonal"
+        },
+        "code": "invalid_contract"
+      },
+      {
+        "name": "position-and-rect-together",
+        "payload": {
+          "position": "left",
+          "rect": {
+            "x": 0
+          }
+        },
+        "code": "invalid_contract"
+      },
+      {
+        "name": "rect-without-fields",
+        "payload": {
+          "rect": {}
+        },
+        "code": "invalid_contract"
+      }
+    ]
+  },
+  "semantic": [
+    {
+      "name": "work-left-half",
+      "payload": {
+        "position": "left"
+      },
+      "check": {
+        "kind": "window.rect",
+        "expect": "work-left-half"
+      }
+    },
+    {
+      "name": "work-full",
+      "payload": {
+        "position": "full"
+      },
+      "check": {
+        "kind": "window.rect",
+        "expect": "work-full"
+      }
+    }
+  ],
+  "lifecycle": [
+    {
+      "name": "expired-deadline",
+      "deadlineMode": "past",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1000,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.move",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "position": "left"
+        },
+        "idempotencyKey": "golden-window.move-1000"
+      },
+      "expect": {
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "capability-mismatch",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1001,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.move",
+        "capability": "windows.window.read",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "position": "left"
+        },
+        "idempotencyKey": "golden-window.move-1001"
+      },
+      "expect": {
+        "code": "capability_denied"
+      }
+    },
+    {
+      "name": "precondition-not-evaluated",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1002,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.move",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [
+          {
+            "type": "window.foreground",
+            "expected": "true"
+          }
+        ],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "position": "left"
+        },
+        "idempotencyKey": "golden-window.move-1002"
+      },
+      "expect": {
+        "code": "unsupported"
+      }
+    }
+  ],
+  "failure": [
+    {
+      "name": "position-and-rect-conflict",
+      "payload": {
+        "position": "right",
+        "rect": {
+          "x": 1
+        }
+      },
+      "code": "invalid_contract",
+      "messageContains": "accepts either position or rect, not both"
+    },
+    {
+      "name": "rect-without-fields",
+      "payload": {
+        "rect": {}
+      },
+      "code": "invalid_contract",
+      "messageContains": "must set at least one of x, y, w, h"
+    }
+  ],
+  "envelope": [
+    {
+      "name": "missing-target",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1005,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.move",
+        "capability": "windows.window.write",
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "position": "left"
+        },
+        "idempotencyKey": "golden-window.move-1005"
+      },
+      "expect": {
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}

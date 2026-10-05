@@ -1,0 +1,162 @@
+{
+  "type": "window.set.title",
+  "capability": "windows.window.write",
+  "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/setTitlePayload",
+  "shape": {
+    "valid": [
+      {
+        "name": "new-title",
+        "payload": {
+          "title": "Rime Golden"
+        }
+      },
+      {
+        "name": "clear-title",
+        "payload": {
+          "title": ""
+        }
+      }
+    ],
+    "violations": [
+      {
+        "name": "title-missing",
+        "payload": {},
+        "code": "invalid_contract"
+      },
+      {
+        "name": "title-not-a-string",
+        "payload": {
+          "title": 42
+        },
+        "code": "invalid_contract"
+      }
+    ]
+  },
+  "semantic": [],
+  "lifecycle": [
+    {
+      "name": "expired-deadline",
+      "deadlineMode": "past",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1050,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.set.title",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "title": "Rime Golden"
+        },
+        "idempotencyKey": "golden-window.set.title-1050"
+      },
+      "expect": {
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "capability-mismatch",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1051,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.set.title",
+        "capability": "windows.window.read",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "title": "Rime Golden"
+        },
+        "idempotencyKey": "golden-window.set.title-1051"
+      },
+      "expect": {
+        "code": "capability_denied"
+      }
+    },
+    {
+      "name": "precondition-not-evaluated",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1052,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.set.title",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [
+          {
+            "type": "window.foreground",
+            "expected": "true"
+          }
+        ],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "title": "Rime Golden"
+        },
+        "idempotencyKey": "golden-window.set.title-1052"
+      },
+      "expect": {
+        "code": "unsupported"
+      }
+    }
+  ],
+  "failure": [
+    {
+      "name": "title-not-a-string",
+      "payload": {
+        "title": 42
+      },
+      "code": "invalid_contract",
+      "messageContains": "window.set.title payload requires a string value"
+    }
+  ],
+  "envelope": [
+    {
+      "name": "missing-target",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1055,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.set.title",
+        "capability": "windows.window.write",
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "title": "Rime Golden"
+        },
+        "idempotencyKey": "golden-window.set.title-1055"
+      },
+      "expect": {
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}

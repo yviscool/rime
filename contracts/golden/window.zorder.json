@@ -1,0 +1,162 @@
+{
+  "type": "window.zorder",
+  "capability": "windows.window.write",
+  "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/zorderPayload",
+  "shape": {
+    "valid": [
+      {
+        "name": "placement-top",
+        "payload": {
+          "placement": "top"
+        }
+      },
+      {
+        "name": "placement-bottom",
+        "payload": {
+          "placement": "bottom"
+        }
+      }
+    ],
+    "violations": [
+      {
+        "name": "placement-missing",
+        "payload": {},
+        "code": "invalid_contract"
+      },
+      {
+        "name": "placement-outside-enum",
+        "payload": {
+          "placement": "middle"
+        },
+        "code": "invalid_contract"
+      }
+    ]
+  },
+  "semantic": [],
+  "lifecycle": [
+    {
+      "name": "expired-deadline",
+      "deadlineMode": "past",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1040,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.zorder",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "placement": "top"
+        },
+        "idempotencyKey": "golden-window.zorder-1040"
+      },
+      "expect": {
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "capability-mismatch",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1041,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.zorder",
+        "capability": "windows.window.read",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "placement": "top"
+        },
+        "idempotencyKey": "golden-window.zorder-1041"
+      },
+      "expect": {
+        "code": "capability_denied"
+      }
+    },
+    {
+      "name": "precondition-not-evaluated",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1042,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.zorder",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "window",
+          "id": "active"
+        },
+        "preconditions": [
+          {
+            "type": "window.foreground",
+            "expected": "true"
+          }
+        ],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "placement": "top"
+        },
+        "idempotencyKey": "golden-window.zorder-1042"
+      },
+      "expect": {
+        "code": "unsupported"
+      }
+    }
+  ],
+  "failure": [
+    {
+      "name": "placement-outside-enum",
+      "payload": {
+        "placement": "middle"
+      },
+      "code": "invalid_contract",
+      "messageContains": "placement must be 'top' or 'bottom'"
+    }
+  ],
+  "envelope": [
+    {
+      "name": "missing-target",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1045,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.zorder",
+        "capability": "windows.window.write",
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "placement": "top"
+        },
+        "idempotencyKey": "golden-window.zorder-1045"
+      },
+      "expect": {
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}

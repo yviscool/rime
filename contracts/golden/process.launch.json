@@ -1,0 +1,192 @@
+{
+  "type": "process.launch",
+  "capability": "process.launch",
+  "payloadSchema": null,
+  "shape": {
+    "valid": [
+      {
+        "name": "bare-command",
+        "payload": {
+          "command": "notepad.exe"
+        }
+      },
+      {
+        "name": "command-with-args-and-workdir",
+        "payload": {
+          "command": "cmd.exe",
+          "args": "/c echo rime",
+          "workingDir": "C:\\Temp"
+        }
+      }
+    ],
+    "violations": [
+      {
+        "name": "command-missing",
+        "payload": {},
+        "code": "invalid_contract"
+      },
+      {
+        "name": "command-empty",
+        "payload": {
+          "command": ""
+        },
+        "code": "invalid_contract"
+      },
+      {
+        "name": "args-not-a-string",
+        "payload": {
+          "command": "cmd.exe",
+          "args": 7
+        },
+        "code": "invalid_contract"
+      }
+    ]
+  },
+  "semantic": [
+    {
+      "name": "launched-process-exists",
+      "payload": {
+        "command": "notepad.exe"
+      },
+      "check": {
+        "kind": "process.exists",
+        "expect": true
+      }
+    }
+  ],
+  "lifecycle": [
+    {
+      "name": "expired-deadline",
+      "deadlineMode": "past",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1110,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "process.launch",
+        "capability": "process.launch",
+        "target": {
+          "kind": "process",
+          "id": "new"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "command": "notepad.exe"
+        },
+        "idempotencyKey": "golden-process.launch-1110"
+      },
+      "expect": {
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "capability-mismatch",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1111,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "process.launch",
+        "capability": "process.inspect",
+        "target": {
+          "kind": "process",
+          "id": "new"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "command": "notepad.exe"
+        },
+        "idempotencyKey": "golden-process.launch-1111"
+      },
+      "expect": {
+        "code": "capability_denied"
+      }
+    },
+    {
+      "name": "precondition-not-evaluated",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1112,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "process.launch",
+        "capability": "process.launch",
+        "target": {
+          "kind": "process",
+          "id": "new"
+        },
+        "preconditions": [
+          {
+            "type": "window.foreground",
+            "expected": "true"
+          }
+        ],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "command": "notepad.exe"
+        },
+        "idempotencyKey": "golden-process.launch-1112"
+      },
+      "expect": {
+        "code": "unsupported"
+      }
+    }
+  ],
+  "failure": [
+    {
+      "name": "command-not-a-string",
+      "payload": {
+        "command": 42
+      },
+      "code": "invalid_contract",
+      "messageContains": "requires a non-empty string command"
+    },
+    {
+      "name": "args-not-a-string",
+      "payload": {
+        "command": "cmd.exe",
+        "args": 7
+      },
+      "code": "invalid_contract",
+      "messageContains": "args must be a string"
+    }
+  ],
+  "envelope": [
+    {
+      "name": "missing-target",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1115,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "process.launch",
+        "capability": "process.launch",
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "command": "notepad.exe"
+        },
+        "idempotencyKey": "golden-process.launch-1115"
+      },
+      "expect": {
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}

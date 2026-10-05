@@ -1,0 +1,186 @@
+{
+  "type": "window.group.add",
+  "capability": "windows.window.write",
+  "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/groupAddPayload",
+  "shape": {
+    "valid": [
+      {
+        "name": "title-selector",
+        "payload": {
+          "title": "Rime",
+          "matchMode": "startswith",
+          "includeHidden": false
+        }
+      },
+      {
+        "name": "window-id-selector",
+        "payload": {
+          "ahkId": 7
+        }
+      }
+    ],
+    "violations": [
+      {
+        "name": "match-mode-outside-enum",
+        "payload": {
+          "matchMode": "fuzzy"
+        },
+        "code": "invalid_contract"
+      },
+      {
+        "name": "ahk-id-below-one",
+        "payload": {
+          "ahkId": 0
+        },
+        "code": "invalid_contract"
+      },
+      {
+        "name": "unexpected-property",
+        "payload": {
+          "unexpected": true
+        },
+        "code": "invalid_contract"
+      },
+      {
+        "name": "title-not-a-string",
+        "payload": {
+          "title": 7
+        },
+        "code": "invalid_contract"
+      }
+    ]
+  },
+  "semantic": [],
+  "lifecycle": [
+    {
+      "name": "expired-deadline",
+      "deadlineMode": "past",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1080,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.group.add",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "group",
+          "id": "Rime Golden Group"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "title": "Rime",
+          "matchMode": "startswith",
+          "includeHidden": false
+        },
+        "idempotencyKey": "golden-window.group.add-1080"
+      },
+      "expect": {
+        "code": "timeout"
+      }
+    },
+    {
+      "name": "capability-mismatch",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1081,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.group.add",
+        "capability": "windows.window.read",
+        "target": {
+          "kind": "group",
+          "id": "Rime Golden Group"
+        },
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "title": "Rime",
+          "matchMode": "startswith",
+          "includeHidden": false
+        },
+        "idempotencyKey": "golden-window.group.add-1081"
+      },
+      "expect": {
+        "code": "capability_denied"
+      }
+    },
+    {
+      "name": "precondition-not-evaluated",
+      "deadlineMode": "future",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1082,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.group.add",
+        "capability": "windows.window.write",
+        "target": {
+          "kind": "group",
+          "id": "Rime Golden Group"
+        },
+        "preconditions": [
+          {
+            "type": "window.foreground",
+            "expected": "true"
+          }
+        ],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "title": "Rime",
+          "matchMode": "startswith",
+          "includeHidden": false
+        },
+        "idempotencyKey": "golden-window.group.add-1082"
+      },
+      "expect": {
+        "code": "unsupported"
+      }
+    }
+  ],
+  "failure": [
+    {
+      "name": "empty-query-spec",
+      "payload": {},
+      "code": "invalid_contract",
+      "messageContains": "query must select at least one window field"
+    }
+  ],
+  "envelope": [
+    {
+      "name": "missing-target",
+      "action": {
+        "schemaVersion": 1,
+        "id": 1085,
+        "source": {
+          "kind": "user",
+          "id": "golden"
+        },
+        "type": "window.group.add",
+        "capability": "windows.window.write",
+        "preconditions": [],
+        "deadlineUnixMs": 1893456000000,
+        "parentActionId": null,
+        "payload": {
+          "title": "Rime",
+          "matchMode": "startswith",
+          "includeHidden": false
+        },
+        "idempotencyKey": "golden-window.group.add-1085"
+      },
+      "expect": {
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}
