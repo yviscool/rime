@@ -1,3 +1,7 @@
+// Realism: L5 - real SendInput keystrokes/mouse and a real global hook in
+// an interactive desktop session; the test owns its target window and
+// asserts the observed input, not just the absence of errors.
+
 // Needs an interactive desktop, exclusive run: injects real keys/mouse and hooks global input.
 #include "rime/win32/input.hpp"
 
@@ -5,6 +9,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <cstdio>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -256,22 +261,33 @@ int main() {
     return false;
   }));
   // Relative moves assert on the observed cursor delta. The desktop is
-  // interactive (the physical cursor can move under us), so re-read the origin
-  // and retry a few times: a genuine injection fault still fails every attempt.
+  // interactive (the physical cursor can move under us), so every attempt
+  // re-reads the origin right before injecting and then polls the delta
+  // against a deadline: a jittery desktop earns one more probe, a genuine
+  // injection fault never satisfies the predicate. Attempts are capped at the
+  // AGENTS isolated-rerun budget (<=3, recorded environment jitter only) and
+  // exhaustion fails explicitly - no attempt degrades into a pass. Each
+  // retry is announced so a rerun can be attributed in the flaky ledger.
   bool relative_ok = false;
-  for (int attempt = 0; attempt < 5 && !relative_ok; ++attempt) {
+  for (int attempt = 0; attempt < 3 && !relative_ok; ++attempt) {
     POINT before_relative{};
     const BOOL got_relative = GetCursorPos(&before_relative);
     if (got_relative == FALSE) return 1;
     assert(service.send_mouse({{rime::win32::SendMouseAction::RelMove, 5, -3, 1}}).ok());
-    relative_ok = wait_for([&] {
-      POINT now{};
-      if (GetCursorPos(&now) == FALSE) return false;
-      return now.x >= before_relative.x + 4 && now.x <= before_relative.x + 6 &&
-             now.y >= before_relative.y - 4 && now.y <= before_relative.y - 2;
-    });
+    relative_ok = wait_for(
+        [&] {
+          POINT now{};
+          if (GetCursorPos(&now) == FALSE) return false;
+          return now.x >= before_relative.x + 4 && now.x <= before_relative.x + 6 &&
+                 now.y >= before_relative.y - 4 && now.y <= before_relative.y - 2;
+        },
+        2s);
+    if (!relative_ok && attempt < 2) {
+      std::fprintf(stderr, "relative-move probe %d saw an externally moved cursor; retrying\n",
+                   attempt + 1);
+    }
   }
-  assert(relative_ok);
+  assert(relative_ok && "relative mouse move never landed in the 3-probe budget");
   assert(service.send_mouse({{rime::win32::SendMouseAction::Down, 0, 0, 1}}).ok());
   assert(wait_for([&] {
     std::lock_guard lock(mutex);
@@ -406,12 +422,44 @@ int main() {
     std::lock_guard lock(mutex);
     recorded = events.size();
   }
-  send_vk(VK_F23);
-  std::this_thread::sleep_for(300ms);
-  {
+  // Control key: "no new row" must not pass because the pipeline died. A
+  // live subscription is fed by the same hook -> pending -> deliver path that
+  // fed the closed one, so it has to observe this tap first (positive,
+  // deadline-bounded) and the closed subscription is then watched for growth
+  // across a bounded window instead of one sample after a fixed 300ms sleep
+  // (anti-cheat #5). unsubscribe() above returned true only after erasing the
+  // entry, so the closed callback cannot run again - the window is what
+  // catches a regression of that contract.
+  std::vector<InputEvent> control_events;
+  const auto control = service.subscribe([&](const InputEvent& event) {
     std::lock_guard lock(mutex);
-    assert(events.size() == recorded);
-  }
+    control_events.push_back(event);
+  });
+  assert(control != 0);
+  send_vk(VK_F23);
+  assert(wait_for([&] {
+    bool down = false;
+    bool up = false;
+    std::lock_guard lock(mutex);
+    for (const auto& event : control_events) {
+      if (event.kind == InputEventKind::Key && event.vk == VK_F23) {
+        if (event.key_down) {
+          down = true;
+        } else {
+          up = true;
+        }
+      }
+    }
+    return down && up;
+  }));
+  assert(!wait_for(
+      [&] {
+        std::lock_guard lock(mutex);
+        return events.size() != recorded;
+      },
+      200ms));
+  assert(service.unsubscribe(control));
+  assert(service.subscription_count() == 0);
 
   // Stop is repeatable; new subscriptions are refused afterwards. A stop
   // also clears the block flag unconditionally, so shutdown can never

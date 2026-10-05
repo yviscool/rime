@@ -1,3 +1,7 @@
+// Realism: L6 - production wiring injects real keys/mouse into a
+// test-owned window under repetition stress; assertions pin Trace counts,
+// delivery order and focus outcomes, not mere call success.
+
 // Needs an interactive desktop, exclusive run: injects real keys/mouse and subscribes to global input.
 #include "rime/action/dispatcher.hpp"
 #include "rime/action/kernel.hpp"
@@ -1046,9 +1050,14 @@ int main() {
       "  throw new Error('blockInput on must return true while running');",
       "input-block-check.mjs");
   // Foreign hold while blocked: SendInput returns after the hook verdict,
-  // so the OS state must stay up...
+  // so the OS state must stay up. Liveness first - the physical snapshot is
+  // written in the same hook callback that decides the swallow, so polling
+  // it with a deadline replaces the fixed 250ms sleep. Then the OS state is
+  // watched across a bounded window instead of being sampled once after a
+  // sleep: the poll fails the moment the blocked press leaks through.
   send_key_state(VK_F24, true);
-  std::this_thread::sleep_for(250ms);
+  assert(wait_for([&] { return service.physical_key_down(VK_F24); }));
+  assert(!wait_for([&] { return (GetAsyncKeyState(VK_F24) & 0x8000) != 0; }, 300ms));
   {
     const short blocked_state = GetAsyncKeyState(VK_F24);
     assert((blocked_state & 0x8000) == 0);
@@ -1066,7 +1075,7 @@ int main() {
       "if (globalThis.blockSeen !== true)\n"
       "  throw new Error('blocked foreign input must still reach subscribe');",
       "input-block-seen-check.mjs");
-  assert(service.physical_key_down(VK_F24));
+  assert(wait_for([&] { return service.physical_key_down(VK_F24); }));
   // Self-injected input bypasses the block in both directions.
   assert(service.send({{VK_F24, true}}).ok());
   assert(wait_for([&] { return (GetAsyncKeyState(VK_F24) & 0x8000) != 0; }));
@@ -1398,8 +1407,43 @@ int main() {
       "if (!globalThis.numArm || globalThis.numArm.on !== true)\n"
       "  throw new Error('numlock must settle to on under alwaysOn');\n",
       "input-setlock-numlock-arm-check.mjs");
+  // Control subscription: it has to observe this very tap, which proves the
+  // hook pipeline is alive before the swallow is read. The bounded waitFor
+  // below replaces the old fixed 400ms sleep - it fails the moment the
+  // toggle moves instead of sampling once after a nap (anti-cheat #5).
+  run(runtime,
+      "import { input } from 'rime:input';\n"
+      "globalThis.ctrlEvents = [];\n"
+      "globalThis.ctrlSid = input.subscribe(ev => globalThis.ctrlEvents.push(ev));\n"
+      "if (!(globalThis.ctrlSid > 0)) throw new Error('control subscribe failed');",
+      "input-setlock-numlock-ctrl.mjs");
   send_foreign_key(VK_NUMLOCK);
-  std::this_thread::sleep_for(400ms);
+  run(runtime,
+      "globalThis.numTap = null;\n"
+      "globalThis.numTapError = null;\n"
+      "(async () => {\n"
+      "  const out = {};\n"
+      "  out.seen = await waitFor(() => globalThis.ctrlEvents.some(\n"
+      "                 e => e.kind === 'key' && e.vk === 144) &&\n"
+      "               globalThis.ctrlEvents.some(\n"
+      "                 e => e.kind === 'key' && e.vk === 144 && !e.down), 3000);\n"
+      "  out.flipped =\n"
+      "      await waitFor(() => input.getKeyState('numlock', 't') !== true, 400);\n"
+      "  return out;\n"
+      "})().then(v => { globalThis.numTap = v; },\n"
+      "          e => { globalThis.numTapError = String(e); });",
+      "input-setlock-numlock-tap.mjs");
+  assert(runtime.settle(10000ms).ok());
+  run(runtime,
+      "if (!input.unsubscribe(globalThis.ctrlSid))\n"
+      "  throw new Error('control unsubscribe failed');\n"
+      "if (globalThis.numTapError)\n"
+      "  throw new Error('numlock swallow probe failed: ' + globalThis.numTapError);\n"
+      "if (!globalThis.numTap || globalThis.numTap.seen !== true)\n"
+      "  throw new Error('the foreign numlock tap never reached the hook');\n"
+      "if (globalThis.numTap.flipped !== false)\n"
+      "  throw new Error('alwaysOn must swallow the foreign tap, the toggle flipped');\n",
+      "input-setlock-numlock-tap-check.mjs");
   run(runtime,
       "globalThis.numSwallowed = input.getKeyState('numlock', 't');\n"
       "keyboard.setLockState('numlock', '');\n",
@@ -1444,8 +1488,42 @@ int main() {
       "if (!globalThis.scrollArm || globalThis.scrollArm.off !== true)\n"
       "  throw new Error('scrolllock must settle to off under alwaysOff');\n",
       "input-setlock-scrolllock-arm-check.mjs");
+  // Same control-then-window shape as the numlock block above: the fresh
+  // control subscription must see this tap, then the toggle must hold its
+  // value across a bounded window - no fixed sleep decides the verdict.
+  run(runtime,
+      "import { input } from 'rime:input';\n"
+      "globalThis.ctrlEvents = [];\n"
+      "globalThis.ctrlSid = input.subscribe(ev => globalThis.ctrlEvents.push(ev));\n"
+      "if (!(globalThis.ctrlSid > 0)) throw new Error('control subscribe failed');",
+      "input-setlock-scrolllock-ctrl.mjs");
   send_foreign_key(VK_SCROLL);
-  std::this_thread::sleep_for(400ms);
+  run(runtime,
+      "globalThis.scrollTap = null;\n"
+      "globalThis.scrollTapError = null;\n"
+      "(async () => {\n"
+      "  const out = {};\n"
+      "  out.seen = await waitFor(() => globalThis.ctrlEvents.some(\n"
+      "                 e => e.kind === 'key' && e.vk === 145) &&\n"
+      "               globalThis.ctrlEvents.some(\n"
+      "                 e => e.kind === 'key' && e.vk === 145 && !e.down), 3000);\n"
+      "  out.flipped =\n"
+      "      await waitFor(() => input.getKeyState('scrolllock', 't') !== false, 400);\n"
+      "  return out;\n"
+      "})().then(v => { globalThis.scrollTap = v; },\n"
+      "          e => { globalThis.scrollTapError = String(e); });",
+      "input-setlock-scrolllock-tap.mjs");
+  assert(runtime.settle(10000ms).ok());
+  run(runtime,
+      "if (!input.unsubscribe(globalThis.ctrlSid))\n"
+      "  throw new Error('control unsubscribe failed');\n"
+      "if (globalThis.scrollTapError)\n"
+      "  throw new Error('scrolllock swallow probe failed: ' + globalThis.scrollTapError);\n"
+      "if (!globalThis.scrollTap || globalThis.scrollTap.seen !== true)\n"
+      "  throw new Error('the foreign scrolllock tap never reached the hook');\n"
+      "if (globalThis.scrollTap.flipped !== false)\n"
+      "  throw new Error('alwaysOff must swallow the foreign tap, the toggle flipped');\n",
+      "input-setlock-scrolllock-tap-check.mjs");
   run(runtime,
       "globalThis.scrollSwallowed = input.getKeyState('scrolllock', 't');\n"
       "keyboard.setLockState('scrolllock', '');\n",

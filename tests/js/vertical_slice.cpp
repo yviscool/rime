@@ -1,3 +1,7 @@
+// Realism: L6 - production wiring (JS runtime + Kernel + window executor)
+// performs real Win32 focus/move operations on a fixture window with retry
+// and focus-denial failure paths asserted through Trace and window state.
+
 #include "rime/action/dispatcher.hpp"
 #include "rime/action/kernel.hpp"
 #include "rime/core/trace.hpp"
@@ -260,9 +264,17 @@ int main() {
 
   // Segment 3: focus and the 'active' target, scoped to OUR window only.
   // No global input injection (keybd_event) and no foreign window is ever
-  // moved: the 'active' move runs only when our window owns the foreground,
-  // otherwise the segment is skipped with a diagnostic.
-  const bool focused = service.focus(id).ok();
+  // moved: the 'active' move runs only when our window owns the foreground.
+  // SetForegroundWindow is refused for a background process and the desktop
+  // steals focus, so the request is retried against a deadline instead of
+  // being attempted once - a single refusal used to feed the silent SKIP
+  // below. Ownership is re-read right before the move decides anything.
+  bool focused = false;
+  const auto focus_budget = std::chrono::steady_clock::now() + 3s;
+  while (!focused && std::chrono::steady_clock::now() < focus_budget) {
+    focused = service.focus(id).ok();
+    if (!focused) std::this_thread::sleep_for(50ms);
+  }
 
   // JS focus: resolves, or rejects only with the foreground-lock denial
   // (SetForegroundWindow may be refused while another window owns the
@@ -304,10 +316,28 @@ int main() {
 
   // Re-check ownership right before deciding: the JS focus attempt above may
   // have succeeded after the first native request was refused. Deciding on a
-  // stale read could move a foreign window.
+  // stale read could move a foreign window. While another window owns the
+  // foreground the native focus is retried against a deadline (the pattern
+  // events_slice.cpp bring_to_front uses), because one refused
+  // SetForegroundWindow is exactly the condition that used to skip this
+  // segment silently. Only our own window id is ever passed to focus(), so
+  // the retry can never touch the foreign owner.
   std::optional<WindowInfo> foreground;
-  assert(service.active(foreground).ok());
-  const bool ours_foreground = foreground.has_value() && foreground->id == id;
+  const auto foreground_error = service.active(foreground);
+  assert(foreground_error.ok());
+  static_cast<void>(foreground_error);
+  bool ours_foreground = foreground.has_value() && foreground->id == id;
+  if (!ours_foreground && foreground.has_value()) {
+    const auto foreground_budget = std::chrono::steady_clock::now() + 3s;
+    while (!ours_foreground && std::chrono::steady_clock::now() < foreground_budget) {
+      static_cast<void>(service.focus(id));
+      std::this_thread::sleep_for(50ms);
+      const auto retry_error = service.active(foreground);
+      assert(retry_error.ok());
+      static_cast<void>(retry_error);
+      ours_foreground = foreground.has_value() && foreground->id == id;
+    }
+  }
 
   bool active_move_ran = false;
   if (ours_foreground) {
@@ -343,12 +373,18 @@ int main() {
           "  throw new Error('wrong rejection: ' + globalThis.failure);",
           "slice-active-none-check.mjs");
   } else {
-    // SKIP: a foreign window owns the foreground. Moving 'active' would
-    // move it and restoring by hand races with user input -- never touch it.
+    // A foreign window still owns the foreground after the focus retry
+    // budget. Moving 'active' would move it and restoring by hand races with
+    // user input, so the move must not run - but printing a diagnostic and
+    // passing would hide the failure (AGENTS anti-cheat #4: no silent skip).
+    // Abort with a message, the same failure idiom check() uses above, so the
+    // verdict does not depend on assert() being compiled in.
     std::fprintf(stderr,
-                 "SKIP: slice active-move (foreign window owns the foreground; "
+                 "FAIL: slice active-move could not take the foreground "
+                 "(a foreign window owns it after the focus retry budget; "
                  "focus requested ok=%d)\n",
                  focused ? 1 : 0);
+    std::abort();
   }
 
   // Segment 4: WinTitle queries and the extended snapshot fields. An exact
