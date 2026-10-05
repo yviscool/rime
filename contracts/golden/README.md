@@ -6,6 +6,8 @@ consumers must agree on every file:
 
 - `bun tools/golden-smoke.ts` (TypeScript, runs inside `bun run contract:smoke`)
 - `rime_golden_tests` (C++, ctest name `rime_golden_contract`)
+- `rime_golden_exec_tests` (C++, ctest name `rime_golden_exec`) - executes the
+  `failure` and `semantic` layers through the real desktop executors
 
 Golden files and this README are ASCII-only English.
 
@@ -37,7 +39,7 @@ automation.invoke
 | `capability`   | string           | capability the action requires; must equal the registry entry |
 | `payloadSchema`| string \| null   | `contracts/schema/<file>.json#/$defs/<name>`; `null` exactly when the registry says `inline` |
 | `shape`        | object           | schema-layer payload validity (`valid`, `violations`) |
-| `semantic`     | array            | expected effects; no runtime consumer until R4-B |
+| `semantic`     | array            | expected effects, executed by `rime_golden_exec` against the desktop |
 | `lifecycle`    | array            | results the Action Kernel decides before any executor runs |
 | `failure`      | array            | executor-layer rejections |
 | `envelope`     | array            | ActionV1 envelope examples the codec must reject |
@@ -81,14 +83,28 @@ source of truth; a golden file that disagrees fails the smoke test.
 "semantic": [{ "name": "...", "payload": { }, "check": { "kind": "...", "expect": "..." } }]
 ```
 
-Round-1 `check.kind` whitelist (no runtime consumer yet; R4-B wires these to
-desktop tests):
+Round-1 `check.kind` whitelist, executed end to end by the `rime_golden_exec`
+desktop test:
 
 | kind             | `expect` |
 | ---------------- | -------- |
 | `window.rect`    | one of `work-left-half`, `work-right-half`, `work-full`, `work-top`, `work-bottom` |
 | `process.exists` | `true` |
 | `clipboard.text` | a string, compared with the text the action wrote |
+
+How `rime_golden_exec` executes each kind:
+
+- `window.rect` - creates a fixture window, runs the payload, and compares the
+  window rectangle with the work-area placement for that position name.
+- `process.exists` - runs the payload verbatim, then checks the launched pid.
+  `ProcessService::launch` passes the bare `command` to `CreateProcessW` as
+  `lpApplicationName`, which Win32 resolves against the current directory only
+  (no PATH search), so the launch runs with the Windows system directory as the
+  current directory and the previous directory is restored immediately
+  afterwards; the golden payload itself is never rewritten. The whole fixture
+  process tree is terminated before the assertion and before the test ends.
+- `clipboard.text` - writes the payload, reads the text back, then restores the
+  clipboard captured before the case.
 
 An empty `semantic` array means no whitelisted kind can express the expected
 effect for that action. It is empty here for `window.focus`, `window.close`,
@@ -140,6 +156,11 @@ not offer yet), `automation.invoke` (element invocation, no whitelisted kind).
 ```
 
 - Real inputs the executor rejects. `payload` is always an object.
+- `rime_golden_exec` runs every entry through the real Action Kernel and
+  executor with all six capabilities granted, and additionally proves the
+  rejection happens before any side effect: the window service never starts,
+  no process is launched, no input is injected, and the clipboard is byte for
+  byte unchanged.
 - `messageContains` is written only where the executor source has a stable
   literal (`engine/win32/src/window_executor.cpp`,
   `engine/win32/src/input_executor.cpp`, `engine/win32/src/process_executor.cpp`,

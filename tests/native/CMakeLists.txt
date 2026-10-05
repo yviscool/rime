@@ -95,4 +95,14 @@ if (WIN32)
     target_link_options(rime_window_logic_tests PRIVATE -static-libstdc++ -static-libgcc)
   endif()
   add_test(NAME rime_window_logic COMMAND rime_window_logic_tests)
+
+  # Golden `failure` + `semantic` layers executed through the real desktop
+  # executors (twin of rime_golden_tests, which keeps schema/lifecycle).
+  add_executable(rime_golden_exec_tests golden_exec_tests.cpp)
+  target_link_libraries(rime_golden_exec_tests PRIVATE rime_win32 rime_automation rime_action rime_core rime_test_support)
+  target_compile_features(rime_golden_exec_tests PRIVATE cxx_std_20)
+  if (MINGW)
+    target_link_options(rime_golden_exec_tests PRIVATE -static-libstdc++ -static-libgcc)
+  endif()
+  add_test(NAME rime_golden_exec COMMAND rime_golden_exec_tests ${CMAKE_SOURCE_DIR})
 endif()
