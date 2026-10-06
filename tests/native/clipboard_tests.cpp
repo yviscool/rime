@@ -93,12 +93,15 @@ int main() {
   const bool executor_read =
       service.read_text(read_back).ok() && read_back == "rime-clipboard-executor";
 
-  // Empty text is a valid write (clears textual content).
+  // Empty text is a valid write and leaves the clipboard truly empty (no
+  // CF_UNICODETEXT), matching AHK `Clipboard := ""` - ClipWait needs an
+  // actually-empty clipboard to be able to wait at all.
   rime::action::Action clear = write;
   clear.id = 2;
   clear.payload = "{\"text\":\"\"}";
   const bool clear_ok = kernel.execute(clear).succeeded;
   const bool clear_read = service.read_text(read_back).ok() && read_back.empty();
+  const bool clear_format_gone = !IsClipboardFormatAvailable(CF_UNICODETEXT);
 
   // Contract violations reject with InvalidContract (executed once, asserted
   // twice below).
@@ -156,6 +159,8 @@ int main() {
 
   assert(clear_ok);
   assert(clear_read);
+  // Captured before the restore: the empty write dropped the format itself.
+  assert(clear_format_gone);
 
   assert(!missing_result.succeeded);
   assert(missing_result.error.code == rime::core::Error::Code::InvalidContract);

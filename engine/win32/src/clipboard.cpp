@@ -90,12 +90,20 @@ Error ClipboardService::read_text(std::string& out) const {
 }
 
 Error ClipboardService::write_text(const std::string& utf8_text) const {
-  // An empty string still stores a single NUL below, so readers observe empty
-  // text (CF_UNICODETEXT present) rather than "no text format".
   const std::wstring wide = from_utf8(utf8_text);
   if (!open_clipboard()) return {Code::ExecutionFailed, "clipboard is busy"};
   ClipboardGuard guard;
   if (!EmptyClipboard()) return {Code::ExecutionFailed, "cannot clear the clipboard"};
+  // An empty string leaves the clipboard truly empty: no CF_UNICODETEXT at
+  // all, which is what AHK's `Clipboard := ""` does (source/clipboard.cpp
+  // spells out that it wants a truly empty clipboard "for use with functions
+  // such as ClipWait"). Storing a lone NUL instead would keep the text format
+  // available, so IsClipboardFormatAvailable would report text forever and
+  // ClipWait could never observe an empty clipboard.
+  if (wide.empty()) {
+    self_write_.store(true, std::memory_order_release);
+    return Error::none();
+  }
   const SIZE_T bytes = (wide.size() + 1) * sizeof(wchar_t);
   const HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
   if (!memory) return {Code::ExecutionFailed, "cannot allocate a clipboard buffer"};
