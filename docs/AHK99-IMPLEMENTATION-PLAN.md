@@ -143,13 +143,31 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
   - **ASCII 自查**：新增 C++ 文件全 ASCII，改动的 C++ 行 0 处非 ASCII。
   - **台账**：216 → 310（coverage +54、core-builtins +6；`objects.json` 的 `File` 31 成员 `compatibilityTest` 指向 `tests/sdk/storage.test.ts`）。
   - 因此阶段通用 DoD 的「`bun run test` + `bun run test:asan` 全绿」**未严格满足**：两道命令本身会连同上述两个交互切片一起跑，本轮以显式排除口径替代，缺口如实登记在此而非记为通过。
+  - **缺口收口（2026-10-06，续下节）**：`quickjs_vertical_slice` 追查后判定为产品缺陷（`WindowService::focus()` 缺取前台阶梯）而非环境抖动，由 `32fc070` 在产品层修复并撤出 `docs/FLAKY.md` 复跑名单；此后 `bun run test` 与 `bun run test:asan` 均以**不带 `-E` 的全量口径** 39/39 连续通过。
+
+#### M5 前置批次（已实施，2026-10-06，进入 M5 前先做的四件事）
+
+经拍板：先建接入骨架与门禁、根治已知脆弱点，再装 M5 功能。
+
+1. **核算与登记门禁**（`0279404`、`ff5e5a8`）
+   - `bun tools/coverage-matrix.ts` 新增 `computeAccounting()`，四份台账按**一条**口径统计（终态 = `implemented|js-native|unsupported-by-policy`，`builtins` 的 `excluded` 出分母，`objects` 暂以证据计数），生成 `docs/api/accounting.json`（真值源）与计划文档 §1.2 生成块，`matrix:check` 做字节级比对——手工改写文档数字会被拒绝（负向对照已验证）。
+   - `production_capabilities()` ↔ `actions.json` 集合相等检查（两个方向）、`demo_capabilities()` ⊆ 检查、能力 `declared`/`checked` 指针的文件与行号有效性检查（69 条此前完全未被检查）。指针**内容**不比对（gate 行写的是常量名而非能力字符串），作为已知局限写在提交里。
+   - `evidence_gaps` 机器可见：`core-builtins` 6 项（Click/Format/FormatTime/Round/Sort/VerCompare）状态已翻 `implemented` 但无测试文件背书。
+   - 顺带修掉核算脚本自身的 `typecheck` 报错，并把误导性的 `denominator drift:` 前缀改为 `matrix check failed:`。
+2. **Action executor 接入骨架**（`73d278c`）：新增 `engine/win32/include/rime/win32/action_contract.hpp`，六份字节相同的 `fail()` 并为一份，`lane/action_type/unsupported/target_kind/cancel_before/cancel_after/object_payload` 门禁原语 + `json_u64_range/json_i64_range/in_integral_range` 整数读取。**刻意不打包成单个 `preamble()`**——顺序是契约的一部分（process 先验 target、registry 先读 payload key），组合式原语保留每个 executor 自己的顺序。净 -147 行。M5/M6 新 executor 直接用它装配。
+3. **`WindowService::focus()` 取前台阶梯根治**（`32fc070`、`0a3bc3a`）：见 `docs/FLAKY.md` 批2 节。
+4. **门禁实测（本批）**：`bun run test` 全绿（contract:smoke/check、matrix:check、typecheck、sdk:test、native:test 16、ts:quickjs 39/39 + bundle）；`bun run test:asan` 39/39；`matrix:check` 新输出 `Production grants all 20 implemented capabilities and 22 capability refs resolve`、`Terminal 330/731 = 45.14%`。
+
+**本批遗留（M5/M8 要还的账）**：① `WindowService` 未接入 `TraceSink`，设计文档要求的"逐次记录激活尝试"未落地（`docs/api/window.md` 已如实标注）；② `core-builtins` 6 项证据缺口；③ 能力指针只校验到文件与行号、未校验指向 gate 本身；④ `objects` 成员缺逐成员 `status`（M8）。
 
 
 ### M5 clipboard + screen（≈16，M）
 
-- clipboard：`ClipWait`（变化订阅 + 可取消等待）、`ClipboardAll`（不透明二进制快照）、交换临界区 + Trace；与 M2 的 `OnClipboardChange` 共用监听器；
-- screen：`MonitorGet* 5/SysGet/SysGetIPAddresses`（不可变快照 + DPI/坐标语义入 TS 类型）；`PixelGetColor/PixelSearch/ImageSearch`（GDI 捕获起步、worker 上做像素/模板匹配；AGENTS 要求后续可换 DXGI/D3D11，接口先隔离）；`CaretGetPos`（UIA/Win32）；
-- `SoundBeep/SoundPlay + SoundGet/Set 系 6`（winmm）。
+- clipboard：`ClipWait`（变化订阅 + 可取消等待，复用 M2 `onClipboardChange`/`ClipboardService::add_change_listener`，等待走 Worker + deadline + `AbortSignal`，与 M4 `wait_ref` 同构、不新建机制）、`ClipboardAll`（不透明二进制快照，不暴露裸 HANDLE/格式 ID）、交换临界区 + Trace；
+- screen：`MonitorGet* 5/SysGet/SysGetIPAddresses`（不可变快照 + DPI/坐标语义入 TS 类型）；`PixelGetColor/PixelSearch/ImageSearch`（GDI 捕获起步、worker 上做像素/模板匹配，**捕获接口先做 seam**（照 `engine/win32/src/input_seam.hpp` 先例）以便后续换 DXGI/D3D11）；`CaretGetPos`（UIA/Win32）；
+- `SoundBeep/SoundPlay + SoundGet/Set 系 6`（winmm；`SoundBeep/SoundPlay` 直调 service + worker body 内 capability 检查、不进 Action）。
+- **接线欠账**：`docs/api/coverage.json` 里有 6 个 `capability` 串不在 `contracts/registry/actions.json` 的能力表中——`screen.capture`（11 条）、`windows.automation.control`（42，M7）、`ui.create`（13，M6）、`native.unsafe`（5）、`runtime`（42）、`filesystem.read/write`（45，展示用合并串）。其中 **`screen.capture` 是 M5 自己要授予的**，必须在 actions.json 补行（补行后 `matrix:check` 的能力授予检查会自动核对 `production_capabilities()` 是否把它放行）。另外两个方向的漂移（coverage 的 capability 串 ⊆ 能力表）目前**没有门禁**，因为 `runtime`/`native.unsafe` 这类标签本就不是注册表能力——先如实记在这里，不做一个半对的检查。
+- 新 executor（若有）一律用 `engine/win32/include/rime/win32/action_contract.hpp` 的门禁原语装配，不手抄开场检查。
 
 ### M6 GUI / Menu / 对话框（15 函数 + 114 对象成员 + 控件对象，XXL）
 
