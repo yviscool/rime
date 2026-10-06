@@ -461,9 +461,10 @@ void test_host_abi() {
   assert(!dead.ok());
   assert(dead.code == rime::core::Error::Code::InvalidState);
 
-  // Unresolved promises and armed timers block unload with their own named
-  // reasons, so an embedder can see what to wait for; cancelling the work
-  // clears both and unload proceeds.
+  // Unresolved promises, armed timers and the live cancellation each block
+  // unload with their own named reason, so an embedder can see what to wait
+  // for; cancelling the work clears the first two and releasing the
+  // cancellation clears the third, then unload proceeds.
   rime::js::HostAbi pending_abi;
   assert(pending_abi.load("import { runtime } from 'rime:runtime';\n"
                           "const id = runtime.cancellation();\n"
@@ -477,8 +478,10 @@ void test_host_abi() {
   assert(pending_unload.code == rime::core::Error::Code::InvalidState);
   assert(pending_unload.message.find("unresolved promise") != std::string::npos);
   assert(pending_unload.message.find("armed timer") != std::string::npos);
+  assert(pending_unload.message.find("live cancellation") != std::string::npos);
   assert(pending_abi.execute("import { runtime } from 'rime:runtime';\n"
-                             "runtime.cancel(globalThis.cid);",
+                             "runtime.cancel(globalThis.cid);\n"
+                             "runtime.releaseCancellation(globalThis.cid);",
                              "cancel-pending.mjs")
              .ok());
   assert(pending_abi.unload().ok());
