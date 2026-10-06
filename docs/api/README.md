@@ -34,6 +34,7 @@
 | [`clipboard.md`](./clipboard.md) | ClipWait、剪贴板读写和变化订阅 |
 | [`process-shell.md`](./process-shell.md) | Run*、Process*、Shutdown、Shell |
 | [`storage.md`](./storage.md) | File*、Dir*、Drive*、Env*、Ini*、Download |
+| [`registry.md`](./registry.md) | RegRead/RegWrite/RegDelete/RegCreateKey/RegDeleteKey、SetRegView |
 | [`screen.md`](./screen.md) | Monitor*、SysGet*、Pixel*、ImageSearch、Caret |
 | [`gui-menu.md`](./gui-menu.md) | Gui、Menu、Tray、ToolTip、MsgBox、InputBox、Sound、ImageList |
 | [`native-interop.md`](./native-interop.md) | DllCall、ComCall、Callback、Obj*DataPtr、注册表和隔离策略 |

@@ -4,6 +4,7 @@ add_library(rime_win32_js STATIC
   src/events_module.cpp
   src/process_module.cpp
   src/clipboard_module.cpp
+  src/registry_module.cpp
   src/storage_module.cpp
   src/automation_module.cpp
   src/bootstrap.cpp

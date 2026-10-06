@@ -34,3 +34,8 @@ declare module "rime:storage" {
   const storage: import("./storage").StorageBridge;
   export { storage };
 }
+
+declare module "rime:registry" {
+  const registry: import("./registry").RegistryBridge;
+  export { registry };
+}

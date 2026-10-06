@@ -15,6 +15,8 @@ add_library(rime_win32 STATIC
   src/clipboard.cpp
   src/clipboard_executor.cpp
   src/context_watcher.cpp
+  src/registry.cpp
+  src/registry_executor.cpp
   src/storage.cpp
   src/storage_executor.cpp
 )
@@ -23,6 +25,10 @@ target_link_libraries(rime_win32 PUBLIC rime_core rime_action)
 target_compile_features(rime_win32 PUBLIC cxx_std_20)
 target_compile_definitions(rime_win32 PUBLIC UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(rime_win32 PRIVATE user32)
+# Registry ops are advapi32; PRIVATE on a static library still propagates the
+# link line to every consumer (tests included), so the test's own raw Win32
+# reads resolve too.
+target_link_libraries(rime_win32 PRIVATE advapi32)
 # Storage service: WinHTTP download, shell recycle/shortcut/eject and the
 # dialog/shortcut GUIDs (CLSID_FileOpenDialog, CLSID_ShellLink, ...).
 target_link_libraries(rime_win32 PRIVATE winhttp shell32 ole32 uuid)
