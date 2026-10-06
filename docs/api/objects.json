@@ -201,7 +201,7 @@
           "async": "async",
           "ownership": "copied clipboard snapshot owned by JS",
           "error": "ValueError when data is neither a Buffer nor a usable address; MemoryError on allocation failure; OSError when the clipboard cannot be read; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/clipboard.test.ts"
         }
       ]
     },

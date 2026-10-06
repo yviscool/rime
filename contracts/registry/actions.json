@@ -318,6 +318,18 @@
       "status": "implemented"
     },
     {
+      "type": "clipboard.restore",
+      "capability": "windows.clipboard.write",
+      "target": { "kind": "clipboard", "example": "default" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/clipboard_executor.cpp:81-97",
+      "executor": "engine/win32/src/clipboard_executor.cpp:81",
+      "module": "engine/win32/js/src/clipboard_module.cpp:213",
+      "sdk": "sdk/src/clipboard.ts:70",
+      "tests": ["tests/native/clipboard_tests.cpp", "tests/js/breadth_slice.cpp"],
+      "status": "implemented"
+    },
+    {
       "type": "process.launch",
       "capability": "process.launch",
       "target": { "kind": "process", "example": "new" },
@@ -465,7 +477,7 @@
       "status": "implemented",
       "declared": "engine/win32/js/src/clipboard_module.cpp:25",
       "checked": ["engine/action/src/kernel.cpp:97"],
-      "actions": ["clipboard.write"]
+      "actions": ["clipboard.write", "clipboard.restore"]
     },
     {
       "name": "windows.input.inject",

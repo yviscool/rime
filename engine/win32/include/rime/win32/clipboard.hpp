@@ -35,6 +35,18 @@ class ClipboardService final {
   // can call it every slice without contending for the exchange.
   bool has_wait_data(bool any_data) const;
 
+  // ClipboardAll's snapshot (AHK Var::GetClipboardAll / Var::SetClipboardAll).
+  // The blob is opaque: a 12-byte header (magic, version, reserved) followed
+  // by AHK's record sequence of [UINT32 format][UINT32 size][size bytes]
+  // terminated by a zero format. Format ids never leave the blob - JS carries
+  // bytes and cannot name, or synthesise, an individual format - and the
+  // header makes a foreign buffer fail before the clipboard is touched.
+  // save_all is read-only beyond OpenClipboard; restore_all empties the
+  // clipboard first, exactly as AHK does.
+  rime::core::Error save_all(std::vector<std::uint8_t>& out) const;
+  rime::core::Error restore_all(const std::vector<std::uint8_t>& blob,
+                                std::uint32_t& formats_restored) const;
+
   // Thread-safe listener registry. add returns a monotonic id; the caller
   // watches change_listener_count() to attach/detach the OS listener.
   // remove is idempotent.

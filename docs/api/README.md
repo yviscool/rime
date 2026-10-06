@@ -31,7 +31,7 @@
 | [`control.md`](./control.md) | Control*、Edit*、ListView/TreeView/StatusBar、UIA |
 | [`input.md`](./input.md) | Send*、Mouse*、KeyWait、BlockInput、键状态 |
 | [`hotkey-events.md`](./hotkey-events.md) | Hotkey、Hotstring、Hook、SetTimer、OnMessage、生命周期事件 |
-| [`clipboard.md`](./clipboard.md) | ClipWait、剪贴板读写和变化订阅 |
+| [`clipboard.md`](./clipboard.md) | ClipboardAll、ClipWait、剪贴板读写和变化订阅 |
 | [`process-shell.md`](./process-shell.md) | Run*、Process*、Shutdown、Shell |
 | [`storage.md`](./storage.md) | File*、Dir*、Drive*、Env*、Ini*、Download |
 | [`registry.md`](./registry.md) | RegRead/RegWrite/RegDelete/RegCreateKey/RegDeleteKey、SetRegView |

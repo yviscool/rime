@@ -43,20 +43,20 @@
     {
       "ledger": "objects",
       "denominator": 243,
-      "terminal": 54,
-      "remaining": 189,
+      "terminal": 55,
+      "remaining": 188,
       "breakdown": {
-        "compatibility-test": 54,
-        "uncovered": 189
+        "compatibility-test": 55,
+        "uncovered": 188
       },
       "rule": "member has a compatibilityTest naming a real file (members carry no status until M8)"
     }
   ],
   "total": {
     "denominator": 731,
-    "terminal": 331,
-    "remaining": 400,
-    "percent": 45.28
+    "terminal": 332,
+    "remaining": 399,
+    "percent": 45.42
   },
   "evidence_gaps": [
     {

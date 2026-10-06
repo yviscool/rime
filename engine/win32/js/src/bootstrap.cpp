@@ -158,10 +158,11 @@ rime::core::Error Bootstrap::register_executors() {
       return error;
     }
   }
-  if (const auto error = kernel_.register_executor(
-          "clipboard.write", std::make_shared<ClipboardExecutor>(clipboard_service_));
-      !error.ok()) {
-    return error;
+  const auto clipboard_executor = std::make_shared<ClipboardExecutor>(clipboard_service_);
+  for (const char* type : {"clipboard.write", "clipboard.restore"}) {
+    if (const auto error = kernel_.register_executor(type, clipboard_executor); !error.ok()) {
+      return error;
+    }
   }
   const auto process_executor = std::make_shared<ProcessExecutor>(process_service_);
   for (const char* type :

@@ -11,8 +11,11 @@
 
 #include <cassert>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <unordered_set>
+#include <vector>
 
 namespace {
 
@@ -110,6 +113,52 @@ int main() {
   // ClipWait could never observe "not ready yet".
   const bool wait_data_empty = !service.has_wait_data(false) && !service.has_wait_data(true);
 
+  // ClipboardAll: a real snapshot, emptied, then put back through the
+  // executor. The clipboard holds `sample` from the capture above.
+  const bool wrote_snapshot_text = service.write_text(sample).ok();
+  std::vector<std::uint8_t> snapshot;
+  const bool saved_all = service.save_all(snapshot).ok();
+  // 12 bytes is the header alone: a blob with no record carried no format.
+  const bool snapshot_has_records = snapshot.size() > 12;
+  const bool emptied_for_snapshot = service.write_text("").ok();
+  const bool snapshot_emptied = !IsClipboardFormatAvailable(CF_UNICODETEXT);
+
+  const auto restore_registered = kernel.register_executor("clipboard.restore", executor);
+  rime::action::Action restore = write;
+  restore.id = 5;
+  restore.type = "clipboard.restore";
+  {
+    std::string bytes = "[";
+    for (std::size_t index = 0; index < snapshot.size(); ++index) {
+      if (index != 0) bytes += ",";
+      bytes += std::to_string(snapshot[index]);
+    }
+    bytes += "]";
+    restore.payload = "{\"bytes\":" + bytes + "}";
+  }
+  const auto restore_result = kernel.execute(restore);
+  const rime::core::json::Value* restore_formats = restore_result.value.find("formats");
+  const bool restore_reported =
+      restore_formats && restore_formats->is_number() && restore_formats->as_number() > 0;
+  std::string restored_text;
+  const bool restored_snapshot =
+      service.read_text(restored_text).ok() && restored_text == sample;
+
+  // A malformed blob is rejected before the clipboard is opened, so the
+  // snapshot that is on the clipboard right now survives untouched.
+  const std::vector<std::uint8_t> truncated = {'R',  'I', 'M', 'B', 1, 0, 0, 0, 0, 0, 0, 0,
+                                               13,  0,  0,  0,  4, 0, 0, 0, 0x41, 0x00};
+  std::uint32_t truncated_restored = 7;
+  const auto truncated_result = service.restore_all(truncated, truncated_restored);
+  const bool truncated_kept =
+      service.read_text(read_back).ok() && read_back == sample;
+
+  // A byte that is not a byte fails in the executor, not in the OS.
+  rime::action::Action bad_bytes = restore;
+  bad_bytes.id = 6;
+  bad_bytes.payload = "{\"bytes\":[0,1,256]}";
+  const auto bad_bytes_result = kernel.execute(bad_bytes);
+
   // Contract violations reject with InvalidContract (executed once, asserted
   // twice below).
   rime::action::Action missing = write;
@@ -172,6 +221,28 @@ int main() {
   assert(wait_text_when_full);
   assert(wait_any_when_full);
   assert(wait_data_empty);
+
+  // ClipboardAll round trip: a snapshot with content in it, an actually
+  // empty clipboard in between, and the executor putting the blob back.
+  assert(wrote_snapshot_text);
+  assert(saved_all);
+  assert(snapshot_has_records);
+  assert(emptied_for_snapshot);
+  assert(snapshot_emptied);
+  assert(restore_registered.ok());
+  assert(restore_result.succeeded);
+  assert(restore_reported);
+  assert(restored_snapshot);
+
+  // Malformed input never reaches the clipboard: the service rejects it and
+  // reports no restored format.
+  assert(!truncated_result.ok());
+  assert(truncated_result.code == rime::core::Error::Code::InvalidContract);
+  assert(truncated_restored == 0);
+  assert(truncated_kept);
+
+  assert(!bad_bytes_result.succeeded);
+  assert(bad_bytes_result.error.code == rime::core::Error::Code::InvalidContract);
 
   assert(!missing_result.succeeded);
   assert(missing_result.error.code == rime::core::Error::Code::InvalidContract);

@@ -31,8 +31,8 @@
 | coverage | 253 | 183 | 70 | status in implemented \| js-native \| unsupported-by-policy；实测 implemented 162、contract-only 70、js-native 11、unsupported-by-policy 10 |
 | core-builtins | 101 | 89 | 12 | status in implemented \| js-native \| unsupported-by-policy；实测 js-native 57、unsupported-by-policy 18、implemented 14、contract-only 12 |
 | builtins | 134 | 5 | 129 | status in implemented \| js-native \| unsupported-by-policy (excluded leaves the denominator)；实测 unset 129、excluded 11、implemented 5 |
-| objects | 243 | 54 | 189 | member has a compatibilityTest naming a real file (members carry no status until M8)；实测 uncovered 189、compatibility-test 54 |
-| **合计** | **731** | **331** | **400** | **45.28%** |
+| objects | 243 | 55 | 188 | member has a compatibilityTest naming a real file (members carry no status until M8)；实测 uncovered 188、compatibility-test 55 |
+| **合计** | **731** | **332** | **399** | **45.42%** |
 
 证据缺口（`core-builtins` 6 项：Click、Format、FormatTime、Round、Sort、VerCompare）——状态已翻 `implemented` 但没有测试文件背书，按 AGENTS 反作弊第 9 条不得作为契约证据。
 

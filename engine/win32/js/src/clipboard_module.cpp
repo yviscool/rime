@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace rime::win32 {
 namespace {
@@ -169,6 +170,90 @@ JSValue clipboard_wait(JSContext* context, JSValueConst, int argc, JSValueConst*
   return promise;
 }
 
+// ---- ClipboardAll: clipboard.saveAll / clipboard.restoreAll ----------------
+//
+// saveAll reads the clipboard, so it is a plain worker-lane async call like
+// clipboard.read: no Action, no trace entry. restoreAll mutates the clipboard,
+// so it goes through the kernel as `clipboard.restore` - inspectable,
+// cancellable and traced exactly like clipboard.write. The blob itself is
+// opaque: JS carries bytes and never names an individual format.
+json::Value bytes_json(const std::vector<std::uint8_t>& bytes) {
+  json::Value array = json::Value::array();
+  for (const std::uint8_t byte : bytes) {
+    array.push(json::Value::number(static_cast<double>(byte)));
+  }
+  return array;
+}
+
+// clipboard.saveAll(options?): AHK ClipboardAll() with no arguments. Resolves
+// the opaque snapshot blob. Capability: windows.clipboard.read.
+JSValue clipboard_save_all(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                           void*) {
+  ClipboardModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:clipboard is not wired");
+  }
+  if (argc > 1) return JS_ThrowTypeError(context, "saveAll(options?)");
+  ActionOptions options;
+  if (argc == 1 && !parse_action_options(context, argv[0], options)) return JS_EXCEPTION;
+  rime::action::Kernel* kernel = binding->kernel;
+  ClipboardService* service = binding->service;
+  return start_async(
+      context,
+      [kernel, service]() -> AsyncOutcome {
+        if (!kernel->allows(kClipboardReadCapability)) {
+          return capability_denied(kClipboardReadCapability);
+        }
+        std::vector<std::uint8_t> blob;
+        if (const auto error = service->save_all(blob); !error.ok()) {
+          return async_failure(error);
+        }
+        json::Value value = json::Value::object();
+        value.set("bytes", bytes_json(blob));
+        return async_success(json::stringify(value));
+      },
+      options.cancellation_id);
+}
+
+// clipboard.restoreAll(bytes, options?): AHK `Clipboard := clipallObj`. Bytes
+// are carried the way storage writes carry them - JSON round trip first - so
+// the executor is the single place that decides whether an element is a byte.
+JSValue clipboard_restore_all(JSContext* context, JSValueConst, int argc, JSValueConst* argv,
+                              int, void*) {
+  ClipboardModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
+    return JS_ThrowInternalError(context, "rime:clipboard is not wired");
+  }
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "restoreAll(bytes, options?)");
+  JSValue json_value = JS_JSONStringify(context, argv[0], JS_UNDEFINED, JS_UNDEFINED);
+  if (JS_IsException(json_value)) return JS_EXCEPTION;
+  if (!JS_IsString(json_value)) {
+    JS_FreeValue(context, json_value);
+    return JS_ThrowTypeError(context, "restoreAll(bytes): bytes must be an array");
+  }
+  const char* text = JS_ToCString(context, json_value);
+  std::string serialized;
+  if (text) serialized = text;
+  if (text) JS_FreeCString(context, text);
+  JS_FreeValue(context, json_value);
+  if (!text) return JS_EXCEPTION;
+  auto parsed = json::parse(serialized);
+  if (!parsed.ok() || !parsed.value->is_array()) {
+    return JS_ThrowTypeError(context, "restoreAll(bytes): bytes must be an array");
+  }
+
+  json::Value payload = json::Value::object();
+  payload.set("bytes", std::move(*parsed.value));
+
+  ActionOptions options;
+  if (argc >= 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
+  auto action = make_action(*binding->next_action_id, "rime:clipboard", "clipboard.restore",
+                            kClipboardWriteCapability, {"clipboard", "default"},
+                            json::stringify(payload), options);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
+}
+
 int clipboard_module_init(JSContext* context, JSModuleDef* module) {
   ClipboardModuleBinding* binding = binding_of(context);
   if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
@@ -191,7 +276,8 @@ int clipboard_module_init(JSContext* context, JSModuleDef* module) {
     return true;
   };
   if (!add("read", clipboard_read, 0) || !add("write", clipboard_write, 1) ||
-      !add("wait", clipboard_wait, 0)) {
+      !add("wait", clipboard_wait, 0) || !add("saveAll", clipboard_save_all, 0) ||
+      !add("restoreAll", clipboard_restore_all, 1)) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "clipboard", clipboard);

@@ -4,10 +4,12 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace rime::win32 {
 namespace {
@@ -46,6 +48,70 @@ struct ClipboardGuard {
 };
 
 constexpr int kOpenAttempts = 5;
+
+// ClipboardAll blob layout: a header identifying the format, then the record
+// sequence Var::GetClipboardAll emits (rime-research .../var.cpp:312): for
+// each format, [UINT32 format][UINT32 size][size bytes], closed by a zero
+// format. Sizes are 32-bit even on x64, as in AHK, so a blob stays portable
+// between the two word sizes.
+constexpr std::uint8_t kSnapshotMagic[4] = {'R', 'I', 'M', 'B'};
+constexpr std::uint32_t kSnapshotVersion = 1;
+constexpr std::size_t kSnapshotHeaderBytes = sizeof(kSnapshotMagic) + 8;  // magic + version + reserved
+constexpr std::uint32_t kMaxRecordBytes = 0x3FFFFFFFu;                     // records stay under 1GiB
+
+void append_u32(std::vector<std::uint8_t>& out, const std::uint32_t value) {
+  for (int shift = 0; shift < 32; shift += 8) {
+    out.push_back(static_cast<std::uint8_t>((value >> shift) & 0xFFu));
+  }
+}
+
+// Returns false (leaving cursor where it was) when fewer than four bytes
+// remain, so a caller can never read past the end of a truncated blob.
+bool read_u32(const std::uint8_t*& cursor, const std::uint8_t* end, std::uint32_t& value) {
+  if (cursor > end || static_cast<std::size_t>(end - cursor) < sizeof(std::uint32_t)) return false;
+  value = static_cast<std::uint32_t>(cursor[0]) | (static_cast<std::uint32_t>(cursor[1]) << 8) |
+          (static_cast<std::uint32_t>(cursor[2]) << 16) |
+          (static_cast<std::uint32_t>(cursor[3]) << 24);
+  cursor += 4;
+  return true;
+}
+
+// Full structural check, without opening the clipboard, so a foreign or
+// corrupted buffer is rejected before EmptyClipboard() discards anything.
+// Every caller therefore walks a blob that is known to be well formed.
+bool snapshot_is_well_formed(const std::uint8_t* begin, const std::uint8_t* end,
+                             std::string& error) {
+  const auto fail = [&error](std::string_view message) {
+    error.assign(message);
+    return false;
+  };
+  if (!begin || end < begin || static_cast<std::size_t>(end - begin) < kSnapshotHeaderBytes) {
+    return fail("clipboard snapshot is truncated");
+  }
+  if (!std::equal(begin, begin + sizeof(kSnapshotMagic), kSnapshotMagic)) {
+    return fail("not a clipboard snapshot");
+  }
+  const std::uint8_t* cursor = begin + sizeof(kSnapshotMagic);
+  std::uint32_t version = 0;
+  std::uint32_t reserved = 0;
+  if (!read_u32(cursor, end, version) || !read_u32(cursor, end, reserved)) {
+    return fail("clipboard snapshot header is truncated");
+  }
+  if (version != kSnapshotVersion) return fail("unsupported clipboard snapshot version");
+  for (;;) {
+    std::uint32_t format = 0;
+    if (!read_u32(cursor, end, format)) return fail("clipboard snapshot has no terminator");
+    if (format == 0) return true;
+    std::uint32_t size = 0;
+    if (!read_u32(cursor, end, size)) return fail("clipboard snapshot record header is truncated");
+    if (size > kMaxRecordBytes || cursor > end ||
+        static_cast<std::size_t>(end - cursor) < size) {
+      return fail("clipboard snapshot record runs past the end");
+    }
+    cursor += size;
+  }
+}
+
 
 // OpenClipboard requires a thread with a message queue and fails while
 // another window holds the clipboard open. Callers must route through
@@ -132,6 +198,104 @@ bool ClipboardService::has_wait_data(bool any_data) const {
   // implicit CF_HDROP -> text conversion would make it usable as text.
   return IsClipboardFormatAvailable(CF_UNICODETEXT) ||
          IsClipboardFormatAvailable(CF_HDROP);
+}
+
+Error ClipboardService::save_all(std::vector<std::uint8_t>& out) const {
+  out.clear();
+  out.reserve(kSnapshotHeaderBytes);
+  out.insert(out.end(), kSnapshotMagic, kSnapshotMagic + sizeof(kSnapshotMagic));
+  append_u32(out, kSnapshotVersion);
+  append_u32(out, 0);  // reserved
+  if (!open_clipboard()) return {Code::ExecutionFailed, "clipboard is busy"};
+  ClipboardGuard guard;
+  // AHK skips the formats whose handle is not safe to GlobalSize, the text
+  // formats synthesis always reconstructs from CF_UNICODETEXT, and one half
+  // of CF_DIB/CF_DIBV5 - the rest is copied byte for byte (var.cpp:312).
+  UINT omit_dib_format = 0;
+  for (UINT format = EnumClipboardFormats(0); format != 0;
+       format = EnumClipboardFormats(format)) {
+    switch (format) {
+      case CF_BITMAP:
+      case CF_ENHMETAFILE:
+      case CF_DSPENHMETAFILE:
+      case CF_TEXT:
+      case CF_OEMTEXT:
+        continue;
+      default:
+        break;
+    }
+    if (format == omit_dib_format) continue;
+    if (format == CF_DIB) {
+      omit_dib_format = CF_DIBV5;
+    } else if (format == CF_DIBV5) {
+      omit_dib_format = CF_DIB;
+    }
+    const HANDLE data = GetClipboardData(format);
+    // A failed read skips only this format: AHK treats a partially saved
+    // clipboard as far better than abandoning the snapshot.
+    if (!data) continue;
+    const SIZE_T bytes = GlobalSize(data);
+    if (bytes > kMaxRecordBytes) continue;
+    const auto* locked = static_cast<const std::uint8_t*>(bytes ? GlobalLock(data) : nullptr);
+    if (bytes != 0 && !locked) continue;
+    append_u32(out, format);
+    append_u32(out, static_cast<std::uint32_t>(bytes));
+    if (bytes != 0) {
+      out.insert(out.end(), locked, locked + bytes);
+      GlobalUnlock(data);
+    }
+  }
+  append_u32(out, 0);  // terminator
+  return Error::none();
+}
+
+Error ClipboardService::restore_all(const std::vector<std::uint8_t>& blob,
+                                    std::uint32_t& formats_restored) const {
+  formats_restored = 0;
+  if (blob.size() < kSnapshotHeaderBytes) {
+    return {Code::InvalidContract, "clipboard snapshot is truncated"};
+  }
+  const std::uint8_t* const begin = blob.data();
+  const std::uint8_t* const end = begin + blob.size();
+  std::string error;
+  if (!snapshot_is_well_formed(begin, end, error)) return {Code::InvalidContract, error};
+  if (!open_clipboard()) return {Code::ExecutionFailed, "clipboard is busy"};
+  ClipboardGuard guard;
+  if (!EmptyClipboard()) return {Code::ExecutionFailed, "cannot clear the clipboard"};
+  const std::uint8_t* cursor = begin + kSnapshotHeaderBytes;
+  for (;;) {
+    std::uint32_t format = 0;
+    if (!read_u32(cursor, end, format)) return {Code::InvalidContract, "clipboard snapshot has no terminator"};
+    if (format == 0) break;
+    // The record header is known to be complete: snapshot_is_well_formed
+    // walked the same bytes first.
+    std::uint32_t size = 0;
+    if (!read_u32(cursor, end, size)) {
+      return {Code::InvalidContract, "clipboard snapshot record header is truncated"};
+    }
+    // Zero-length records still get a non-zero HGLOBAL: SetClipboardData
+    // rejects an empty buffer on current Windows (AHK v1.1.16).
+    const HGLOBAL memory =
+        GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, static_cast<SIZE_T>(size) + (size == 0));
+    if (!memory) return {Code::ExecutionFailed, "cannot allocate a clipboard buffer"};
+    if (size != 0) {
+      void* target = GlobalLock(memory);
+      if (!target) {
+        GlobalFree(memory);
+        return {Code::ExecutionFailed, "cannot lock the clipboard buffer"};
+      }
+      std::memcpy(target, cursor, size);
+      GlobalUnlock(memory);
+      cursor += size;
+    }
+    if (!SetClipboardData(format, memory)) {
+      GlobalFree(memory);
+      return {Code::ExecutionFailed, "cannot set clipboard data"};
+    }
+    ++formats_restored;  // The system owns the buffer now.
+  }
+  self_write_.store(true, std::memory_order_release);
+  return Error::none();
 }
 
 std::uint64_t ClipboardService::add_change_listener(ChangeListener listener) {

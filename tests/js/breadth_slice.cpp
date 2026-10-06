@@ -91,10 +91,10 @@ int main(int argc, char** argv) {
   const auto process_executor = std::make_shared<rime::win32::ProcessExecutor>(process_service);
   assert(kernel.register_executor("process.launch", process_executor).ok());
   assert(kernel.register_executor("process.terminate", process_executor).ok());
-  assert(kernel
-             .register_executor("clipboard.write",
-                                std::make_shared<rime::win32::ClipboardExecutor>(clipboard_service))
-             .ok());
+  const auto clipboard_executor =
+      std::make_shared<rime::win32::ClipboardExecutor>(clipboard_service);
+  assert(kernel.register_executor("clipboard.write", clipboard_executor).ok());
+  assert(kernel.register_executor("clipboard.restore", clipboard_executor).ok());
 
   std::atomic<std::uint64_t> next_action_id{0};
   // Both modules share one bounded queue, so process and clipboard mutations
@@ -342,15 +342,81 @@ int main(int argc, char** argv) {
   // wait: the trace is exactly where the two writes left it.
   assert(trace->snapshot().size() == trace_before_wait);
 
+  // Segment 5: ClipboardAll through the real module. saveAll is a query, so
+  // the trace stays frozen across it; the write that clobbers the clipboard
+  // and the restore that hands the snapshot back are both Actions, and a
+  // blob that is not a snapshot is rejected by the executor.
+  check(runtime,
+        "import { clipboard } from 'rime:clipboard';\n"
+        "globalThis.snap = null;\n"
+        "globalThis.snapErr = null;\n"
+        "clipboard.saveAll().then(r => { globalThis.snap = r.bytes; },\n"
+        "                         e => { globalThis.snapErr = String(e); });",
+        "breadth-clip-save.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.snapErr) throw new Error(globalThis.snapErr);\n"
+        "if (!Array.isArray(globalThis.snap) || globalThis.snap.length <= 12)\n"
+        "  throw new Error('saveAll must return a snapshot with content in it');\n"
+        "for (const byte of globalThis.snap) {\n"
+        "  if (!Number.isInteger(byte) || byte < 0 || byte > 255)\n"
+        "    throw new Error('snapshot must hold bytes, got ' + byte);\n"
+        "}",
+        "breadth-clip-save-check.mjs");
+  assert(trace->snapshot().size() == trace_before_wait);
+
+  check(runtime,
+        "import { clipboard } from 'rime:clipboard';\n"
+        "globalThis.restoreOut = null;\n"
+        "globalThis.restoreErr = null;\n"
+        "clipboard.write('breadth-clip-after-save')\n"
+        "  .then(() => clipboard.restoreAll(globalThis.snap))\n"
+        "  .then(r => { globalThis.restoreOut = r; },\n"
+        "        e => { globalThis.restoreErr = e.code || String(e); });",
+        "breadth-clip-restore.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.restoreErr) throw new Error(globalThis.restoreErr);\n"
+        "if (!globalThis.restoreOut || !Number.isInteger(globalThis.restoreOut.formats)\n"
+        "    || globalThis.restoreOut.formats < 1)\n"
+        "  throw new Error('restore must report the formats it put back: ' +\n"
+        "                   JSON.stringify(globalThis.restoreOut));",
+        "breadth-clip-restore-check.mjs");
+  std::string restored_clipboard;
+  assert(clipboard_service.read_text(restored_clipboard).ok());
+  assert(restored_clipboard == "clip-wait-late");
+
+  // A blob that is not a snapshot is an invalid_contract from the executor:
+  // the same rejection class the native test gets from the service.
+  check(runtime,
+        "import { clipboard } from 'rime:clipboard';\n"
+        "globalThis.garbage = null;\n"
+        "clipboard.restoreAll([1, 2, 3]).then(\n"
+        "  () => { globalThis.garbage = 'resolved'; },\n"
+        "  e => { globalThis.garbage = e.code; });",
+        "breadth-clip-restore-garbage.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.garbage !== 'invalid_contract')\n"
+        "  throw new Error('a non-snapshot must be invalid_contract, got ' +\n"
+        "                   globalThis.garbage);",
+        "breadth-clip-restore-garbage-check.mjs");
+
   // Every mutation reached the kernel and produced a trace pair.
   assert(trace_count(trace, "process.launch", rime::core::TraceKind::ActionStarted) == 1);
   assert(trace_count(trace, "process.launch", rime::core::TraceKind::ActionFinished) == 1);
   assert(trace_count(trace, "process.terminate", rime::core::TraceKind::ActionStarted) == 1);
   assert(trace_count(trace, "process.terminate", rime::core::TraceKind::ActionFinished) == 1);
-  // Two writes reached the kernel: the segment-3 roundtrip and the empty
-  // write that armed ClipWait. The producer's write is native, not an Action.
-  assert(trace_count(trace, "clipboard.write", rime::core::TraceKind::ActionStarted) == 2);
-  assert(trace_count(trace, "clipboard.write", rime::core::TraceKind::ActionFinished) == 2);
+  // Three writes reached the kernel: the segment-3 roundtrip, the empty
+  // write that armed ClipWait, and the clobber before the restore. The
+  // producer's write and saveAll are native queries, not Actions.
+  assert(trace_count(trace, "clipboard.write", rime::core::TraceKind::ActionStarted) == 3);
+  assert(trace_count(trace, "clipboard.write", rime::core::TraceKind::ActionFinished) == 3);
+  // Two restores reached the kernel: the successful one, and the blob the
+  // executor refused - a rejected Action is traced too, which is the point
+  // of routing restore through the kernel instead of calling the service.
+  assert(trace_count(trace, "clipboard.restore", rime::core::TraceKind::ActionStarted) == 2);
+  assert(trace_count(trace, "clipboard.restore", rime::core::TraceKind::ActionFinished) == 2);
 
   assert(runtime.stop().ok());
   assert(clipboard_service.write_text(original_clipboard).ok());
