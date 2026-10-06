@@ -7,6 +7,9 @@ namespace rime::js {
 TimerService::TimerService(const rime::core::Clock* clock)
     : clock_(clock ? clock : &rime::core::SystemClock::instance()),
       thread_(&TimerService::run, this) {
+  // Lifetime: the on_advance listener captures raw this and is never
+  // unregistered (see Clock::on_advance contract) - the ManualClock must
+  // outlive this service (declare the clock first). SystemClock never fires.
   if (clock_->manual()) {
     clock_->on_advance([this] {
       std::lock_guard lock(mutex_);

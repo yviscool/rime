@@ -3,9 +3,11 @@
 #include "rime/core/json.hpp"
 #include "rime/core/lane.hpp"
 
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -42,17 +44,18 @@ rime::core::json::Value element_json(const ElementSnapshot& element) {
 }
 
 // Element actions name their target in target.id as a decimal string; the
-// id must be a positive integer that survives the round trip.
+// id must be a positive integer that survives the round trip. from_chars
+// rejects non-digits, empty, and overflow (e.g. 20x'9' wraps a hand-rolled
+// loop to a small valid-looking id), matching window_module's ahkId rule.
 bool parse_target_id(const rime::action::Action& action, std::uint64_t& out) {
   if (action.target.kind != "element") return false;
   const std::string& text = action.target.id;
   if (text.empty() || text.size() > 20) return false;
   std::uint64_t value = 0;
-  for (const char digit : text) {
-    if (digit < '0' || digit > '9') return false;
-    value = value * 10 + static_cast<std::uint64_t>(digit - '0');
-  }
-  if (value == 0) return false;
+  const char* begin = text.data();
+  const char* end = begin + text.size();
+  const auto converted = std::from_chars(begin, end, value);
+  if (converted.ec != std::errc{} || converted.ptr != end || value == 0) return false;
   out = value;
   return true;
 }

@@ -26,8 +26,8 @@ class ClipboardService final {
   using ChangeListener = std::function<void(bool from_self)>;
 
   // Empty `out` (success) means the clipboard holds no text format.
-  rime::core::Error read_text(std::string& out) const;
-  rime::core::Error write_text(const std::string& utf8_text) const;
+  [[nodiscard]] rime::core::Error read_text(std::string& out) const;
+  [[nodiscard]] rime::core::Error write_text(const std::string& utf8_text) const;
 
   // ClipWait's condition, mirroring AHK wait.cpp:78: `any_data` false waits
   // for text or file data (CF_UNICODETEXT || CF_HDROP), true waits for any
@@ -43,9 +43,9 @@ class ClipboardService final {
   // header makes a foreign buffer fail before the clipboard is touched.
   // save_all is read-only beyond OpenClipboard; restore_all empties the
   // clipboard first, exactly as AHK does.
-  rime::core::Error save_all(std::vector<std::uint8_t>& out) const;
-  rime::core::Error restore_all(const std::vector<std::uint8_t>& blob,
-                                std::uint32_t& formats_restored) const;
+  [[nodiscard]] rime::core::Error save_all(std::vector<std::uint8_t>& out) const;
+  [[nodiscard]] rime::core::Error restore_all(const std::vector<std::uint8_t>& blob,
+                                              std::uint32_t& formats_restored) const;
 
   // Thread-safe listener registry. add returns a monotonic id; the caller
   // watches change_listener_count() to attach/detach the OS listener.

@@ -120,6 +120,12 @@ class Host final {
   void bind_route(std::uint64_t key, AsyncRoute route);
   [[nodiscard]] bool find_route(std::uint64_t key, AsyncRoute& out) const;
   bool take_route(std::uint64_t key, AsyncRoute& out);
+  // Any thread: outstanding async-route / cancellation / completion counts
+  // for HostAbi::unload's busy check (an unload that succeeds while one of
+  // these is non-empty would strand a promise or a cancellation source).
+  [[nodiscard]] std::size_t route_count() const;
+  [[nodiscard]] std::size_t cancellation_count() const;
+  [[nodiscard]] std::size_t pending_completion_count() const;
 
   // JS callbacks registered through rime:runtime.subscribe.
   rime::core::Error add_callback(JSValue callback, std::uint64_t& id_out);
@@ -253,6 +259,11 @@ class Host final {
 
  private:
   enum class CompletionKind : std::uint8_t { Resolve, Reject, CancelById };
+  // Ownership: resolve/reject are exactly one live JSValue pair each. Entries
+  // are always moved out of pending_ before their handles are freed (never
+  // freed in place and never duplicated): copy this struct only to transfer
+  // ownership into the erasing slot, and free the copy exactly once. Do not
+  // add a destructor/copy without converting to a move-only RAII handle.
   struct Pending {
     std::uint64_t token;
     JSValue resolve;

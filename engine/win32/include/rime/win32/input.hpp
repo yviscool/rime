@@ -195,16 +195,16 @@ class InputService final {
   // need it; force removes it regardless (events then stop until a later
   // install - AHK's force-uninstall contract). Returns false when the
   // service is not running or the hook could not be (re)installed.
-  bool set_keyboard_hook(bool install, bool force);
-  bool set_mouse_hook(bool install, bool force);
+  [[nodiscard]] bool set_keyboard_hook(bool install, bool force);
+  [[nodiscard]] bool set_mouse_hook(bool install, bool force);
   [[nodiscard]] bool keyboard_hook_installed() const;
   [[nodiscard]] bool mouse_hook_installed() const;
 
   // Registers a subscription while running. Returns 0 when not running.
   // Closing semantics: after unsubscribe returns, the callback is not
   // running (unless unsubscribe was called from inside that callback).
-  std::uint64_t subscribe(Callback callback);
-  bool unsubscribe(std::uint64_t id);
+  [[nodiscard]] std::uint64_t subscribe(Callback callback);
+  [[nodiscard]] bool unsubscribe(std::uint64_t id);
   [[nodiscard]] std::size_t subscription_count() const;
   // Events dropped because the pending queue was full (diagnostics).
   [[nodiscard]] std::uint64_t dropped_events() const;

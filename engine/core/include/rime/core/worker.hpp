@@ -18,6 +18,12 @@ namespace rime::core {
 // the caller's wrapper (completion rejection or the host error log); the
 // worker itself only guarantees that a posted task runs on the worker lane or
 // is dropped when the worker stops.
+//
+// Ownership: worker tasks may capture their Host raw (see schedule_worker)
+// and rely on ~Host joining them before teardown. Concurrent live Hosts
+// sharing this singleton are unsupported: one Host's teardown drops the
+// other's queued tasks. Keep at most one active Host per process (tests run
+// serially for the same reason).
 class WorkerService final {
  public:
   static WorkerService& instance();

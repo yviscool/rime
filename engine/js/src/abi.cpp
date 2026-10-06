@@ -118,6 +118,21 @@ rime::core::Error HostAbi::unload() {
     busy = true;
     reasons << timers << " armed timer(s); ";
   }
+  const std::size_t routes = host_.route_count();
+  if (routes > 0) {
+    busy = true;
+    reasons << routes << " bound async route(s); ";
+  }
+  const std::size_t cancellations = host_.cancellation_count();
+  if (cancellations > 0) {
+    busy = true;
+    reasons << cancellations << " live cancellation(s); ";
+  }
+  const std::size_t completions = host_.pending_completion_count();
+  if (completions > 0) {
+    busy = true;
+    reasons << completions << " queued completion(s); ";
+  }
   if (const auto queue = host_.event_queue(); queue && !queue->empty()) {
     busy = true;
     reasons << "pending host event(s); ";

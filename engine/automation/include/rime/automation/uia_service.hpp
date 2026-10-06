@@ -45,7 +45,9 @@ enum class UiaServiceState : std::uint8_t { Created, Running, Stopping, Stopped 
 // only exchange ids and value snapshots across the boundary. Each method
 // enqueues a job and waits for it - executors call it from the timer
 // thread, never from the JS thread (queries run through the Action queue)
-// and never from the MTA thread itself (that would deadlock).
+// and never from the MTA thread itself (that would deadlock). The sole
+// exception is release(): an O(1) map erase exposed to JS as a synchronous
+// boolean, so a JS-thread call waits at most for already-queued MTA jobs.
 class UiaService final {
  public:
   UiaService();

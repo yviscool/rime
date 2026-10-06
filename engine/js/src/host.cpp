@@ -933,6 +933,21 @@ bool Host::take_route(const std::uint64_t key, AsyncRoute& out) {
   return true;
 }
 
+std::size_t Host::route_count() const {
+  std::lock_guard lock(route_mutex_);
+  return routes_.size();
+}
+
+std::size_t Host::cancellation_count() const {
+  std::lock_guard lock(cancellation_mutex_);
+  return cancellations_.size();
+}
+
+std::size_t Host::pending_completion_count() const {
+  std::lock_guard lock(async_mutex_);
+  return completions_.size();
+}
+
 rime::core::Error Host::add_callback(JSValue callback, std::uint64_t& id_out) {
   if (const auto thread_error = check_thread(); !thread_error.ok()) return thread_error;
   if (!JS_IsFunction(context_, callback)) {

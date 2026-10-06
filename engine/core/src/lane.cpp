@@ -44,6 +44,9 @@ void LaneRegistry::release(const Lane lane) {
   if (lane >= Lane::Count) return;
   const auto index = static_cast<std::size_t>(lane);
   std::lock_guard lock(mutex_);
+  // Only the owning thread may clear its own claim; a foreign release is a
+  // programming error that must not silently open another thread's lane.
+  if (claimed_[index] && owners_[index] != std::this_thread::get_id()) return;
   claimed_[index] = false;
   owners_[index] = {};
 }

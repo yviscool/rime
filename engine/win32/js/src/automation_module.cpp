@@ -229,7 +229,9 @@ JSValue automation_invoke(JSContext* context, JSValueConst, int argc, JSValueCon
 // release(elementId) -> boolean
 // Synchronous local reference drop - no action, no capability: it only
 // forgets our own element handle. Unknown ids (or a stopped service)
-// answer false instead of throwing.
+// answer false instead of throwing. Intentionally synchronous (unlike the
+// promise-based find/read/invoke): the MTA job is an O(1) map erase, so the
+// JS thread waits at most for already-queued jobs, never for a search.
 JSValue automation_release(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                            void* opaque) {
   auto* binding = static_cast<AutomationModuleBinding*>(opaque);

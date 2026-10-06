@@ -32,7 +32,7 @@ class UiThread final {
   UiThread(const UiThread&) = delete;
   UiThread& operator=(const UiThread&) = delete;
 
-  rime::core::Error start();
+  [[nodiscard]] rime::core::Error start();
   // Runs `task` on the UI thread. The deadline bounds the queued phase; a
   // task that already started is awaited to completion (Win32 calls are
   // bounded). Tasks still queued are skipped when `cancellation` fires.
@@ -41,7 +41,7 @@ class UiThread final {
                          rime::core::CancellationToken cancellation = {});
   // Repeatable: rejects new work, quits the pump, joins and releases the
   // UI lane.
-  rime::core::Error stop();
+  [[nodiscard]] rime::core::Error stop();
    [[nodiscard]] UiThreadState state() const;
    [[nodiscard]] bool on_ui_thread() const;
 

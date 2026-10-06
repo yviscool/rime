@@ -62,13 +62,21 @@ Error ShutdownSequence::advance(const ShutdownPhase next, std::string subject) {
 }
 
 Error ShutdownSequence::fail(std::string reason) {
-  std::lock_guard lock(mutex_);
-  if (phase_ == ShutdownPhase::Completed) {
-    return {Error::Code::InvalidState, "shutdown already completed"};
+  std::string detail;
+  {
+    std::lock_guard lock(mutex_);
+    if (phase_ == ShutdownPhase::Completed) {
+      return {Error::Code::InvalidState, "shutdown already completed"};
+    }
+    detail = reason.empty() ? "shutdown failed" : std::move(reason);
+    phase_ = ShutdownPhase::Failed;
   }
-  const std::string detail = reason.empty() ? "shutdown failed" : std::move(reason);
-  phase_ = ShutdownPhase::Failed;
-  trace(phase_, "runtime", detail);
+  // Trace outside the lock, mirroring advance(): TraceSink::record is user
+  // code and may throw or re-enter (e.g. phase()/outstanding()).
+  try {
+    trace(ShutdownPhase::Failed, "runtime", detail);
+  } catch (...) {
+  }
   return Error::none();
 }
 
