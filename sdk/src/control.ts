@@ -133,6 +133,32 @@ export interface ControlBridge {
   setEnabled(id: ControlId, enabled: boolean, options?: NativeActionOptions): Promise<{ enabled: boolean }>;
   /** Current tab page, 1-based. */
   tabIndex(id: ControlId, options?: NativeActionOptions): Promise<{ index: number }>;
+  /** Shows a ComboBox drop-down. */
+  showDropdown(id: ControlId, options?: NativeActionOptions): Promise<{ dropped: true }>;
+  /** Hides a ComboBox drop-down. */
+  hideDropdown(id: ControlId, options?: NativeActionOptions): Promise<{ dropped: false }>;
+  /** Style bits with AHK +-=^ prefix op. */
+  setStyle(
+    id: ControlId,
+    spec: { op: "+" | "-" | "^" | "="; bits: number },
+    options?: NativeActionOptions,
+  ): Promise<{ styled: true }>;
+  /** Ex-style bits with AHK +-=^ prefix op. */
+  setExStyle(
+    id: ControlId,
+    spec: { op: "+" | "-" | "^" | "="; bits: number },
+    options?: NativeActionOptions,
+  ): Promise<{ styled: true }>;
+  /** Parsed keystrokes (documented Send subset). Resolves the step count. */
+  send(id: ControlId, keys: string, options?: NativeActionOptions): Promise<{ steps: number }>;
+  /** ClassNN string (agrees with Window.controls by construction). Sync. */
+  classNN(id: ControlId): string;
+  /** Raw GWL_STYLE bits. Sync. */
+  getStyle(id: ControlId): number;
+  /** Raw GWL_EXSTYLE bits. Sync. */
+  getExStyle(id: ControlId): number;
+  /** Focused child of a window, or 0. Sync. */
+  focusedChild(windowId: number): number;
 }
 
 async function controlBridge(): Promise<ControlBridge> {
@@ -389,6 +415,67 @@ export class Control {
     );
   }
 
+  /** Shows a ComboBox drop-down. */
+  showDropdown(options?: ActionOptions): Promise<{ dropped: true }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.showDropdown(id, native)),
+    );
+  }
+
+  /** Hides a ComboBox drop-down. */
+  hideDropdown(options?: ActionOptions): Promise<{ dropped: false }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.hideDropdown(id, native)),
+    );
+  }
+
+  /** Style bits with AHK +-=^ prefix op. */
+  setStyle(
+    spec: { op: "+" | "-" | "^" | "="; bits: number },
+    options?: ActionOptions,
+  ): Promise<{ styled: true }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.setStyle(id, spec, native)),
+    );
+  }
+
+  /** Ex-style bits with AHK +-=^ prefix op. */
+  setExStyle(
+    spec: { op: "+" | "-" | "^" | "="; bits: number },
+    options?: ActionOptions,
+  ): Promise<{ styled: true }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.setExStyle(id, spec, native)),
+    );
+  }
+
+  /** Parsed keystrokes (documented Send subset). Resolves the step count. */
+  send(keys: string, options?: ActionOptions): Promise<{ steps: number }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.send(id, keys, native)),
+    );
+  }
+
+  /** ClassNN string (agrees with Window.controls by construction). Sync. */
+  get nn(): string {
+    return controlBridgeSync().classNN(this.id);
+  }
+
+  /** Raw GWL_STYLE bits. Sync. */
+  get styleBits(): number {
+    return controlBridgeSync().getStyle(this.id);
+  }
+
+  /** Raw GWL_EXSTYLE bits. Sync. */
+  get exStyleBits(): number {
+    return controlBridgeSync().getExStyle(this.id);
+  }
+
   /** IsWindowVisible. Synchronous. */
   get visible(): boolean {
     return controlBridgeSync().isVisible(this.id);
@@ -423,5 +510,10 @@ function controlBridgeSync(): ControlBridge {
 
 function primeControlBridge(bridge: ControlBridge): void {
   cachedBridge = bridge;
+}
+
+/** Focused child of a window, or 0. Synchronous shared helper for Window. */
+export function focusedControl(windowId: number): number {
+  return controlBridgeSync().focusedChild(windowId);
 }
 

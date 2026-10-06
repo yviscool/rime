@@ -690,6 +690,66 @@
       "status": "implemented"
     },
     {
+      "type": "control.dropdown.show",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:950",
+      "sdk": "sdk/src/control.ts:140",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.dropdown.hide",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:960",
+      "sdk": "sdk/src/control.ts:142",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.set.style",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:970",
+      "sdk": "sdk/src/control.ts:144",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.set.exstyle",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:1010",
+      "sdk": "sdk/src/control.ts:151",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.send",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:1115",
+      "sdk": "sdk/src/control.ts:158",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
       "type": "storage.write",
       "capability": "filesystem.write",
       "target": { "kind": "storage", "example": "fs" },
@@ -826,7 +886,7 @@
       "status": "implemented",
       "declared": "engine/win32/js/src/control_module.cpp:351",
       "checked": ["engine/action/src/kernel.cpp:97", "engine/win32/js/src/control_module.cpp:351"],
-      "actions": ["control.click", "control.focus", "control.settext", "control.gettext", "control.sendtext", "control.list.add", "control.list.delete", "control.list.choose", "control.list.find", "control.list.index", "control.list.choice", "control.list.items", "control.tab.select", "control.edit.count", "control.edit.caret", "control.edit.line", "control.edit.selected", "control.edit.paste", "control.setchecked", "control.ischecked", "control.show", "control.hide", "control.move", "control.setenabled", "control.tab.index"]
+      "actions": ["control.click", "control.focus", "control.settext", "control.gettext", "control.sendtext", "control.list.add", "control.list.delete", "control.list.choose", "control.list.find", "control.list.index", "control.list.choice", "control.list.items", "control.tab.select", "control.edit.count", "control.edit.caret", "control.edit.line", "control.edit.selected", "control.edit.paste", "control.setchecked", "control.ischecked", "control.show", "control.hide", "control.move", "control.setenabled", "control.tab.index", "control.dropdown.show", "control.dropdown.hide", "control.set.style", "control.set.exstyle", "control.send"]
     },
     {
       "name": "process.inspect",

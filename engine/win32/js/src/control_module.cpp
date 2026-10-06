@@ -7,6 +7,8 @@
 
 #include "quickjs.h"
 
+#include <windows.h>
+
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -877,6 +879,314 @@ JSValue control_is_checked(JSContext* context, JSValueConst, int argc, JSValueCo
                           "isChecked(id)", "control.ischecked", json::Value::object(), binding);
 }
 
+// control.showDropdown(id[, options]) / control.hideDropdown(id[, options])
+JSValue control_show_dropdown(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                              void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "showDropdown(id[, options])");
+  return dispatch_control(context, argv[0], argc == 2 ? argv[1] : JS_UNDEFINED, argc == 2,
+                          "showDropdown(id)", "control.dropdown.show", json::Value::object(),
+                          binding);
+}
+
+JSValue control_hide_dropdown(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                              void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "hideDropdown(id[, options])");
+  return dispatch_control(context, argv[0], argc == 2 ? argv[1] : JS_UNDEFINED, argc == 2,
+                          "hideDropdown(id)", "control.dropdown.hide", json::Value::object(),
+                          binding);
+}
+
+// control.setStyle(id, {op, bits}[, options]) / setExStyle ditto.
+// op is one of "+", "-", "^", "=" (AHK prefix rule).
+JSValue control_set_style(JSContext* context, int argc, JSValueConst* argv, bool extended,
+                          ControlModuleBinding* binding) {
+  const char* signature =
+      extended ? "setExStyle(id, {op, bits}[, options])" : "setStyle(id, {op, bits}[, options])";
+  const char* type = extended ? "control.set.exstyle" : "control.set.style";
+  if (argc < 2 || argc > 3) return JS_ThrowTypeError(context, "%s", signature);
+  if (!is_plain_object(argv[1])) {
+    return JS_ThrowTypeError(context, "%s: spec must be {op, bits}", signature);
+  }
+  JSValue op_value = JS_GetPropertyStr(context, argv[1], "op");
+  if (JS_IsException(op_value)) return JS_EXCEPTION;
+  bool op_ok = false;
+  char op = '=';
+  if (JS_IsString(op_value)) {
+    const char* op_text = JS_ToCString(context, op_value);
+    if (op_text) {
+      if (op_text[0] != '\0' && op_text[1] == '\0' &&
+          (op_text[0] == '+' || op_text[0] == '-' || op_text[0] == '^' ||
+           op_text[0] == '=')) {
+        op = op_text[0];
+        op_ok = true;
+      }
+      JS_FreeCString(context, op_text);
+    }
+  }
+  JS_FreeValue(context, op_value);
+  if (!op_ok) {
+    return JS_ThrowTypeError(context, "%s: op must be one of +, -, ^, =", signature);
+  }
+  JSValue bits_value = JS_GetPropertyStr(context, argv[1], "bits");
+  if (JS_IsException(bits_value)) return JS_EXCEPTION;
+  double bits_number = 0;
+  if (!JS_IsNumber(bits_value) || JS_ToFloat64(context, &bits_number, bits_value) ||
+      !std::isfinite(bits_number) || std::trunc(bits_number) != bits_number ||
+      bits_number < 0.0 || bits_number > 4294967295.0) {
+    JS_FreeValue(context, bits_value);
+    return JS_ThrowTypeError(context, "%s: bits must be a uint32", signature);
+  }
+  JS_FreeValue(context, bits_value);
+  json::Value payload = json::Value::object();
+  payload.set("op", json::Value::string(std::string(1, op)));
+  payload.set("bits", json::Value::number(bits_number));
+  return dispatch_control(context, argv[0], argc == 3 ? argv[2] : JS_UNDEFINED, argc == 3,
+                          signature, type, std::move(payload), binding);
+}
+
+JSValue control_set_style(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                          void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  return control_set_style(context, argc, argv, false, binding);
+}
+
+JSValue control_set_ex_style(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                             void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  return control_set_style(context, argc, argv, true, binding);
+}
+
+// SendKeys subset compiler: literal chars, ^!+# modifiers, and a fixed named
+// key table. Everything else in braces ({Click}, {U+}, {Blind}, {ASC}, ...)
+// is an explicit TypeError - the subset is documented, not guessed.
+namespace send_keys {
+
+void push_vk(json::Value& steps, std::uint32_t vk, bool down) {
+  json::Value step = json::Value::object();
+  step.set("vk", json::Value::number(static_cast<double>(vk)));
+  step.set("down", json::Value::boolean(down));
+  steps.push(std::move(step));
+}
+
+void push_char(json::Value& steps, std::uint32_t unit) {
+  json::Value step = json::Value::object();
+  step.set("char", json::Value::number(static_cast<double>(unit)));
+  step.set("down", json::Value::boolean(true));
+  steps.push(std::move(step));
+}
+
+bool named_vk(const std::string& name, std::uint32_t& vk) {
+  if (name == "Enter") vk = VK_RETURN;
+  else if (name == "Tab") vk = VK_TAB;
+  else if (name == "Esc" || name == "Escape") vk = VK_ESCAPE;
+  else if (name == "Backspace" || name == "BS") vk = VK_BACK;
+  else if (name == "Delete" || name == "Del") vk = VK_DELETE;
+  else if (name == "Home") vk = VK_HOME;
+  else if (name == "End") vk = VK_END;
+  else if (name == "Left") vk = VK_LEFT;
+  else if (name == "Right") vk = VK_RIGHT;
+  else if (name == "Up") vk = VK_UP;
+  else if (name == "Down") vk = VK_DOWN;
+  else if (name == "Space") vk = VK_SPACE;
+  else if (name == "Insert" || name == "Ins") vk = VK_INSERT;
+  else if (name == "PgUp") vk = VK_PRIOR;
+  else if (name == "PgDn") vk = VK_NEXT;
+  else return false;
+  return true;
+}
+
+bool function_vk(const std::string& name, std::uint32_t& vk) {
+  if (name.size() < 2 || name[0] != 'F') return false;
+  int number = 0;
+  for (std::size_t i = 1; i < name.size(); ++i) {
+    if (name[i] < '0' || name[i] > '9') return false;
+    number = number * 10 + (name[i] - '0');
+  }
+  if (number < 1 || number > 24) return false;
+  vk = static_cast<std::uint32_t>(VK_F1 + number - 1);
+  return true;
+}
+
+bool modifier_vk(char mark, std::uint32_t& vk) {
+  if (mark == '^') vk = VK_CONTROL;
+  else if (mark == '!') vk = VK_MENU;
+  else if (mark == '+') vk = VK_SHIFT;
+  else if (mark == '#') vk = VK_LWIN;
+  else return false;
+  return true;
+}
+
+// Emits one logical unit (char or vk) wrapped in the pending modifiers.
+void emit_unit(json::Value& steps, bool is_char, std::uint32_t code,
+               const std::vector<std::uint32_t>& modifiers) {
+  for (const auto mod : modifiers) push_vk(steps, mod, true);
+  if (is_char) {
+    push_char(steps, code);
+  } else {
+    push_vk(steps, code, true);
+    push_vk(steps, code, false);
+  }
+  for (auto it = modifiers.rbegin(); it != modifiers.rend(); ++it) push_vk(steps, *it, false);
+}
+
+bool compile(JSContext* context, const std::string& keys, json::Value& steps,
+             std::string& error) {
+  std::vector<std::uint32_t> modifiers;
+  bool raw = false;
+  std::size_t i = 0;
+  const auto fail = [&](const std::string& message) {
+    error = message;
+    return false;
+  };
+  while (i < keys.size()) {
+    const char c = keys[i];
+    if (!raw && (c == '^' || c == '!' || c == '+' || c == '#')) {
+      std::uint32_t vk = 0;
+      modifier_vk(c, vk);
+      modifiers.push_back(vk);
+      ++i;
+      continue;
+    }
+    if (!raw && c == '{') {
+      const std::size_t end = keys.find('}', i + 1);
+      if (end == std::string::npos) return fail("send: unterminated {…}");
+      const std::string name = keys.substr(i + 1, end - i - 1);
+      i = end + 1;
+      if (name == "Text") {
+        raw = true;
+        continue;
+      }
+      std::uint32_t vk = 0;
+      if (named_vk(name, vk) || function_vk(name, vk)) {
+        emit_unit(steps, false, vk, modifiers);
+        modifiers.clear();
+        continue;
+      }
+      return fail("send: unsupported {" + name +
+                  "} (supported: Enter Tab Esc Backspace Delete Home End "
+                  "Left Right Up Down Space Insert PgUp PgDn F1-F24 Text)");
+    }
+    if (!raw && c == '}') {
+      // A lone } is literal (AHK rule).
+      emit_unit(steps, true, static_cast<std::uint32_t>(static_cast<unsigned char>(c)),
+                modifiers);
+      modifiers.clear();
+      ++i;
+      continue;
+    }
+    if (!raw && c >= 'A' && c <= 'Z') {
+      // Uppercase implies Shift unless shift is already held.
+      bool has_shift = false;
+      for (const auto mod : modifiers) {
+        if (mod == VK_SHIFT) has_shift = true;
+      }
+      if (!has_shift) modifiers.push_back(VK_SHIFT);
+      emit_unit(steps, false, static_cast<std::uint32_t>(c), modifiers);
+      modifiers.clear();
+      ++i;
+      continue;
+    }
+    if (!raw && ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == ' ')) {
+      std::uint32_t vk = (c == ' ') ? VK_SPACE : static_cast<std::uint32_t>(c - (c >= 'a' ? 0 : 0));
+      if (c >= 'a' && c <= 'z') vk = static_cast<std::uint32_t>(c - 'a' + 'A');
+      emit_unit(steps, false, vk, modifiers);
+      modifiers.clear();
+      ++i;
+      continue;
+    }
+    // Raw character (or {Text} mode): UTF-8 decoded to units below.
+    emit_unit(steps, true, static_cast<std::uint32_t>(static_cast<unsigned char>(c)), modifiers);
+    modifiers.clear();
+    ++i;
+  }
+  if (!modifiers.empty()) return fail("send: trailing modifier with no key");
+  (void)context;
+  return true;
+}
+
+}  // namespace send_keys
+
+// control.send(id, keys[, options]) -> { steps }
+JSValue control_send(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 2 || argc > 3) return JS_ThrowTypeError(context, "send(id, keys[, options])");
+  if (!JS_IsString(argv[1])) {
+    return JS_ThrowTypeError(context, "send(id, keys): keys must be a string");
+  }
+  const char* keys_text = JS_ToCString(context, argv[1]);
+  if (!keys_text) return JS_EXCEPTION;
+  const std::string keys(keys_text);
+  JS_FreeCString(context, keys_text);
+  if (keys.empty() || keys.size() > 100000) {
+    return JS_ThrowTypeError(context, "send: keys must be 1..100000 UTF-8 bytes");
+  }
+  // Decode UTF-8 to code points first so multibyte characters survive as one
+  // unit; lone surrogates/invalid bytes are a contract error, not mojibake.
+  std::vector<std::uint32_t> units;
+  for (std::size_t i = 0; i < keys.size();) {
+    const unsigned char lead = static_cast<unsigned char>(keys[i]);
+    std::uint32_t unit = 0;
+    std::size_t length = 0;
+    if (lead < 0x80) {
+      unit = lead;
+      length = 1;
+    } else if ((lead >> 5) == 0x6 && i + 1 < keys.size()) {
+      unit = ((lead & 0x1F) << 6) | (keys[i + 1] & 0x3F);
+      length = 2;
+    } else if ((lead >> 4) == 0xE && i + 2 < keys.size()) {
+      unit = ((lead & 0x0F) << 12) | ((keys[i + 1] & 0x3F) << 6) | (keys[i + 2] & 0x3F);
+      length = 3;
+    } else {
+      return JS_ThrowTypeError(context, "send: keys must be valid UTF-8 (no astral planes)");
+    }
+    if (unit == 0 || unit > 0xFFFF) {
+      return JS_ThrowTypeError(context, "send: keys must be valid UTF-8 (no astral planes)");
+    }
+    units.push_back(unit);
+    i += length;
+  }
+  json::Value steps = json::Value::array();
+  {
+    // ASCII strings go through the Send-grammar compiler; non-ASCII strings
+    // take raw char steps with no syntax (documented subset boundary).
+    std::string error;
+    auto fail = [&](const std::string& message) -> JSValue {
+      JS_ThrowTypeError(context, "send: %s", message.c_str());
+      return JS_EXCEPTION;
+    };
+    // ASCII fast path when the whole string is ASCII (the common case).
+    bool ascii_only = true;
+    for (const auto u : units) {
+      if (u >= 0x80) ascii_only = false;
+    }
+    if (ascii_only) {
+      std::string narrow;
+      for (const auto u : units) narrow.push_back(static_cast<char>(u));
+      if (!send_keys::compile(context, narrow, steps, error)) {
+        return fail(error);
+      }
+    } else {
+      // Non-ASCII: no syntax, every unit is a raw char step (modifiers and
+      // braces have no meaning outside ASCII by design).
+      for (const auto u : units) {
+        if (u == '{' || u == '}' || u == '^' || u == '!' || u == '+' || u == '#') {
+          return fail("non-ASCII keys support plain text only (no Send grammar)");
+        }
+      }
+      for (const auto u : units) {
+        send_keys::push_char(steps, u);
+      }
+    }
+  }
+  json::Value payload = json::Value::object();
+  payload.set("steps", std::move(steps));
+  return dispatch_control(context, argv[0], argc == 3 ? argv[2] : JS_UNDEFINED, argc == 3,
+                          "send(id, keys)", "control.send", std::move(payload), binding);
+}
+
 // control.show(id[, options]) / control.hide(id[, options])
 JSValue control_show_hide(JSContext* context, int argc, JSValueConst* argv, bool show,
                           ControlModuleBinding* binding) {
@@ -1054,6 +1364,90 @@ JSValue control_dispose(JSContext* context, JSValueConst, int argc, JSValueConst
   return JS_NewBool(context, alive ? 1 : 0);
 }
 
+// control.classNN(id) -> ClassNN string (agrees with controls() by construction)
+JSValue control_class_nn(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                         void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:control is not wired");
+  }
+  if (argc != 1) return JS_ThrowTypeError(context, "classNN(id)");
+  std::uint64_t id = 0;
+  if (!strict_control_id(context, argv[0], id, "classNN(id)")) return JS_EXCEPTION;
+  if (!binding->kernel->allows("windows.window.read")) {
+    return throw_capability_error(context, "windows.window.read");
+  }
+  std::string out;
+  if (const auto error = binding->service->control_class_nn(id, out); !error.ok()) {
+    return throw_service_error(context, error);
+  }
+  JSValue result = JS_NewString(context, out.c_str());
+  if (JS_IsException(result)) return JS_EXCEPTION;
+  return result;
+}
+
+// control.getStyle(id) / control.getExStyle(id) -> uint32 style bits
+JSValue control_style(JSContext* context, int argc, JSValueConst* argv, bool extended,
+                      ControlModuleBinding* binding) {
+  const char* signature = extended ? "getExStyle(id)" : "getStyle(id)";
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:control is not wired");
+  }
+  if (argc != 1) return JS_ThrowTypeError(context, "%s", signature);
+  std::uint64_t id = 0;
+  if (!strict_control_id(context, argv[0], id, signature)) return JS_EXCEPTION;
+  if (!binding->kernel->allows("windows.window.read")) {
+    return throw_capability_error(context, "windows.window.read");
+  }
+  std::uint32_t bits = 0;
+  rime::core::Error error =
+      extended ? binding->service->control_get_ex_style(id, bits)
+               : binding->service->control_get_style(id, bits);
+  if (!error.ok()) {
+    return throw_service_error(context, error);
+  }
+  return JS_NewFloat64(context, static_cast<double>(bits));
+}
+
+JSValue control_get_style(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                          void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  return control_style(context, argc, argv, false, binding);
+}
+
+JSValue control_get_ex_style(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                             void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  return control_style(context, argc, argv, true, binding);
+}
+
+// control.focusedChild(windowId) -> control id or 0 (nothing focused inside)
+JSValue control_focused_child(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                              void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:control is not wired");
+  }
+  if (argc != 1) return JS_ThrowTypeError(context, "focusedChild(windowId)");
+  int64_t window_raw = 0;
+  if (!js_int64_strict(context, argv[0], window_raw, "focusedChild(windowId)")) {
+    return JS_EXCEPTION;
+  }
+  if (window_raw <= 0) {
+    return JS_ThrowTypeError(context, "focusedChild(windowId): windowId must be positive");
+  }
+  if (!binding->kernel->allows("windows.window.read")) {
+    return throw_capability_error(context, "windows.window.read");
+  }
+  std::uint64_t out = 0;
+  if (const auto error = binding->service->control_focused_child(
+          static_cast<std::uint64_t>(window_raw), out);
+      !error.ok()) {
+    return throw_service_error(context, error);
+  }
+  return JS_NewFloat64(context, static_cast<double>(out));
+}
+
 int control_module_init(JSContext* context, JSModuleDef* module) {
   ControlModuleBinding* binding = binding_of(context);
   if (!binding || !binding->service || !binding->kernel) {
@@ -1084,10 +1478,16 @@ int control_module_init(JSContext* context, JSModuleDef* module) {
       !add("listItems", control_list_items, 1) || !add("tabSelect", control_tab_select, 2) ||
       !add("editCount", control_edit_count, 1) || !add("editCaret", control_edit_caret, 1) ||
       !add("editLine", control_edit_line, 2) || !add("editSelected", control_edit_selected, 1) ||
-      !add("editPaste", control_edit_paste, 2) ||       !add("setChecked", control_set_checked, 2) ||
+      !add("editPaste", control_edit_paste, 2) || !add("setChecked", control_set_checked, 2) ||
       !add("isChecked", control_is_checked, 1) || !add("show", control_show, 1) ||
       !add("hide", control_hide, 1) || !add("move", control_move, 2) ||
-      !add("setEnabled", control_set_enabled, 2) || !add("tabIndex", control_tab_index, 1)) {
+      !add("setEnabled", control_set_enabled, 2) || !add("tabIndex", control_tab_index, 1) ||
+      !add("showDropdown", control_show_dropdown, 1) ||
+      !add("hideDropdown", control_hide_dropdown, 1) ||
+      !add("setStyle", control_set_style, 2) || !add("setExStyle", control_set_ex_style, 2) ||
+      !add("send", control_send, 2) || !add("classNN", control_class_nn, 1) ||
+      !add("getStyle", control_get_style, 1) || !add("getExStyle", control_get_ex_style, 1) ||
+      !add("focusedChild", control_focused_child, 1)) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "control", control);

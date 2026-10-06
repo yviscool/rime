@@ -28,6 +28,9 @@ namespace {
 
 using Error = rime::core::Error;
 using Code = rime::core::Error::Code;
+using detail::ClassNNCounter;
+using detail::ClassNNInstance;
+using detail::next_class_nn;
 
 constexpr const char* kControlGoneMessage = "control no longer exists";
 
@@ -1408,8 +1411,7 @@ rime::core::Error WindowService::control_set_enabled(const std::uint64_t id, con
 }
 
 rime::core::Error WindowService::control_tab_index(const std::uint64_t id, int& index1,
-                                                   const std::chrono::milliseconds timeout) {
-  if (past_deadline(timeout)) {
+                                                   const std::chrono::milliseconds timeout) {  if (past_deadline(timeout)) {
     return {Code::InvalidContract, "control tab index read timed out before dispatch"};
   }
   Error result = Error::none();
@@ -1435,6 +1437,268 @@ rime::core::Error WindowService::control_tab_index(const std::uint64_t id, int& 
           return;
         }
         index1 = static_cast<int>(current) + 1;
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_class_nn(const std::uint64_t id, std::string& out,
+                                                  const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control ClassNN read timed out before dispatch"};
+  }
+  out.clear();
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        // Number the control among its parent's children with the shared
+        // counter, so the answer agrees with controls() by construction.
+        const HWND parent = GetParent(control);
+        if (!parent) {
+          result = {Code::InvalidContract, "control has no parent to number against"};
+          return;
+        }
+        // The shared counter is append-only per enumeration; recount with a
+        // fresh counter and pick the target's number.
+        ClassNNCounter counts;
+        bool found = false;
+        std::string name;
+        struct PickState {
+          ClassNNCounter* counts;
+          HWND target;
+          std::string* name;
+          bool* found;
+        } pick{&counts, control, &name, &found};
+        EnumChildWindows(
+            parent,
+            [](HWND child, LPARAM parameter) -> BOOL {
+              auto* pick_state = reinterpret_cast<PickState*>(parameter);
+              const ClassNNInstance instance = next_class_nn(*pick_state->counts, child);
+              if (child == pick_state->target && instance.number != 0) {
+                *pick_state->name =
+                    to_utf8(instance.class_name) + std::to_string(instance.number);
+                *pick_state->found = true;
+                return FALSE;
+              }
+              return TRUE;
+            },
+            reinterpret_cast<LPARAM>(&pick));
+        if (!found) {
+          result = {Code::ExecutionFailed, "control has no ClassNN (nameless or capped)"};
+          return;
+        }
+        out = name;
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_get_style(const std::uint64_t id, std::uint32_t& out,
+                                                   const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control style read timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        out = static_cast<std::uint32_t>(GetWindowLongPtrW(control, GWL_STYLE));
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_get_ex_style(const std::uint64_t id, std::uint32_t& out,
+                                                      const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control ex-style read timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        out = static_cast<std::uint32_t>(GetWindowLongPtrW(control, GWL_EXSTYLE));
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_focused_child(const std::uint64_t window_id,
+                                                       std::uint64_t& out,
+                                                       const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control focus read timed out before dispatch"};
+  }
+  out = 0;
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND window = registry().hwnd_for(window_id);
+        if (!window) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        // AHK ControlGetFocus rule: the focused window of the window's own
+        // thread, verified to be a child - 0 when nothing inside qualifies
+        // (console windows have no input queue and read 0 the same way).
+        DWORD thread = GetWindowThreadProcessId(window, nullptr);
+        if (thread == 0) return;
+        GUITHREADINFO info{};
+        info.cbSize = sizeof(info);
+        if (!GetGUIThreadInfo(thread, &info) || !info.hwndFocus) return;
+        if (!IsChild(window, info.hwndFocus)) return;
+        out = registry().id_for(info.hwndFocus);
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_set_dropped(const std::uint64_t id, const bool dropped,
+                                                     const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control drop-down set timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        DWORD_PTR ignored = 0;
+        if (!send2(control, CB_SHOWDROPDOWN, dropped ? TRUE : FALSE, 0, ignored)) {
+          result = {Code::ExecutionFailed, "control did not change drop-down state"};
+          return;
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_set_style(const std::uint64_t id, const bool extended,
+                                                   const char op, const std::uint32_t bits,
+                                                   const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control style set timed out before dispatch"};
+  }
+  if (op != '+' && op != '-' && op != '^' && op != '=') {
+    return {Code::InvalidContract, "control style op must be +, -, ^ or ="};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        const int index = extended ? GWL_EXSTYLE : GWL_STYLE;
+        const LONG_PTR current = GetWindowLongPtrW(control, index);
+        LONG_PTR next = current;
+        if (op == '+') {
+          next = current | bits;
+        } else if (op == '-') {
+          next = current & ~static_cast<LONG_PTR>(bits);
+        } else if (op == '^') {
+          next = current ^ bits;
+        } else {
+          next = bits;
+        }
+        SetWindowLongPtrW(control, index, next);
+        // AHK rule: re-read and report partial success as failure.
+        if (GetWindowLongPtrW(control, index) != next) {
+          result = {Code::ExecutionFailed, "control style change did not stick"};
+          return;
+        }
+        InvalidateRect(control, nullptr, TRUE);
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_send_keys(
+    const std::uint64_t id, const std::vector<ControlKeyStep>& steps,
+    const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control send timed out before dispatch"};
+  }
+  if (steps.empty() || steps.size() > 10'000) {
+    return {Code::InvalidContract, "control send needs 1..10000 steps"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        for (const auto& step : steps) {
+          bool posted = false;
+          if (step.is_char) {
+            posted = PostMessageW(control, WM_CHAR, static_cast<WPARAM>(step.ch), 0) != FALSE;
+          } else {
+            const UINT scan = MapVirtualKeyW(step.vk, MAPVK_VK_TO_VSC);
+            const LPARAM param = step.down
+                                     ? static_cast<LPARAM>((scan << 16) | 1)
+                                     : static_cast<LPARAM>((scan << 16) | 0xC0000001);
+            posted = PostMessageW(control, step.down ? WM_KEYDOWN : WM_KEYUP,
+                                  static_cast<WPARAM>(step.vk), param) != FALSE;
+          }
+          if (!posted) {
+            result = {Code::ExecutionFailed, "control did not accept the keystroke"};
+            return;
+          }
+        }
       },
       timeout);
   if (!call_error.ok()) return call_error;

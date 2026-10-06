@@ -168,11 +168,15 @@ c.dispose();  // -> boolean，同步
   setText/getText/paste + sendText/sendKeys + setChecked/isChecked +
   可见/启用/几何/样式（查询同步、变更异步）+ sendMessage/postMessage + dispose。
 - **Phase 2**：combo/list/tab/edit 族 + `notifyParent` + `limit` 分页 +
-  checkbox + 可见/几何（`show/hide/move/setEnabled/tab.index`）——已实现，
+  checkbox + 可见/几何（`show/hide/move/setEnabled/tab.index`）+
+  下拉/样式/发键（`dropdown.show/hide`、`set.style/exstyle`、`send` 子集）+
+  反查（`classNN`、`getStyle/getExStyle`、`focusedChild`）——已实现，
   测试见 `tests/native/control_tests.cpp` + `tests/js/control_slice.cpp`。
   已知偏差：TCS_BUTTONS 式 tab 无需 notify 语义，OS 在后台操作下不搬运
   可观察状态（select 返回 ok，不读回断言）；`ControlGetHwnd` 不实现
-  （裸 HWND 永不出 lane，等价能力是 resolve 出的稳定 id）。
+  （裸 HWND 永不出 lane，等价能力是 resolve 出的稳定 id）；
+  `send` 只接受文档子集（字母数字、^!+# 修饰、具名键、F1-F24、`{Text}`），
+  `{Click}`/`{U+}`/`{Blind}` 等明确拒绝。
 - **不做**：`ControlDelay` 全局开关（由调度策略替代）；ClassNN 大小写
   敏感版（跟仓库现有语义）；裸 notify API（见 §4.6）。
 

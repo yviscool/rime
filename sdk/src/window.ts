@@ -1,6 +1,6 @@
 import { runAction, type ActionOptions, type NativeActionOptions } from "./action";
 import type { ProcessId } from "./process";
-import { Control, type ControlClickOptions, type ControlSpec } from "./control";
+import { Control, focusedControl, type ControlClickOptions, type ControlSpec } from "./control";
 
 export type Brand<K, T> = K & { readonly __brand: T };
 
@@ -692,6 +692,13 @@ export const Window = {
     options?: ActionOptions,
   ): Promise<{ text: string }> {
     return Control.resolve(windowId, spec, options).then((control) => control.getText(options));
+  },
+  /**
+   * Focused child control of a window, or 0 when nothing inside holds focus
+   * (AHK ControlGetFocus rule). Synchronous.
+   */
+  focusedControl(windowId: WindowId): number {
+    return focusedControl(windowId);
   },
   /**
    * WinGetText: concatenated control text ("\r\n"-separated); hidden controls

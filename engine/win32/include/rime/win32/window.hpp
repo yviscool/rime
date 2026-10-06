@@ -341,6 +341,42 @@ class WindowService final {
   // Liveness probe for dispose(): true when the id still resolves.
   rime::core::Error control_alive(std::uint64_t id, bool& out,
                                   std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // ClassNN of one control (AHK ControlGetClassNN rule): numbers the
+  // control among its parent's children exactly like controls() does, so
+  // the answer always agrees with enumeration.
+  rime::core::Error control_class_nn(std::uint64_t id, std::string& out,
+                                      std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Raw style bits (AHK ControlGetStyle/ControlGetExStyle rule): synchronous
+  // reads, no interpretation - interpretation belongs to setStyle.
+  rime::core::Error control_get_style(std::uint64_t id, std::uint32_t& out,
+                                       std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error control_get_ex_style(std::uint64_t id, std::uint32_t& out,
+                                          std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Focused child of a window (AHK ControlGetFocus rule): GetGUIThreadInfo
+  // of the window's thread plus IsChild verification; 0 when nothing inside
+  // the window holds focus.
+  rime::core::Error control_focused_child(std::uint64_t window_id, std::uint64_t& out,
+                                          std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // ComboBox drop-down show/hide (CB_SHOWDROPDOWN, AHK rule).
+  rime::core::Error control_set_dropped(std::uint64_t id, bool dropped,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Style bits: op is '+', '-', '^' or '=' (replace, AHK prefix rule);
+  // verified by re-read and followed by InvalidateRect.
+  rime::core::Error control_set_style(std::uint64_t id, bool extended, char op,
+                                       std::uint32_t bits,
+                                       std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Parsed keystroke steps (AHK ControlSend rule, Rime subset): each step is
+  // either a virtual key transition or a WM_CHAR character, posted in order.
+  // No modifier-state synchronization and no global side effects - that is
+  // what distinguishes sendKeys from AHK's full Send (see control.md).
+  struct ControlKeyStep {
+    bool is_char{false};
+    std::uint32_t vk{0};
+    wchar_t ch{L'\0'};
+    bool down{true};
+  };
+  rime::core::Error control_send_keys(std::uint64_t id, const std::vector<ControlKeyStep>& steps,
+                                      std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // Resolves a raw HWND (as seen by WinGetControlsHwnd-style callers) to the
   // stable id, searching the given window's descendants. TargetGone when the
   // handle is not a live descendant.

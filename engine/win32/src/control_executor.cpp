@@ -33,7 +33,8 @@ const std::unordered_set<std::string>& control_action_types() {
       "control.tab.select", "control.edit.count", "control.edit.caret", "control.edit.line",
       "control.edit.selected", "control.edit.paste", "control.setchecked", "control.ischecked",
       "control.show", "control.hide", "control.move", "control.setenabled",
-      "control.tab.index"};
+      "control.tab.index", "control.dropdown.show", "control.dropdown.hide",
+      "control.set.style", "control.set.exstyle", "control.send"};
   return types;
 }
 
@@ -684,6 +685,105 @@ rime::action::Result ControlExecutor::execute(const rime::action::Action& action
     rime::core::json::Value result_value = rime::core::json::Value::object();
     result_value.set("text", rime::core::json::Value::string(out));
     return {action.id, true, false, "control text read", {}, std::move(result_value)};
+  }
+  if (action.type == "control.dropdown.show" || action.type == "control.dropdown.hide") {
+    const bool dropped = action.type == "control.dropdown.show";
+    if (const auto op = service_.control_set_dropped(id, dropped, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("dropped", rime::core::json::Value::boolean(dropped));
+    return {action.id, true, false, "control drop-down set", {}, std::move(result_value)};
+  }
+  if (action.type == "control.set.style" || action.type == "control.set.exstyle") {
+    const bool extended = action.type == "control.set.exstyle";
+    const rime::core::json::Value* op_field = payload.value->find("op");
+    const rime::core::json::Value* bits_field = payload.value->find("bits");
+    if (!op_field || !op_field->is_string()) {
+      return fail(action, Code::InvalidContract,
+                  std::string(action.type) + " payload requires a string op");
+    }
+    if (!bits_field || !bits_field->is_number()) {
+      return fail(action, Code::InvalidContract,
+                  std::string(action.type) + " payload requires a numeric bits");
+    }
+    const std::string op_text = op_field->as_string();
+    if (op_text.size() != 1 ||
+        (op_text[0] != '+' && op_text[0] != '-' && op_text[0] != '^' && op_text[0] != '=')) {
+      return fail(action, Code::InvalidContract,
+                  std::string(action.type) + " op must be +, -, ^ or =");
+    }
+    const double raw = bits_field->as_number();
+    if (!std::isfinite(raw) || raw != std::trunc(raw) || raw < 0.0 || raw > 4294967295.0) {
+      return fail(action, Code::InvalidContract,
+                  std::string(action.type) + " bits must be a uint32");
+    }
+    if (const auto op = service_.control_set_style(id, extended, op_text[0],
+                                                   static_cast<std::uint32_t>(raw), timeout);
+        !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("styled", rime::core::json::Value::boolean(true));
+    return {action.id, true, false, "control style set", {}, std::move(result_value)};
+  }
+  if (action.type == "control.send") {
+    const rime::core::json::Value* steps_field = payload.value->find("steps");
+    if (!steps_field || !steps_field->is_array() || steps_field->size() == 0 ||
+        steps_field->size() > 10000) {
+      return fail(action, Code::InvalidContract,
+                  "control.send payload requires a steps array of 1..10000");
+    }
+    std::vector<WindowService::ControlKeyStep> steps;
+    for (const auto& item : steps_field->as_array()) {
+      if (!item.is_object()) {
+        return fail(action, Code::InvalidContract, "control.send steps must be objects");
+      }
+      WindowService::ControlKeyStep step;
+      const rime::core::json::Value* vk = item.find("vk");
+      const rime::core::json::Value* ch = item.find("char");
+      if ((vk != nullptr) == (ch != nullptr)) {
+        return fail(action, Code::InvalidContract,
+                    "control.send steps need exactly one of vk or char");
+      }
+      if (vk != nullptr) {
+        if (!vk->is_number()) {
+          return fail(action, Code::InvalidContract, "control.send step vk must be a number");
+        }
+        const double raw = vk->as_number();
+        if (!std::isfinite(raw) || raw != std::trunc(raw) || raw < 1.0 || raw > 254.0) {
+          return fail(action, Code::InvalidContract, "control.send step vk must be in 1..254");
+        }
+        step.is_char = false;
+        step.vk = static_cast<std::uint32_t>(raw);
+      } else {
+        if (!ch->is_number()) {
+          return fail(action, Code::InvalidContract, "control.send step char must be a number");
+        }
+        const double raw = ch->as_number();
+        if (!std::isfinite(raw) || raw != std::trunc(raw) || raw < 1.0 || raw > 65535.0) {
+          return fail(action, Code::InvalidContract,
+                      "control.send step char must be a UTF-16 unit");
+        }
+        step.is_char = true;
+        step.ch = static_cast<wchar_t>(raw);
+      }
+      const rime::core::json::Value* down = item.find("down");
+      if (!down || !down->is_bool()) {
+        return fail(action, Code::InvalidContract, "control.send steps need a boolean down");
+      }
+      step.down = down->as_bool();
+      steps.push_back(step);
+    }
+    if (const auto op = service_.control_send_keys(id, steps, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("steps", rime::core::json::Value::number(static_cast<double>(steps.size())));
+    return {action.id, true, false, "control keys sent", {}, std::move(result_value)};
   }
   return contract::unsupported(action);
 }

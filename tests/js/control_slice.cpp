@@ -360,6 +360,31 @@ int main() {
         "control-list-shape.mjs");
   assert(runtime.settle(5000ms).ok());
 
+  // send() compiles keys to steps: uppercase implies Shift (so "AB" lands
+  // uppercase here, unlike bare VK steps at the service level).
+  check(runtime,
+        "await globalThis.control.setText(globalThis.edit.id, '');\n"
+        "const sent = await globalThis.control.send(globalThis.edit.id, 'AB{Enter}C');\n"
+        "if (!sent || sent.steps <= 0) throw new Error('send must resolve a step count');\n"
+        "globalThis.sendOk = null;\n"
+        "for (let i = 0; i < 200; i++) {\n"
+        "  const l1 = await globalThis.control.editLine(globalThis.edit.id, 1);\n"
+        "  const l2 = await globalThis.control.editLine(globalThis.edit.id, 2);\n"
+        "  if (l1 && l2 && l1.text === 'AB' && l2.text === 'C') { globalThis.sendOk = true; break; }\n"
+        "}\n"
+        "if (!globalThis.sendOk) throw new Error('send keys never landed');\n"
+        "for (const bad of [\n"
+        "  () => globalThis.control.send(globalThis.edit.id, '{Click}'),\n"
+        "  () => globalThis.control.send(globalThis.edit.id, '^'),\n"
+        "  () => globalThis.control.send(globalThis.edit.id, '{Unclosed'),\n"
+        "]) {\n"
+        "  let threw = false;\n"
+        "  try { bad(); } catch (e) { threw = e instanceof TypeError; }\n"
+        "  if (!threw) throw new Error('send grammar violation must be a TypeError');\n"
+        "}\n",
+        "control-send.mjs");
+  assert(runtime.settle(15000ms).ok());
+
   // Checkbox through the pipeline (posted clicks converge like the native test).
   check(runtime,
         "globalThis.check = await globalThis.control.resolve(globalThis.windowId, "

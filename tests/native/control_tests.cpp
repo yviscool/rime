@@ -250,7 +250,8 @@ int main() {
         "control.tab.select", "control.edit.count", "control.edit.caret", "control.edit.line",
         "control.edit.selected", "control.edit.paste", "control.setchecked",
         "control.ischecked", "control.show", "control.hide", "control.move",
-        "control.setenabled", "control.tab.index"}) {
+        "control.setenabled", "control.tab.index", "control.dropdown.show",
+        "control.dropdown.hide", "control.set.style", "control.set.exstyle", "control.send"}) {
     assert(kernel.register_executor(type, executor).ok());
   }
   Dispatcher dispatcher(kernel, 64);
@@ -570,10 +571,89 @@ int main() {
   Result enable_bad = run("control.setenabled", button, "{\"enabled\": \"yes\"}");
   assert(!enable_bad.succeeded && enable_bad.error.code == Code::InvalidContract);
 
+  // ---- ClassNN / style / focus / drop-down / send ---------------------------
+  std::string button_nn;
+  assert(windows.control_class_nn(button_id, button_nn).ok() && button_nn == "Button1");
+  std::string combo_nn;
+  assert(windows.control_class_nn(combo_id, combo_nn).ok() && combo_nn == "ComboBox1");
+  std::uint32_t style_before = 0;
+  assert(windows.control_get_style(button_id, style_before).ok());
+  // Flip bit 0 and back (BS_PUSHBUTTON itself is 0, so round-trip a low bit
+  // instead of asserting a mask that reads as zero).
+  Result style_add = run("control.set.style", button,
+                         "{\"op\": \"^\", \"bits\": 1}");
+  if (!style_add.succeeded) {
+    std::fprintf(stderr, "setStyle failed: %s\n", style_add.error.message.c_str());
+  }
+  assert(style_add.succeeded);
+  std::uint32_t style_after = 0;
+  assert(windows.control_get_style(button_id, style_after).ok());
+  assert(style_after == (style_before ^ 1u));
+  Result style_restore = run("control.set.style", button,
+                             "{\"op\": \"^\", \"bits\": 1}");
+  assert(style_restore.succeeded);
+  std::uint32_t style_back = 0;
+  assert(windows.control_get_style(button_id, style_back).ok() && style_back == style_before);
+  Result style_bad_op = run("control.set.style", button, "{\"op\": \"?\", \"bits\": 1}");
+  assert(!style_bad_op.succeeded && style_bad_op.error.code == Code::InvalidContract);
+  Result style_bad_bits = run("control.set.style", button, "{\"op\": \"+\", \"bits\": -1}");
+  assert(!style_bad_bits.succeeded && style_bad_bits.error.code == Code::InvalidContract);
+  // Focused child: focus the button, then read it back through the window.
+  Result focus_btn = run("control.focus", button, "{}");
+  assert(focus_btn.succeeded);
+  std::uint64_t focused_id = 0;
+  assert(poll_true(5s, [&] {
+    std::uint64_t probe = 0;
+    if (!windows.control_focused_child(window_id, probe).ok() || probe == 0) return false;
+    focused_id = probe;
+    return true;
+  }));
+  assert(focused_id == button_id);
+  // Drop-down round trip on the combo.
+  Result drop = run("control.dropdown.show", combo, "{}");
+  assert(drop.succeeded);
+  Result undrop = run("control.dropdown.hide", combo, "{}");
+  assert(undrop.succeeded);
+  // Parsed keystrokes into the multi-line edit: clear first for a
+  // deterministic caret, then letters by VK plus a named key.
+  Result clear_multi = run("control.settext", edit_multi, "{\"text\": \"\"}");
+  assert(clear_multi.succeeded);
+  // Steps are pre-compiled here (the keys compiler lives in the module and
+  // is covered by the JS slice): A down/up, B down/up, Enter down/up.
+  Result send_keys =
+      run("control.send", edit_multi,
+          "{\"steps\": [{\"vk\": 65, \"down\": true}, {\"vk\": 65, \"down\": false}, "
+          "{\"vk\": 66, \"down\": true}, {\"vk\": 66, \"down\": false}, "
+          "{\"vk\": 13, \"down\": true}, {\"vk\": 13, \"down\": false}, "
+          "{\"vk\": 67, \"down\": true}, {\"vk\": 67, \"down\": false}]}");
+  if (!send_keys.succeeded) {
+    std::fprintf(stderr, "send failed: %s\n", send_keys.error.message.c_str());
+  }
+  assert(send_keys.succeeded);
+  // VK letters travel as key messages and surface lowercased through
+  // TranslateMessage (no shift held) - the OS owns the casing, the test
+  // asserts what the OS produced, deterministically stable per the probes.
+  assert(poll_true(5s, [&] {
+    Result line1 = run("control.edit.line", edit_multi, "{\"line\": 1}");
+    Result line2 = run("control.edit.line", edit_multi, "{\"line\": 2}");
+    if (!line1.succeeded || !line2.succeeded) return false;
+    const auto* t1 = line1.value.find("text");
+    const auto* t2 = line2.value.find("text");
+    return t1 && t2 && t1->as_string() == "ab" && t2->as_string() == "c";
+  }));
+  // Rejected grammar stays a contract error (subset boundary is enforced).
+  Result send_nosteps = run("control.send", edit_multi, "{\"keys\": \"x\"}");
+  assert(!send_nosteps.succeeded && send_nosteps.error.code == Code::InvalidContract);
+  Result send_bad_step = run("control.send", edit_multi,
+                             "{\"steps\": [{\"vk\": 65}]}");
+  assert(!send_bad_step.succeeded && send_bad_step.error.code == Code::InvalidContract);
+  Result send_bad_vk = run("control.send", edit_multi,
+                           "{\"steps\": [{\"vk\": 999, \"down\": true}]}");
+  assert(!send_bad_vk.succeeded && send_bad_vk.error.code == Code::InvalidContract);
+
   // Sync queries through the service: visibility, enabled, rect, liveness.
   bool visible = false;
-  assert(windows.control_is_visible(button_id, visible).ok() && visible);
-  bool enabled = false;
+  assert(windows.control_is_visible(button_id, visible).ok() && visible);  bool enabled = false;
   assert(windows.control_is_enabled(button_id, enabled).ok() && enabled);
   rime::win32::Rect rect{};
   assert(windows.control_rect(button_id, rect).ok() && rect.width() > 0 && rect.height() > 0);
