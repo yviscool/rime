@@ -163,7 +163,12 @@ rime::core::Error Bootstrap::register_executors() {
   }
   const auto control_executor = std::make_shared<ControlExecutor>(window_service_);
   for (const char* type : {"control.click", "control.focus", "control.settext",
-                           "control.gettext", "control.sendtext"}) {
+                           "control.gettext", "control.sendtext", "control.list.add",
+                           "control.list.delete", "control.list.choose", "control.list.find",
+                           "control.list.index", "control.list.choice", "control.list.items",
+                           "control.tab.select", "control.edit.count", "control.edit.caret",
+                           "control.edit.line", "control.edit.selected", "control.edit.paste",
+                           "control.setchecked", "control.ischecked"}) {
     if (const auto error = kernel_.register_executor(type, control_executor); !error.ok()) {
       return error;
     }

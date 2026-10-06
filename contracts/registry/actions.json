@@ -450,6 +450,186 @@
       "status": "implemented"
     },
     {
+      "type": "control.list.add",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:560",
+      "sdk": "sdk/src/control.ts:75",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.list.delete",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:580",
+      "sdk": "sdk/src/control.ts:77",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.list.choose",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:600",
+      "sdk": "sdk/src/control.ts:79",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.list.find",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:660",
+      "sdk": "sdk/src/control.ts:86",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.list.index",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:675",
+      "sdk": "sdk/src/control.ts:88",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.list.choice",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:685",
+      "sdk": "sdk/src/control.ts:90",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.list.items",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:715",
+      "sdk": "sdk/src/control.ts:96",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.tab.select",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:750",
+      "sdk": "sdk/src/control.ts:102",
+      "tests": ["tests/native/control_tests.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.edit.count",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:765",
+      "sdk": "sdk/src/control.ts:104",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.edit.caret",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:775",
+      "sdk": "sdk/src/control.ts:106",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.edit.line",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:785",
+      "sdk": "sdk/src/control.ts:108",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.edit.selected",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:800",
+      "sdk": "sdk/src/control.ts:110",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.edit.paste",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:810",
+      "sdk": "sdk/src/control.ts:112",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.setchecked",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:825",
+      "sdk": "sdk/src/control.ts:114",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.ischecked",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:870",
+      "sdk": "sdk/src/control.ts:122",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
       "type": "storage.write",
       "capability": "filesystem.write",
       "target": { "kind": "storage", "example": "fs" },
@@ -586,7 +766,7 @@
       "status": "implemented",
       "declared": "engine/win32/js/src/control_module.cpp:351",
       "checked": ["engine/action/src/kernel.cpp:97", "engine/win32/js/src/control_module.cpp:351"],
-      "actions": ["control.click", "control.focus", "control.settext", "control.gettext", "control.sendtext"]
+      "actions": ["control.click", "control.focus", "control.settext", "control.gettext", "control.sendtext", "control.list.add", "control.list.delete", "control.list.choose", "control.list.find", "control.list.index", "control.list.choice", "control.list.items", "control.tab.select", "control.edit.count", "control.edit.caret", "control.edit.line", "control.edit.selected", "control.edit.paste", "control.setchecked", "control.ischecked"]
     },
     {
       "name": "process.inspect",
@@ -661,14 +841,16 @@
     {
       "name": "screen.capture",
       "status": "implemented",
-      "declared": "engine/win32/js/src/screen_module.cpp:28",
+      "declared": "engine/win32/js/src/screen_module.cpp:30",
       "checked": [
-        "engine/win32/js/src/screen_module.cpp:94",
-        "engine/win32/js/src/screen_module.cpp:127",
-        "engine/win32/js/src/screen_module.cpp:187",
-        "engine/win32/js/src/screen_module.cpp:284",
-        "engine/win32/js/src/screen_module.cpp:349",
-        "engine/win32/js/src/screen_module.cpp:389"
+        "engine/win32/js/src/screen_module.cpp:96",
+        "engine/win32/js/src/screen_module.cpp:129",
+        "engine/win32/js/src/screen_module.cpp:189",
+        "engine/win32/js/src/screen_module.cpp:286",
+        "engine/win32/js/src/screen_module.cpp:351",
+        "engine/win32/js/src/screen_module.cpp:391",
+        "engine/win32/js/src/screen_module.cpp:426",
+        "engine/win32/js/src/screen_module.cpp:454"
       ],
       "actions": []
     },
@@ -775,32 +957,42 @@
     {
       "api": "screen.monitorCount()",
       "capability": "screen.capture",
-      "site": "engine/win32/js/src/screen_module.cpp:94"
+      "site": "engine/win32/js/src/screen_module.cpp:96"
     },
     {
       "api": "screen.monitor(index?)",
       "capability": "screen.capture",
-      "site": "engine/win32/js/src/screen_module.cpp:127"
+      "site": "engine/win32/js/src/screen_module.cpp:129"
     },
     {
       "api": "screen.pixel(x, y)",
       "capability": "screen.capture",
-      "site": "engine/win32/js/src/screen_module.cpp:187"
+      "site": "engine/win32/js/src/screen_module.cpp:189"
     },
     {
       "api": "screen.pixelSearch(area, color, options)",
       "capability": "screen.capture",
-      "site": "engine/win32/js/src/screen_module.cpp:284"
+      "site": "engine/win32/js/src/screen_module.cpp:286"
     },
     {
       "api": "screen.imageSearch(area, imagePath, options)",
       "capability": "screen.capture",
-      "site": "engine/win32/js/src/screen_module.cpp:349"
+      "site": "engine/win32/js/src/screen_module.cpp:351"
     },
     {
       "api": "screen.caret(options?)",
       "capability": "screen.capture",
-      "site": "engine/win32/js/src/screen_module.cpp:389"
+      "site": "engine/win32/js/src/screen_module.cpp:391"
+    },
+    {
+      "api": "screen.sysGet(index, options?)",
+      "capability": "screen.capture",
+      "site": "engine/win32/js/src/screen_module.cpp:426"
+    },
+    {
+      "api": "screen.sysGetIPAddresses(options?)",
+      "capability": "screen.capture",
+      "site": "engine/win32/js/src/screen_module.cpp:454"
     }
   ]
 }

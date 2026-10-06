@@ -7,7 +7,11 @@
 
 #include <windows.h>
 
+#include <commctrl.h>
+
+#include <optional>
 #include <string>
+#include <vector>
 
 // Control verbs (@rime/control Phase 1): Win32-direct implementations behind
 // WindowService::control_* (see window.hpp). Every method resolves the stable
@@ -29,6 +33,80 @@ constexpr const char* kControlGoneMessage = "control no longer exists";
 
 bool past_deadline(const std::chrono::milliseconds timeout) {
   return timeout <= std::chrono::milliseconds::zero();
+}
+
+// SendMessageTimeout wrappers: 2s for state/list traffic, 5s for text
+// (AHK's two tiers). SMTO_ABORTIFHUNG throughout - hung targets fail fast
+// instead of hanging the lane.
+bool send2(HWND control, UINT message, WPARAM wparam, LPARAM lparam, DWORD_PTR& result) {
+  return SendMessageTimeoutW(control, message, wparam, lparam, SMTO_ABORTIFHUNG, 2000,
+                             &result) != FALSE;
+}
+
+bool send5(HWND control, UINT message, WPARAM wparam, LPARAM lparam, DWORD_PTR& result) {
+  return SendMessageTimeoutW(control, message, wparam, lparam, SMTO_ABORTIFHUNG, 5000,
+                             &result) != FALSE;
+}
+
+bool ascii_case_insensitive_contains(const std::wstring& haystack, const wchar_t* needle) {
+  if (!needle || !*needle) return false;
+  std::wstring hay = haystack;
+  for (auto& ch : hay) {
+    if (ch >= L'A' && ch <= L'Z') ch = static_cast<wchar_t>(ch + (L'a' - L'A'));
+  }
+  std::wstring ndl(needle);
+  for (auto& ch : ndl) {
+    if (ch >= L'A' && ch <= L'Z') ch = static_cast<wchar_t>(ch + (L'a' - L'A'));
+  }
+  return hay.find(ndl) != std::wstring::npos;
+}
+
+// AHK GetIndexControlType rule: class-name substring decides the message
+// table. Anything else is ERR_GUI_NOT_FOR_THIS_TYPE.
+std::optional<WindowService::ControlListKind> list_kind_of(HWND control) {
+  wchar_t name[256] = {0};
+  if (GetClassNameW(control, name, 256) == 0) return std::nullopt;
+  if (ascii_case_insensitive_contains(name, L"combo")) return WindowService::ControlListKind::Combo;
+  if (ascii_case_insensitive_contains(name, L"list")) return WindowService::ControlListKind::List;
+  return std::nullopt;
+}
+
+bool is_multi_select_list(HWND control) {
+  const LONG_PTR style = GetWindowLongPtrW(control, GWL_STYLE);
+  return (style & (LBS_EXTENDEDSEL | LBS_MULTIPLESEL)) != 0;
+}
+
+// AHK ControlNotifyParent: the parent learns through WM_COMMAND, because a
+// bare SETCURSEL never updates most apps' UI.
+void notify_parent(HWND control, UINT code) {
+  const HWND parent = GetParent(control);
+  if (!parent) return;
+  const UINT_PTR id = GetDlgCtrlID(control);
+  DWORD_PTR ignored = 0;
+  (void)SendMessageTimeoutW(parent, WM_COMMAND, MAKEWPARAM(id, code),
+                            reinterpret_cast<LPARAM>(control), SMTO_ABORTIFHUNG, 2000, &ignored);
+}
+
+// Shared WM_GETTEXT two-step (AHK GetWindowTextTimeout rule); used by
+// control_get_text and list choice reads. Unreadable text reads as empty
+// (AHK rule), never as an error.
+void read_control_text(HWND control, std::wstring& out) {
+  DWORD_PTR length = 0;
+  if (!send5(control, WM_GETTEXTLENGTH, 0, 0, length) || length == 0) {
+    out.clear();
+    return;
+  }
+  std::wstring buffer(static_cast<std::size_t>(length) + 1, L'\0');
+  DWORD_PTR copied = 0;
+  if (!send5(control, WM_GETTEXT, static_cast<WPARAM>(buffer.size()),
+             reinterpret_cast<LPARAM>(buffer.data()), copied) ||
+      copied == 0) {
+    out.clear();
+    return;
+  }
+  if (copied > buffer.size() - 1) copied = buffer.size() - 1;
+  while (copied > 0 && buffer[copied - 1] == L'\0') --copied;
+  out.assign(buffer.data(), copied);
 }
 
 // Button VK -> down/up message pair. X buttons ride WM_XBUTTONDOWN/UP with
@@ -220,23 +298,7 @@ rime::core::Error WindowService::control_get_text(const std::uint64_t id, std::s
         }
         // AHK GetWindowTextTimeout rule: length first (0 means empty, not an
         // error), then the text, clamped against lying reporters.
-        DWORD_PTR length = 0;
-        if (!SendMessageTimeoutW(control, WM_GETTEXTLENGTH, 0, 0, SMTO_ABORTIFHUNG, 5000,
-                                 &length) ||
-            length == 0) {
-          return;
-        }
-        std::wstring buffer(static_cast<std::size_t>(length) + 1, L'\0');
-        DWORD_PTR copied = 0;
-        if (!SendMessageTimeoutW(control, WM_GETTEXT, static_cast<WPARAM>(buffer.size()),
-                                 reinterpret_cast<LPARAM>(buffer.data()), SMTO_ABORTIFHUNG, 5000,
-                                 &copied) ||
-            copied == 0) {
-          return;
-        }
-        if (copied > buffer.size() - 1) copied = buffer.size() - 1;
-        while (copied > 0 && buffer[copied - 1] == L'\0') --copied;
-        wide.assign(buffer.data(), copied);
+        read_control_text(control, wide);
       },
       timeout);
   if (!call_error.ok()) return call_error;
@@ -397,8 +459,7 @@ rime::core::Error WindowService::control_alive(const std::uint64_t id, bool& out
 
 rime::core::Error WindowService::control_id_for_hwnd(const std::uint64_t window_id, void* hwnd,
                                                       std::uint64_t& out,
-                                                      const std::chrono::milliseconds timeout) {
-  if (past_deadline(timeout)) {
+                                                      const std::chrono::milliseconds timeout) {  if (past_deadline(timeout)) {
     return {Code::InvalidContract, "control hwnd resolve timed out before dispatch"};
   }
   Error result = Error::none();
@@ -439,6 +500,788 @@ rime::core::Error WindowService::control_id_for_hwnd(const std::uint64_t window_
           return;
         }
         out = state.found;
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+// ---- List family (@rime/control Phase 2) ---------------------------------
+// Message tables straight from script_autoit.cpp: ControlChooseIndex
+// (CB/LB_SETCURSEL, multi LB_SETSEL cumulative), ControlChooseString
+// (CB/LB_SELECTSTRING, multi LB_FINDSTRING + LB_SETSEL), ControlNotifyParent
+// (two WM_COMMAND round-trips - a bare SETCURSEL never updates most apps).
+
+namespace {
+
+struct ListMsgs {
+  UINT add;
+  UINT del;
+  UINT select_text;
+  UINT find;
+  UINT get_current;
+  UINT get_count;
+  UINT get_text_len;
+  UINT get_text;
+  UINT notify1;
+  UINT notify2;
+};
+
+ListMsgs combo_msgs() {
+  return {CB_ADDSTRING, CB_DELETESTRING, CB_SELECTSTRING, CB_FINDSTRINGEXACT, CB_GETCURSEL,
+          CB_GETCOUNT, CB_GETLBTEXTLEN, CB_GETLBTEXT, CBN_SELCHANGE, CBN_SELENDOK};
+}
+
+ListMsgs list_msgs() {
+  return {LB_ADDSTRING, LB_DELETESTRING, LB_SELECTSTRING, LB_FINDSTRINGEXACT, LB_GETCURSEL,
+          LB_GETCOUNT, LB_GETTEXTLEN, LB_GETTEXT, LBN_SELCHANGE, LBN_DBLCLK};
+}
+
+}  // namespace
+
+rime::core::Error WindowService::control_list_add(const std::uint64_t id, const std::wstring& text,
+                                                  int& index1,
+                                                  const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control list add timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        const auto kind = list_kind_of(control);
+        if (!kind.has_value()) {
+          result = {Code::InvalidContract, "control is not a ComboBox or ListBox"};
+          return;
+        }
+        const ListMsgs msgs = *kind == ControlListKind::Combo ? combo_msgs() : list_msgs();
+        DWORD_PTR added = 0;
+        if (!send2(control, msgs.add, 0, reinterpret_cast<LPARAM>(text.c_str()), added) ||
+            added == static_cast<DWORD_PTR>(CB_ERR)) {
+          result = {Code::ExecutionFailed, "control did not accept the item"};
+          return;
+        }
+        index1 = static_cast<int>(added) + 1;  // 1-based externally (AHK rule)
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_list_delete(const std::uint64_t id, const int index1,
+                                                     const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control list delete timed out before dispatch"};
+  }
+  if (index1 < 1) return {Code::InvalidContract, "control list index starts at 1"};
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        const auto kind = list_kind_of(control);
+        if (!kind.has_value()) {
+          result = {Code::InvalidContract, "control is not a ComboBox or ListBox"};
+          return;
+        }
+        const ListMsgs msgs = *kind == ControlListKind::Combo ? combo_msgs() : list_msgs();
+        DWORD_PTR deleted = 0;
+        if (!send2(control, msgs.del, static_cast<WPARAM>(index1 - 1), 0, deleted) ||
+            deleted == static_cast<DWORD_PTR>(CB_ERR)) {
+          result = {Code::ExecutionFailed, "control did not delete the item"};
+          return;
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_list_choose_index(
+    const std::uint64_t id, const int index1, const bool notify,
+    const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control list choose timed out before dispatch"};
+  }
+  if (index1 < 0) return {Code::InvalidContract, "control list index starts at 1 (-1 clears)"};
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        const auto kind = list_kind_of(control);
+        if (!kind.has_value()) {
+          result = {Code::InvalidContract, "control is not a ComboBox or ListBox"};
+          return;
+        }
+        DWORD_PTR applied = 0;
+        UINT notify1 = 0;
+        UINT notify2 = 0;
+        if (*kind == ControlListKind::Combo) {
+          if (!send2(control, CB_SETCURSEL, static_cast<WPARAM>(index1 - 1), 0, applied) ||
+              (applied == static_cast<DWORD_PTR>(CB_ERR) && index1 != 0)) {
+            result = {Code::ExecutionFailed, "control did not select the index"};
+            return;
+          }
+          notify1 = CBN_SELCHANGE;
+          notify2 = CBN_SELENDOK;
+        } else if (is_multi_select_list(control)) {
+          // Multi-select uses the cumulative method (AHK rule): TRUE adds to
+          // the selection; index -1 in the wire form clears it.
+          if (!send2(control, LB_SETSEL, index1 == 0 ? FALSE : TRUE,
+                     static_cast<LPARAM>(index1 - 1), applied) ||
+              (applied == static_cast<DWORD_PTR>(LB_ERR) && index1 != 0)) {
+            result = {Code::ExecutionFailed, "control did not select the index"};
+            return;
+          }
+          notify1 = LBN_SELCHANGE;
+          notify2 = LBN_DBLCLK;
+        } else {
+          if (!send2(control, LB_SETCURSEL, static_cast<WPARAM>(index1 - 1), 0, applied) ||
+              (applied == static_cast<DWORD_PTR>(LB_ERR) && index1 != 0)) {
+            result = {Code::ExecutionFailed, "control did not select the index"};
+            return;
+          }
+          notify1 = LBN_SELCHANGE;
+          notify2 = LBN_DBLCLK;
+        }
+        if (notify) {
+          notify_parent(control, notify1);
+          notify_parent(control, notify2);
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_list_choose_text(
+    const std::uint64_t id, const std::wstring& text, const bool notify,
+    const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control list choose timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        const auto kind = list_kind_of(control);
+        if (!kind.has_value()) {
+          result = {Code::InvalidContract, "control is not a ComboBox or ListBox"};
+          return;
+        }
+        DWORD_PTR found = 0;
+        UINT notify1 = 0;
+        UINT notify2 = 0;
+        if (*kind == ControlListKind::Combo) {
+          if (!send2(control, CB_SELECTSTRING, static_cast<WPARAM>(-1),
+                     reinterpret_cast<LPARAM>(text.c_str()), found) ||
+              found == static_cast<DWORD_PTR>(CB_ERR)) {
+            result = {Code::ExecutionFailed, "control has no such item"};
+            return;
+          }
+          notify1 = CBN_SELCHANGE;
+          notify2 = CBN_SELENDOK;
+        } else if (is_multi_select_list(control)) {
+          // LB_SELECTSTRING is unsupported by multi-select lists (AHK rule):
+          // find first, then accumulate with LB_SETSEL.
+          if (!send2(control, LB_FINDSTRING, static_cast<WPARAM>(-1),
+                     reinterpret_cast<LPARAM>(text.c_str()), found) ||
+              found == static_cast<DWORD_PTR>(LB_ERR)) {
+            result = {Code::ExecutionFailed, "control has no such item"};
+            return;
+          }
+          DWORD_PTR applied = 0;
+          if (!send2(control, LB_SETSEL, TRUE, static_cast<LPARAM>(found), applied) ||
+              applied == static_cast<DWORD_PTR>(LB_ERR)) {
+            result = {Code::ExecutionFailed, "control did not select the item"};
+            return;
+          }
+          notify1 = LBN_SELCHANGE;
+          notify2 = LBN_DBLCLK;
+        } else {
+          if (!send2(control, LB_SELECTSTRING, static_cast<WPARAM>(-1),
+                     reinterpret_cast<LPARAM>(text.c_str()), found) ||
+              found == static_cast<DWORD_PTR>(LB_ERR)) {
+            result = {Code::ExecutionFailed, "control has no such item"};
+            return;
+          }
+          notify1 = LBN_SELCHANGE;
+          notify2 = LBN_DBLCLK;
+        }
+        if (notify) {
+          notify_parent(control, notify1);
+          notify_parent(control, notify2);
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_list_find(const std::uint64_t id,
+                                                   const std::wstring& text, int& index1,
+                                                   const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control list find timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        const auto kind = list_kind_of(control);
+        if (!kind.has_value()) {
+          result = {Code::InvalidContract, "control is not a ComboBox or ListBox"};
+          return;
+        }
+        const ListMsgs msgs = *kind == ControlListKind::Combo ? combo_msgs() : list_msgs();
+        DWORD_PTR found = 0;
+        if (!send2(control, msgs.find, static_cast<WPARAM>(-1),
+                   reinterpret_cast<LPARAM>(text.c_str()), found)) {
+          result = {Code::ExecutionFailed, "control search failed"};
+          return;
+        }
+        // 0 means not found (AHK rule); CB_ERR and LB_ERR share the value.
+        index1 = (found == static_cast<DWORD_PTR>(CB_ERR)) ? 0 : static_cast<int>(found) + 1;
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_list_index(const std::uint64_t id, int& index1,
+                                                    const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control list index read timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        const auto kind = list_kind_of(control);
+        if (!kind.has_value()) {
+          result = {Code::InvalidContract, "control is not a ComboBox or ListBox"};
+          return;
+        }
+        const UINT message =
+            *kind == ControlListKind::Combo ? CB_GETCURSEL : LB_GETCURSEL;
+        DWORD_PTR current = 0;
+        if (!send2(control, message, 0, 0, current)) {
+          result = {Code::ExecutionFailed, "control selection read failed"};
+          return;
+        }
+        index1 = (current == static_cast<DWORD_PTR>(CB_ERR)) ? 0 : static_cast<int>(current) + 1;
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_list_choice(const std::uint64_t id, const int index1,
+                                                     std::string& out,
+                                                     const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control list choice read timed out before dispatch"};
+  }
+  out.clear();
+  Error result = Error::none();
+  std::wstring wide;
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        const auto kind = list_kind_of(control);
+        if (!kind.has_value()) {
+          result = {Code::InvalidContract, "control is not a ComboBox or ListBox"};
+          return;
+        }
+        const ListMsgs msgs = *kind == ControlListKind::Combo ? combo_msgs() : list_msgs();
+        int zero_based = index1 - 1;
+        if (index1 == 0) {
+          // Omitted index reads the current one (AHK rule).
+          DWORD_PTR current = 0;
+          const UINT message =
+              *kind == ControlListKind::Combo ? CB_GETCURSEL : LB_GETCURSEL;
+          if (!send2(control, message, 0, 0, current) ||
+              current == static_cast<DWORD_PTR>(CB_ERR)) {
+            return;
+          }
+          zero_based = static_cast<int>(current);
+        } else if (index1 < 0) {
+          result = {Code::InvalidContract, "control list index starts at 1 (0 reads current)"};
+          return;
+        }
+        DWORD_PTR length = 0;
+        if (!send2(control, msgs.get_text_len, static_cast<WPARAM>(zero_based), 0, length)) {
+          result = {Code::ExecutionFailed, "control item read failed"};
+          return;
+        }
+        std::wstring buffer(static_cast<std::size_t>(length) + 1, L'\0');
+        DWORD_PTR copied = 0;
+        if (!send2(control, msgs.get_text, static_cast<WPARAM>(zero_based),
+                   reinterpret_cast<LPARAM>(buffer.data()), copied) ||
+            copied == 0) {
+          return;
+        }
+        if (copied > buffer.size() - 1) copied = buffer.size() - 1;
+        wide.assign(buffer.data(), copied);
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  if (!result.ok()) return result;
+  out = to_utf8(wide);
+  return Error::none();
+}
+
+rime::core::Error WindowService::control_list_items(const std::uint64_t id,
+                                                    const std::size_t limit,
+                                                    std::vector<std::string>& out,
+                                                    const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control list items read timed out before dispatch"};
+  }
+  if (limit == 0 || limit > 10'000) {
+    return {Code::InvalidContract, "control list items limit must be in 1..10000"};
+  }
+  out.clear();
+  Error result = Error::none();
+  std::vector<std::wstring> wides;
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        const auto kind = list_kind_of(control);
+        if (!kind.has_value()) {
+          result = {Code::InvalidContract, "control is not a ComboBox or ListBox"};
+          return;
+        }
+        const ListMsgs msgs = *kind == ControlListKind::Combo ? combo_msgs() : list_msgs();
+        DWORD_PTR count = 0;
+        if (!send2(control, msgs.get_count, 0, 0, count) ||
+            count == static_cast<DWORD_PTR>(CB_ERR)) {
+          return;
+        }
+        const std::size_t total =
+            (std::min)(static_cast<std::size_t>(count), limit);
+        for (std::size_t i = 0; i < total; ++i) {
+          DWORD_PTR length = 0;
+          if (!send2(control, msgs.get_text_len, static_cast<WPARAM>(i), 0, length)) {
+            result = {Code::ExecutionFailed, "control item read failed"};
+            return;
+          }
+          std::wstring buffer(static_cast<std::size_t>(length) + 1, L'\0');
+          DWORD_PTR copied = 0;
+          if (!send2(control, msgs.get_text, static_cast<WPARAM>(i),
+                     reinterpret_cast<LPARAM>(buffer.data()), copied) ||
+              copied == 0) {
+            wides.emplace_back();
+            continue;
+          }
+          if (copied > buffer.size() - 1) copied = buffer.size() - 1;
+          wides.emplace_back(buffer.data(), copied);
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  if (!result.ok()) return result;
+  for (const auto& wide : wides) out.push_back(to_utf8(wide));
+  return Error::none();
+}
+
+rime::core::Error WindowService::control_tab_select(const std::uint64_t id, const int index1,
+                                                    const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control tab select timed out before dispatch"};
+  }
+  if (index1 < 1) return {Code::InvalidContract, "control tab index starts at 1"};
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        wchar_t tab_class[256] = {0};
+        if (GetClassNameW(control, tab_class, 256) == 0 ||
+            !ascii_case_insensitive_contains(tab_class, L"tab")) {
+          result = {Code::InvalidContract, "control is not a tab control"};
+          return;
+        }
+        DWORD_PTR applied = 0;
+        if (!send2(control, TCM_SETCURFOCUS, static_cast<WPARAM>(index1 - 1), 0, applied)) {
+          result = {Code::ExecutionFailed, "control did not select the tab"};
+          return;
+        }
+        // Button-style tabs never notify the parent on focus change (AHK
+        // rule): synthesize the space key the user would press instead,
+        // because WM_NOTIFY cannot cross processes.
+        const LONG_PTR style = GetWindowLongPtrW(control, GWL_STYLE);
+        if ((style & TCS_BUTTONS) != 0) {
+          if (!PostMessageW(control, WM_KEYDOWN, VK_SPACE, 0) ||
+              !PostMessageW(control, WM_KEYUP, VK_SPACE, 0)) {
+            result = {Code::ExecutionFailed, "control did not press the tab button"};
+            return;
+          }
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_edit_count(const std::uint64_t id, int& lines,
+                                                    const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control edit count timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        DWORD_PTR count = 0;
+        if (!send2(control, EM_GETLINECOUNT, 0, 0, count)) {
+          result = {Code::ExecutionFailed, "control line count failed"};
+          return;
+        }
+        lines = static_cast<int>(count);
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_edit_caret(const std::uint64_t id, int& line1, int& col1,
+                                                    const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control edit caret timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        // AHK's fast caret math (not Au3's decrement loop): selection start
+        // -> line of start -> line start index -> column. All 1-based out.
+        DWORD_PTR sel_start = 0;
+        DWORD_PTR sel_end = 0;
+        DWORD_PTR sel_status = 0;
+        if (!send2(control, EM_GETSEL, reinterpret_cast<WPARAM>(&sel_start),
+                   reinterpret_cast<LPARAM>(&sel_end), sel_status)) {
+          result = {Code::ExecutionFailed, "control selection read failed"};
+          return;
+        }
+        DWORD_PTR line = 0;
+        if (!send2(control, EM_LINEFROMCHAR, sel_start, 0, line)) {
+          result = {Code::ExecutionFailed, "control line read failed"};
+          return;
+        }
+        DWORD_PTR line_start = 0;
+        if (!send2(control, EM_LINEINDEX, line, 0, line_start) ||
+            line_start == static_cast<DWORD_PTR>(-1)) {
+          result = {Code::ExecutionFailed, "control line start read failed"};
+          return;
+        }
+        line1 = static_cast<int>(line) + 1;
+        col1 = static_cast<int>(sel_start - line_start) + 1;
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_edit_line(const std::uint64_t id, const int line1,
+                                                   std::string& out,
+                                                   const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control edit line timed out before dispatch"};
+  }
+  if (line1 < 1) return {Code::InvalidContract, "control edit line starts at 1"};
+  out.clear();
+  Error result = Error::none();
+  std::wstring wide;
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        // EM_GETLINE reads into a caller-sized buffer (first word = size);
+        // 0 means empty line OR out of range - EM_GETLINECOUNT tells apart.
+        std::wstring buffer(32767 + 1, L'\0');
+        *reinterpret_cast<WORD*>(buffer.data()) = 32767;
+        DWORD_PTR copied = 0;
+        if (!send2(control, EM_GETLINE, static_cast<WPARAM>(line1 - 1),
+                   reinterpret_cast<LPARAM>(buffer.data()), copied)) {
+          result = {Code::ExecutionFailed, "control line read failed"};
+          return;
+        }
+        if (copied == 0) {
+          DWORD_PTR count = 0;
+          if (!send2(control, EM_GETLINECOUNT, 0, 0, count)) {
+            result = {Code::ExecutionFailed, "control line count failed"};
+            return;
+          }
+          if (static_cast<int>(count) < line1) {
+            result = {Code::InvalidContract, "control edit line is past the last line"};
+            return;
+          }
+          return;
+        }
+        wide.assign(buffer.data(), copied);
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  if (!result.ok()) return result;
+  out = to_utf8(wide);
+  return Error::none();
+}
+
+rime::core::Error WindowService::control_edit_selected(const std::uint64_t id, std::string& out,
+                                                       const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control edit selection timed out before dispatch"};
+  }
+  out.clear();
+  Error result = Error::none();
+  std::wstring wide;
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        DWORD_PTR sel_start = 0;
+        DWORD_PTR sel_end = 0;
+        DWORD_PTR sel_status = 0;
+        if (!send2(control, EM_GETSEL, reinterpret_cast<WPARAM>(&sel_start),
+                   reinterpret_cast<LPARAM>(&sel_end), sel_status)) {
+          result = {Code::ExecutionFailed, "control selection read failed"};
+          return;
+        }
+        if (sel_end <= sel_start) return;
+        read_control_text(control, wide);
+        // Slice [start, end) in characters (AHK rule; RichEdit-correct,
+        // unlike byte loops).
+        if (sel_start >= wide.size()) return;
+        wide = wide.substr(static_cast<std::size_t>(sel_start),
+                           static_cast<std::size_t>(sel_end - sel_start));
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  if (!result.ok()) return result;
+  out = to_utf8(wide);
+  return Error::none();
+}
+
+rime::core::Error WindowService::control_edit_paste(const std::uint64_t id,
+                                                    const std::wstring& text,
+                                                    const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control edit paste timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        DWORD_PTR ignored = 0;
+        if (!send2(control, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(text.c_str()),
+                   ignored)) {
+          result = {Code::ExecutionFailed, "control did not accept the paste"};
+          return;
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_set_checked(const std::uint64_t id, const int checked,
+                                                    const bool ensure_active,
+                                                    const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control check set timed out before dispatch"};
+  }
+  if (checked < -1 || checked > 1) {
+    return {Code::InvalidContract, "control check must be -1, 0 or 1"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        const bool toggle = checked == -1;
+        const bool want = toggle ? false : (checked == 1);
+        if (!toggle) {
+          // Pre-check (AHK rule): already there means done.
+          DWORD_PTR state = 0;
+          if (!send2(control, BM_GETCHECK, 0, 0, state)) {
+            result = {Code::ExecutionFailed, "control check read failed"};
+            return;
+          }
+          if ((state == BST_CHECKED) == want) return;
+        }
+        if (ensure_active) {
+          // BM_CLICK wants its dialog active (MSDN rule, AHK comment).
+          const HWND root = GetAncestor(control, GA_ROOT);
+          const DWORD target_thread =
+              root ? GetWindowThreadProcessId(root, nullptr) : 0;
+          const DWORD self_thread = GetCurrentThreadId();
+          if (target_thread != 0 && target_thread != self_thread &&
+              !IsHungAppWindow(root)) {
+            if (AttachThreadInput(self_thread, target_thread, TRUE) != FALSE) {
+              SetActiveWindow(root);
+              AttachThreadInput(self_thread, target_thread, FALSE);
+            }
+          }
+        }
+        RECT rect{};
+        if (!GetWindowRect(control, &rect)) {
+          result = {Code::ExecutionFailed, "cannot read the control rect"};
+          return;
+        }
+        // Synthetic center click, not BM_SETCHECK/BM_CLICK: WM_NOTIFY cannot
+        // cross processes, and the click path is what AHK proved compatible.
+        const LPARAM center =
+            MAKELPARAM((rect.right - rect.left) / 2, (rect.bottom - rect.top) / 2);
+        if (!PostMessageW(control, WM_LBUTTONDOWN, MK_LBUTTON, center) ||
+            !PostMessageW(control, WM_LBUTTONUP, 0, center)) {
+          result = {Code::ExecutionFailed, "cannot post the check click"};
+          return;
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_is_checked(const std::uint64_t id, bool& out,
+                                                    const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control check read timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        DWORD_PTR state = 0;
+        if (!send2(control, BM_GETCHECK, 0, 0, state)) {
+          result = {Code::ExecutionFailed, "control check read failed"};
+          return;
+        }
+        out = state == BST_CHECKED;
       },
       timeout);
   if (!call_error.ok()) return call_error;

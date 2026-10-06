@@ -71,6 +71,54 @@ export interface ControlBridge {
   rect(id: ControlId): ControlRect;
   /** Liveness probe. True while the id resolves; ids are never recycled. */
   dispose(id: ControlId): boolean;
+  /** Adds an item; resolves the 1-based index. */
+  listAdd(id: ControlId, text: string, options?: NativeActionOptions): Promise<{ index: number }>;
+  /** Deletes the 1-based index. */
+  listDelete(id: ControlId, index: number, options?: NativeActionOptions): Promise<{ deleted: true }>;
+  /** Selects by index (0 clears) or text; notifies the parent by default. */
+  listChoose(
+    id: ControlId,
+    sel: { index: number } | { text: string },
+    notifyParent?: boolean,
+    options?: NativeActionOptions,
+  ): Promise<{ chosen: true }>;
+  /** Exact-match find; 0 means no match (a result, not an error). */
+  listFind(id: ControlId, text: string, options?: NativeActionOptions): Promise<{ index: number }>;
+  /** Current selection, 1-based, 0 when nothing is selected. */
+  listIndex(id: ControlId, options?: NativeActionOptions): Promise<{ index: number }>;
+  /** Text of an item (omitted index reads the current one). */
+  listChoice(
+    id: ControlId,
+    index?: number,
+    options?: NativeActionOptions,
+  ): Promise<{ text: string }>;
+  /** All items up to `limit` (default 100, max 10000). */
+  listItems(
+    id: ControlId,
+    limit?: number,
+    options?: NativeActionOptions,
+  ): Promise<{ items: string[] }>;
+  /** Selects a tab page (1-based). */
+  tabSelect(id: ControlId, index: number, options?: NativeActionOptions): Promise<{ selected: true }>;
+  /** Edit line count. */
+  editCount(id: ControlId, options?: NativeActionOptions): Promise<{ lines: number }>;
+  /** Caret position, 1-based. */
+  editCaret(id: ControlId, options?: NativeActionOptions): Promise<{ line: number; col: number }>;
+  /** Line text, 1-based. */
+  editLine(id: ControlId, line: number, options?: NativeActionOptions): Promise<{ text: string }>;
+  /** Currently selected text (empty when nothing is selected). */
+  editSelected(id: ControlId, options?: NativeActionOptions): Promise<{ text: string }>;
+  /** EM_REPLACESEL paste. */
+  editPaste(id: ControlId, text: string, options?: NativeActionOptions): Promise<{ text: string }>;
+  /** Checkbox set; -1 toggles. */
+  setChecked(
+    id: ControlId,
+    checked: boolean | -1 | 0 | 1,
+    ensureActive?: boolean,
+    options?: NativeActionOptions,
+  ): Promise<{ checked: boolean }>;
+  /** Checkbox state. */
+  isChecked(id: ControlId, options?: NativeActionOptions): Promise<{ checked: boolean }>;
 }
 
 async function controlBridge(): Promise<ControlBridge> {
@@ -153,6 +201,134 @@ export class Control {
     const id = this.id;
     return runAction(options, (native) =>
       controlBridge().then((bridge) => bridge.sendText(id, text, native)),
+    );
+  }
+
+  /** Adds an item; resolves the 1-based index. */
+  listAdd(text: string, options?: ActionOptions): Promise<{ index: number }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.listAdd(id, text, native)),
+    );
+  }
+
+  /** Deletes the 1-based index. */
+  listDelete(index: number, options?: ActionOptions): Promise<{ deleted: true }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.listDelete(id, index, native)),
+    );
+  }
+
+  /** Selects by index (0 clears) or text; notifies the parent by default. */
+  listChoose(
+    sel: { index: number } | { text: string },
+    notifyParent?: boolean,
+    options?: ActionOptions,
+  ): Promise<{ chosen: true }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.listChoose(id, sel, notifyParent, native)),
+    );
+  }
+
+  /** Exact-match find; 0 means no match (a result, not an error). */
+  listFind(text: string, options?: ActionOptions): Promise<{ index: number }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.listFind(id, text, native)),
+    );
+  }
+
+  /** Current selection, 1-based, 0 when nothing is selected. */
+  listIndex(options?: ActionOptions): Promise<{ index: number }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.listIndex(id, native)),
+    );
+  }
+
+  /** Text of an item (omitted index reads the current one). */
+  listChoice(index?: number, options?: ActionOptions): Promise<{ text: string }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.listChoice(id, index, native)),
+    );
+  }
+
+  /** All items up to `limit` (default 100, max 10000). */
+  listItems(limit?: number, options?: ActionOptions): Promise<{ items: string[] }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.listItems(id, limit, native)),
+    );
+  }
+
+  /** Selects a tab page (1-based). */
+  tabSelect(index: number, options?: ActionOptions): Promise<{ selected: true }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.tabSelect(id, index, native)),
+    );
+  }
+
+  /** Edit line count. */
+  editCount(options?: ActionOptions): Promise<{ lines: number }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.editCount(id, native)),
+    );
+  }
+
+  /** Caret position, 1-based. */
+  editCaret(options?: ActionOptions): Promise<{ line: number; col: number }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.editCaret(id, native)),
+    );
+  }
+
+  /** Line text, 1-based. */
+  editLine(line: number, options?: ActionOptions): Promise<{ text: string }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.editLine(id, line, native)),
+    );
+  }
+
+  /** Currently selected text (empty when nothing is selected). */
+  editSelected(options?: ActionOptions): Promise<{ text: string }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.editSelected(id, native)),
+    );
+  }
+
+  /** EM_REPLACESEL paste. */
+  editPaste(text: string, options?: ActionOptions): Promise<{ text: string }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.editPaste(id, text, native)),
+    );
+  }
+
+  /** Checkbox set; -1 toggles. */
+  setChecked(
+    checked: boolean | -1 | 0 | 1,
+    ensureActive?: boolean,
+    options?: ActionOptions,
+  ): Promise<{ checked: boolean }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.setChecked(id, checked, ensureActive, native)),
+    );
+  }
+
+  /** Checkbox state. */
+  isChecked(options?: ActionOptions): Promise<{ checked: boolean }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.isChecked(id, native)),
     );
   }
 

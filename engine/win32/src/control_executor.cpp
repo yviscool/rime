@@ -14,6 +14,7 @@
 #include <thread>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace rime::win32 {
 namespace {
@@ -27,7 +28,10 @@ using contract::fail;
 const std::unordered_set<std::string>& control_action_types() {
   static const std::unordered_set<std::string> types = {
       "control.click", "control.focus", "control.settext", "control.gettext",
-      "control.sendtext"};
+      "control.sendtext", "control.list.add", "control.list.delete", "control.list.choose",
+      "control.list.find", "control.list.index", "control.list.choice", "control.list.items",
+      "control.tab.select", "control.edit.count", "control.edit.caret", "control.edit.line",
+      "control.edit.selected", "control.edit.paste", "control.setchecked", "control.ischecked"};
   return types;
 }
 
@@ -108,6 +112,59 @@ bool read_optional_count(const rime::core::json::Value& payload, int& out) {
     return false;
   }
   out = static_cast<int>(raw);
+  return true;
+}
+
+// Required string field (text payloads).
+bool read_text_field(const rime::core::json::Value& payload, const char* key,
+                     const std::string& type, std::string& out, std::string& error) {
+  const rime::core::json::Value* field = payload.find(key);
+  if (!field || !field->is_string()) {
+    error = type + " payload requires a string " + key;
+    return false;
+  }
+  out = field->as_string();
+  return true;
+}
+
+// Required 1-based index field (0 allowed where AHK assigns it meaning).
+bool read_index_field(const rime::core::json::Value& payload, const char* key,
+                      const std::string& type, bool allow_zero, int& out, std::string& error) {
+  const rime::core::json::Value* field = payload.find(key);
+  if (!field || !field->is_number()) {
+    error = type + " payload requires an integer " + key;
+    return false;
+  }
+  const double raw = field->as_number();
+  const double low = allow_zero ? 0.0 : 1.0;
+  if (!std::isfinite(raw) || raw != std::trunc(raw) || raw < low || raw > 1'000'000.0) {
+    error = type + " " + key + " is out of range";
+    return false;
+  }
+  out = static_cast<int>(raw);
+  return true;
+}
+
+// Strict UTF-8 -> wide (MB_ERR_INVALID_CHARS): garbage in is a contract
+// error, never a silent replacement character.
+bool utf8_to_wide_strict(const std::string& utf8, std::wstring& out, std::string& error,
+                         const std::string& what) {
+  out.clear();
+  if (utf8.empty()) return true;
+  if (utf8.size() > 1'000'000) {
+    error = what + " text is too long";
+    return false;
+  }
+  std::wstring wide(utf8.size() + 1, L'\0');
+  const int converted =
+      MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.c_str(),
+                          static_cast<int>(utf8.size()), wide.data(), static_cast<int>(wide.size()));
+  if (converted <= 0) {
+    error = what + " text is not valid UTF-8";
+    return false;
+  }
+  wide.resize(static_cast<std::size_t>(converted));
+  out = std::move(wide);
   return true;
 }
 
@@ -230,27 +287,17 @@ rime::action::Result ControlExecutor::execute(const rime::action::Action& action
   }
 
   if (action.type == "control.settext" || action.type == "control.sendtext") {
-    const rime::core::json::Value* text = payload.value->find("text");
-    if (!text || !text->is_string()) {
-      return fail(action, Code::InvalidContract, action.type + " payload requires a string text");
+    std::string utf8;
+    std::string field_error;
+    if (!read_text_field(*payload.value, "text", action.type, utf8, field_error)) {
+      return fail(action, Code::InvalidContract, field_error);
     }
-    const std::string utf8 = text->as_string();
-    if (utf8.size() > 1'000'000) {
-      return fail(action, Code::InvalidContract, action.type + " text is too long");
-    }
-    // Service takes wide text; the UTF-8 -> wide step cannot fail loudly
-    // here (best-effort conversion, like the clipboard path) - an empty
-    // conversion of a non-empty input is rejected instead of silently
-    // clearing the control.
+    // Service takes wide text; the UTF-8 -> wide step rejects garbage loudly
+    // (MB_ERR_INVALID_CHARS) instead of silently clearing the control.
     std::wstring wide;
-    wide.resize(utf8.size() + 1, L'\0');
-    const int converted =
-        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.c_str(),
-                            static_cast<int>(utf8.size()), wide.data(), static_cast<int>(wide.size()));
-    if (converted <= 0 && !utf8.empty()) {
-      return fail(action, Code::InvalidContract, action.type + " text is not valid UTF-8");
+    if (!utf8_to_wide_strict(utf8, wide, field_error, action.type)) {
+      return fail(action, Code::InvalidContract, field_error);
     }
-    wide.resize(converted > 0 ? static_cast<std::size_t>(converted) : 0);
     rime::core::Error op_error = rime::core::Error::none();
     if (action.type == "control.settext") {
       op_error = service_.control_set_text(id, wide, timeout);
@@ -266,6 +313,283 @@ rime::action::Result ControlExecutor::execute(const rime::action::Action& action
     return {action.id, true, false,
             action.type == "control.settext" ? "control text set" : "control text sent", {},
             std::move(result_value)};
+  }
+
+  // ---- List family ------------------------------------------------------
+  // All list verbs resolve through the same class-substring table (AHK
+  // GetIndexControlType rule) inside the service; the executor only shapes
+  // payloads and results. Indexes are 1-based on the wire.
+  if (action.type == "control.list.add") {
+    std::string utf8;
+    std::string field_error;
+    if (!read_text_field(*payload.value, "text", action.type, utf8, field_error)) {
+      return fail(action, Code::InvalidContract, field_error);
+    }
+    std::wstring wide;
+    if (!utf8_to_wide_strict(utf8, wide, field_error, action.type)) {
+      return fail(action, Code::InvalidContract, field_error);
+    }
+    int index1 = 0;
+    if (const auto op = service_.control_list_add(id, wide, index1, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("index", rime::core::json::Value::number(static_cast<double>(index1)));
+    return {action.id, true, false, "control item added", {}, std::move(result_value)};
+  }
+  if (action.type == "control.list.delete") {
+    int index1 = 0;
+    std::string field_error;
+    if (!read_index_field(*payload.value, "index", action.type, false, index1, field_error)) {
+      return fail(action, Code::InvalidContract, field_error);
+    }
+    if (const auto op = service_.control_list_delete(id, index1, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("deleted", rime::core::json::Value::boolean(true));
+    return {action.id, true, false, "control item deleted", {}, std::move(result_value)};
+  }
+  if (action.type == "control.list.choose") {
+    const rime::core::json::Value* index_field = payload.value->find("index");
+    const rime::core::json::Value* text_field = payload.value->find("text");
+    const bool has_index = index_field != nullptr;
+    const bool has_text = text_field != nullptr;
+    if (has_index == has_text) {
+      return fail(action, Code::InvalidContract,
+                  "control.list.choose payload needs exactly one of index or text");
+    }
+    bool notify = true;
+    if (const rime::core::json::Value* notify_field = payload.value->find("notifyParent")) {
+      if (!notify_field->is_bool()) {
+        return fail(action, Code::InvalidContract,
+                    "control.list.choose notifyParent must be a boolean");
+      }
+      notify = notify_field->as_bool();
+    }
+    std::string field_error;
+    if (has_index) {
+      int index1 = 0;
+      if (!read_index_field(*payload.value, "index", action.type, true, index1, field_error)) {
+        return fail(action, Code::InvalidContract, field_error);
+      }
+      if (const auto op = service_.control_list_choose_index(id, index1, notify, timeout);
+          !op.ok()) {
+        return fail(action, op.code, op.message);
+      }
+    } else {
+      std::string utf8;
+      if (!read_text_field(*payload.value, "text", action.type, utf8, field_error)) {
+        return fail(action, Code::InvalidContract, field_error);
+      }
+      std::wstring wide;
+      if (!utf8_to_wide_strict(utf8, wide, field_error, action.type)) {
+        return fail(action, Code::InvalidContract, field_error);
+      }
+      if (const auto op = service_.control_list_choose_text(id, wide, notify, timeout);
+          !op.ok()) {
+        return fail(action, op.code, op.message);
+      }
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("chosen", rime::core::json::Value::boolean(true));
+    return {action.id, true, false, "control item chosen", {}, std::move(result_value)};
+  }
+  if (action.type == "control.list.find") {
+    std::string utf8;
+    std::string field_error;
+    if (!read_text_field(*payload.value, "text", action.type, utf8, field_error)) {
+      return fail(action, Code::InvalidContract, field_error);
+    }
+    std::wstring wide;
+    if (!utf8_to_wide_strict(utf8, wide, field_error, action.type)) {
+      return fail(action, Code::InvalidContract, field_error);
+    }
+    int index1 = 0;
+    if (const auto op = service_.control_list_find(id, wide, index1, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("index", rime::core::json::Value::number(static_cast<double>(index1)));
+    return {action.id, true, false, "control item found", {}, std::move(result_value)};
+  }
+  if (action.type == "control.list.index") {
+    int index1 = 0;
+    if (const auto op = service_.control_list_index(id, index1, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("index", rime::core::json::Value::number(static_cast<double>(index1)));
+    return {action.id, true, false, "control index read", {}, std::move(result_value)};
+  }
+  if (action.type == "control.list.choice") {
+    int index1 = 0;
+    std::string field_error;
+    if (payload.value->find("index") != nullptr) {
+      if (!read_index_field(*payload.value, "index", action.type, true, index1, field_error)) {
+        return fail(action, Code::InvalidContract, field_error);
+      }
+    }
+    std::string out;
+    if (const auto op = service_.control_list_choice(id, index1, out, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("text", rime::core::json::Value::string(out));
+    return {action.id, true, false, "control choice read", {}, std::move(result_value)};
+  }
+  if (action.type == "control.list.items") {
+    std::uint64_t limit = 100;
+    std::string field_error;
+    if (payload.value->find("limit") != nullptr) {
+      if (!read_optional_ms(*payload.value, "limit", 100, limit) || limit == 0 ||
+          limit > 10000) {
+        return fail(action, Code::InvalidContract,
+                    "control.list.items limit must be an integer in 1..10000");
+      }
+    }
+    std::vector<std::string> items;
+    if (const auto op =
+            service_.control_list_items(id, static_cast<std::size_t>(limit), items, timeout);
+        !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value array = rime::core::json::Value::array();
+    for (auto& item : items) array.push(rime::core::json::Value::string(item));
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("items", std::move(array));
+    return {action.id, true, false, "control items read", {}, std::move(result_value)};
+  }
+
+  // ---- Tab ---------------------------------------------------------------
+  if (action.type == "control.tab.select") {
+    int index1 = 0;
+    std::string field_error;
+    if (!read_index_field(*payload.value, "index", action.type, false, index1, field_error)) {
+      return fail(action, Code::InvalidContract, field_error);
+    }
+    if (const auto op = service_.control_tab_select(id, index1, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("selected", rime::core::json::Value::boolean(true));
+    return {action.id, true, false, "control tab selected", {}, std::move(result_value)};
+  }
+
+  // ---- Edit ---------------------------------------------------------------
+  if (action.type == "control.edit.count") {
+    int lines = 0;
+    if (const auto op = service_.control_edit_count(id, lines, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("lines", rime::core::json::Value::number(static_cast<double>(lines)));
+    return {action.id, true, false, "control lines counted", {}, std::move(result_value)};
+  }
+  if (action.type == "control.edit.caret") {
+    int line1 = 0;
+    int col1 = 0;
+    if (const auto op = service_.control_edit_caret(id, line1, col1, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("line", rime::core::json::Value::number(static_cast<double>(line1)));
+    result_value.set("col", rime::core::json::Value::number(static_cast<double>(col1)));
+    return {action.id, true, false, "control caret read", {}, std::move(result_value)};
+  }
+  if (action.type == "control.edit.line") {
+    int line1 = 0;
+    std::string field_error;
+    if (!read_index_field(*payload.value, "line", action.type, false, line1, field_error)) {
+      return fail(action, Code::InvalidContract, field_error);
+    }
+    std::string out;
+    if (const auto op = service_.control_edit_line(id, line1, out, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("text", rime::core::json::Value::string(out));
+    return {action.id, true, false, "control line read", {}, std::move(result_value)};
+  }
+  if (action.type == "control.edit.selected") {
+    std::string out;
+    if (const auto op = service_.control_edit_selected(id, out, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("text", rime::core::json::Value::string(out));
+    return {action.id, true, false, "control selection read", {}, std::move(result_value)};
+  }
+  if (action.type == "control.edit.paste") {
+    std::string utf8;
+    std::string field_error;
+    if (!read_text_field(*payload.value, "text", action.type, utf8, field_error)) {
+      return fail(action, Code::InvalidContract, field_error);
+    }
+    std::wstring wide;
+    if (!utf8_to_wide_strict(utf8, wide, field_error, action.type)) {
+      return fail(action, Code::InvalidContract, field_error);
+    }
+    if (const auto op = service_.control_edit_paste(id, wide, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("text", rime::core::json::Value::string(utf8));
+    return {action.id, true, false, "control text pasted", {}, std::move(result_value)};
+  }
+
+  // ---- Checkboxes ----------------------------------------------------------
+  if (action.type == "control.setchecked") {
+    const rime::core::json::Value* field = payload.value->find("checked");
+    if (!field || !field->is_number()) {
+      return fail(action, Code::InvalidContract,
+                  "control.setchecked payload requires an integer checked");
+    }
+    const double raw = field->as_number();
+    if (!std::isfinite(raw) || raw != std::trunc(raw) || raw < -1.0 || raw > 1.0) {
+      return fail(action, Code::InvalidContract,
+                  "control.setchecked checked must be -1, 0 or 1");
+    }
+    bool ensure_active = false;
+    if (const rime::core::json::Value* active = payload.value->find("ensureActive")) {
+      if (!active->is_bool()) {
+        return fail(action, Code::InvalidContract,
+                    "control.setchecked ensureActive must be a boolean");
+      }
+      ensure_active = active->as_bool();
+    }
+    if (const auto op =
+            service_.control_set_checked(id, static_cast<int>(raw), ensure_active, timeout);
+        !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("checked", rime::core::json::Value::boolean(raw != 0.0));
+    return {action.id, true, false, "control check set", {}, std::move(result_value)};
+  }
+  if (action.type == "control.ischecked") {
+    bool checked = false;
+    if (const auto op = service_.control_is_checked(id, checked, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("checked", rime::core::json::Value::boolean(checked));
+    return {action.id, true, false, "control check read", {}, std::move(result_value)};
   }
 
   // control.getText: no payload fields.

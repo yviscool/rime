@@ -346,6 +346,56 @@ class WindowService final {
   // handle is not a live descendant.
   rime::core::Error control_id_for_hwnd(std::uint64_t window_id, void* hwnd, std::uint64_t& out,
                                         std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // List family (@rime/control Phase 2): ComboBox and ListBox verbs selected
+  // by class-name substring (AHK GetIndexControlType rule), indexes 1-based
+  // externally. choose() notifies the parent (WM_COMMAND) like AHK - without
+  // it most apps never update their UI. items() caps at `limit` (AHK reads
+  // everything; Rime refuses unbounded reads).
+  enum class ControlListKind : std::uint8_t { Combo, List };
+  rime::core::Error control_list_add(std::uint64_t id, const std::wstring& text, int& index1,
+                                      std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error control_list_delete(std::uint64_t id, int index1,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error control_list_choose_index(std::uint64_t id, int index1, bool notify,
+                                              std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error control_list_choose_text(std::uint64_t id, const std::wstring& text,
+                                              bool notify,
+                                              std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // 0 means not found (AHK rule).
+  rime::core::Error control_list_find(std::uint64_t id, const std::wstring& text, int& index1,
+                                       std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Current selection, 1-based, 0 when nothing is selected.
+  rime::core::Error control_list_index(std::uint64_t id, int& index1,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Text of index (1-based; 0 selects the current one like AHK's omitted arg).
+  rime::core::Error control_list_choice(std::uint64_t id, int index1, std::string& out,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error control_list_items(std::uint64_t id, std::size_t limit,
+                                        std::vector<std::string>& out,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Tab select (AHK ControlSetTab): TCM_SETCURFOCUS, plus a synthetic space
+  // key for TCS_BUTTONS style (TCM_SETCURSEL never notifies the parent and
+  // WM_NOTIFY cannot cross processes).
+  rime::core::Error control_tab_select(std::uint64_t id, int index1,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Edit family (AHK Edit* rules): lines/columns 1-based; selected text via
+  // EM_GETSEL + full WM_GETTEXT sliced (RichEdit-correct, unlike char loops).
+  rime::core::Error control_edit_count(std::uint64_t id, int& lines,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error control_edit_caret(std::uint64_t id, int& line1, int& col1,
+                                       std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error control_edit_line(std::uint64_t id, int line1, std::string& out,
+                                       std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error control_edit_selected(std::uint64_t id, std::string& out,
+                                           std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error control_edit_paste(std::uint64_t id, const std::wstring& text,
+                                       std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Checkboxes (AHK ControlSetChecked rule): pre-check + synthetic center
+  // click (not BM_SETCHECK - compatibility), optional dialog activation.
+  rime::core::Error control_set_checked(std::uint64_t id, int checked, bool ensure_active,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error control_is_checked(std::uint64_t id, bool& out,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // MouseGetPos point query: the window (and control) under the screen point
   // (x, y), resolved entirely on the UI lane. The control search replicates
   // AHK EnumChildFindPoint: visible children whose rect contains the point,

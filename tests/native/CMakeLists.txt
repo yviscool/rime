@@ -133,7 +133,7 @@ if (WIN32)
   add_test(NAME rime_automation_service COMMAND rime_automation_tests)
 
   add_executable(rime_control_tests control_tests.cpp)
-  target_link_libraries(rime_control_tests PRIVATE rime_win32 rime_action rime_core rime_test_support)
+  target_link_libraries(rime_control_tests PRIVATE rime_win32 rime_action rime_core rime_test_support comctl32)
   target_compile_features(rime_control_tests PRIVATE cxx_std_20)
   if (MINGW)
     target_link_options(rime_control_tests PRIVATE -static-libstdc++ -static-libgcc)

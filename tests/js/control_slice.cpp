@@ -15,6 +15,8 @@
 
 #include <windows.h>
 
+#include <commctrl.h>
+
 #include <atomic>
 #include <cassert>
 #include <chrono>
@@ -93,7 +95,7 @@ class TargetWindow final {
 
     HWND window = CreateWindowExW(
         0, k_class, L"Rime Control JS Target", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-        480, 300, nullptr, nullptr, window_class.hInstance, nullptr);
+        480, 360, nullptr, nullptr, window_class.hInstance, nullptr);
     if (!window) return;
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
     HWND button = CreateWindowExW(
@@ -103,7 +105,15 @@ class TargetWindow final {
         0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL, 40, 100,
         240, 32, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(2)), window_class.hInstance,
         nullptr);
-    if (!button || !edit) {
+    HWND combo = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+                                 40, 150, 240, 120, window,
+                                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(3)),
+                                 window_class.hInstance, nullptr);
+    HWND check = CreateWindowExW(0, L"BUTTON", L"RimeControlJsCheck",
+                                 WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 40, 230, 240, 28,
+                                 window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(4)),
+                                 window_class.hInstance, nullptr);
+    if (!button || !edit || !combo || !check) {
       DestroyWindow(window);
       return;
     }
@@ -301,6 +311,70 @@ int main() {
         "  throw new Error('dispose of a dead id must be false');\n",
         "control-sync.mjs");
   assert(runtime.settle(5000ms).ok());
+
+  // ---- Phase 2: list verbs on a ComboBox ------------------------------------
+  check(runtime,
+        "globalThis.combo = await globalThis.control.resolve(globalThis.windowId, "
+        "  { classNN: 'ComboBox1' });\n"
+        "if (globalThis.combo.classNN !== 'ComboBox1') throw new Error('combo resolve failed');\n"
+        "const added = await globalThis.control.listAdd(globalThis.combo.id, 'red');\n"
+        "if (!added || added.index !== 1) throw new Error('listAdd must resolve { index: 1 }');\n"
+        "await globalThis.control.listAdd(globalThis.combo.id, 'green');\n"
+        "await globalThis.control.listAdd(globalThis.combo.id, 'blue');\n"
+        "const found = await globalThis.control.listFind(globalThis.combo.id, 'green');\n"
+        "if (!found || found.index !== 2) throw new Error('listFind must resolve 2');\n"
+        "const miss = await globalThis.control.listFind(globalThis.combo.id, 'nope');\n"
+        "if (!miss || miss.index !== 0) throw new Error('a find miss must resolve { index: 0 }');\n"
+        "await globalThis.control.listChoose(globalThis.combo.id, { index: 3 });\n"
+        "const cur = await globalThis.control.listIndex(globalThis.combo.id);\n"
+        "if (!cur || cur.index !== 3) throw new Error('listIndex must resolve 3');\n"
+        "const choice = await globalThis.control.listChoice(globalThis.combo.id);\n"
+        "if (!choice || choice.text !== 'blue') throw new Error('listChoice must be blue');\n"
+        "const items = await globalThis.control.listItems(globalThis.combo.id, 10);\n"
+        "if (!items || JSON.stringify(items.items) !== '[\"red\",\"green\",\"blue\"]')\n"
+        "  throw new Error('listItems mismatch: ' + JSON.stringify(items));\n"
+        "await globalThis.control.listDelete(globalThis.combo.id, 2);\n"
+        "const after = await globalThis.control.listItems(globalThis.combo.id);\n"
+        "if (JSON.stringify(after.items) !== '[\"red\",\"blue\"]')\n"
+        "  throw new Error('listDelete failed: ' + JSON.stringify(after));\n",
+        "control-list.mjs");
+  assert(runtime.settle(5000ms).ok());
+
+  // Shape errors for the new verbs stay synchronous TypeErrors.
+  check(runtime,
+        "for (const bad of [\n"
+        "  () => globalThis.control.listAdd(globalThis.combo.id),\n"
+        "  () => globalThis.control.listAdd(globalThis.combo.id, 42),\n"
+        "  () => globalThis.control.listDelete(globalThis.combo.id, 0),\n"
+        "  () => globalThis.control.listChoose(globalThis.combo.id, {}),\n"
+        "  () => globalThis.control.listChoose(globalThis.combo.id, { index: 1, text: 'x' }),\n"
+        "  () => globalThis.control.listItems(globalThis.combo.id, 0),\n"
+        "  () => globalThis.control.tabSelect(globalThis.combo.id, 0),\n"
+        "  () => globalThis.control.editLine(globalThis.edit.id, 0),\n"
+        "  () => globalThis.control.setChecked(globalThis.combo.id, 2),\n"
+        "]) {\n"
+        "  let threw = false;\n"
+        "  try { bad(); } catch (e) { threw = e instanceof TypeError; }\n"
+        "  if (!threw) throw new Error('phase-2 shape error must be a TypeError');\n"
+        "}\n",
+        "control-list-shape.mjs");
+  assert(runtime.settle(5000ms).ok());
+
+  // Checkbox through the pipeline (posted clicks converge like the native test).
+  check(runtime,
+        "globalThis.check = await globalThis.control.resolve(globalThis.windowId, "
+        "  { text: 'RimeControlJsCheck' });\n"
+        "const off = await globalThis.control.isChecked(globalThis.check.id);\n"
+        "if (!off || off.checked !== false) throw new Error('fresh checkbox must be off');\n"
+        "await globalThis.control.setChecked(globalThis.check.id, true);\n"
+        "globalThis.checkOn = null;\n"
+        "for (let i = 0; i < 200; i++) {\n"
+        "  const s = await globalThis.control.isChecked(globalThis.check.id);\n"
+        "  if (s && s.checked === true) { globalThis.checkOn = s; break; }\n"
+        "}\n"
+        "if (!globalThis.checkOn) throw new Error('checkbox never turned on');\n",
+        "control-check.mjs");
+  assert(runtime.settle(15000ms).ok());
 
   assert(runtime.stop().ok());
   assert(windows.stop().ok());

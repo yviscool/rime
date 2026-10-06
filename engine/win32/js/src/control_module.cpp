@@ -505,12 +505,376 @@ JSValue control_send_text(JSContext* context, JSValueConst, int argc, JSValueCon
                       binding);
 }
 
-// control.getText(id[, options]) -> { text }
+// control.gettext(id[, options]) -> { text }
 JSValue control_get_text(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                          void* opaque) {
   auto* binding = static_cast<ControlModuleBinding*>(opaque);
   return control_action(context, argc, argv, "getText(id[, options])", "control.gettext", "{}",
                         binding);
+}
+
+// ---- Phase 2 verbs --------------------------------------------------------
+// Routes one control action: strict id + prebuilt JSON payload + options.
+JSValue dispatch_control(JSContext* context, JSValueConst id_value, JSValueConst options_value,
+                         bool has_options, const char* signature, const char* type,
+                         json::Value payload, ControlModuleBinding* binding) {
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
+    return JS_ThrowInternalError(context, "rime:control is not wired");
+  }
+  std::uint64_t id = 0;
+  if (!strict_control_id(context, id_value, id, signature)) return JS_EXCEPTION;
+  if (!binding->kernel->allows("windows.automation.control")) {
+    return throw_capability_error(context, "windows.automation.control");
+  }
+  ActionOptions options;
+  if (has_options && !parse_action_options(context, options_value, options)) return JS_EXCEPTION;
+  auto action = make_action(*binding->next_action_id, "rime:control", type,
+                            "windows.automation.control",
+                            {"control", std::to_string(id)}, json::stringify(payload), options);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
+}
+
+// control.listAdd(id, text[, options]) -> { index }
+JSValue control_list_add(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                         void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 2 || argc > 3) return JS_ThrowTypeError(context, "listAdd(id, text[, options])");
+  if (!JS_IsString(argv[1])) {
+    return JS_ThrowTypeError(context, "listAdd(id, text): text must be a string");
+  }
+  const char* text = JS_ToCString(context, argv[1]);
+  if (!text) return JS_EXCEPTION;
+  json::Value payload = json::Value::object();
+  payload.set("text", json::Value::string(text));
+  JS_FreeCString(context, text);
+  return dispatch_control(context, argv[0], argc == 3 ? argv[2] : JS_UNDEFINED, argc == 3,
+                          "listAdd(id, text)", "control.list.add", std::move(payload), binding);
+}
+
+// control.listDelete(id, index[, options]) -> { deleted: true }
+JSValue control_list_delete(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                            void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 2 || argc > 3) return JS_ThrowTypeError(context, "listDelete(id, index[, options])");
+  double number = 0;
+  if (!JS_IsNumber(argv[1]) || JS_ToFloat64(context, &number, argv[1]) ||
+      !std::isfinite(number) || std::trunc(number) != number || number < 1.0 ||
+      number > 1000000.0) {
+    return JS_ThrowTypeError(context, "listDelete: index must be an integer >= 1");
+  }
+  json::Value payload = json::Value::object();
+  payload.set("index", json::Value::number(number));
+  return dispatch_control(context, argv[0], argc == 3 ? argv[2] : JS_UNDEFINED, argc == 3,
+                          "listDelete(id, index)", "control.list.delete", std::move(payload),
+                          binding);
+}
+
+// control.listChoose(id, {index}|{text}[, notifyParent][, options])
+JSValue control_list_choose(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                            void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 2 || argc > 4)
+    return JS_ThrowTypeError(context, "listChoose(id, sel[, notifyParent[, options]])");
+  if (!is_plain_object(argv[1])) {
+    return JS_ThrowTypeError(context, "listChoose: sel must be {index} or {text}");
+  }
+  json::Value payload = json::Value::object();
+  JSValue index_value = JS_GetPropertyStr(context, argv[1], "index");
+  if (JS_IsException(index_value)) return JS_EXCEPTION;
+  const bool has_index = !JS_IsUndefined(index_value) && !JS_IsNull(index_value);
+  JSValue text_value = JS_GetPropertyStr(context, argv[1], "text");
+  if (JS_IsException(text_value)) {
+    JS_FreeValue(context, index_value);
+    return JS_EXCEPTION;
+  }
+  const bool has_text = !JS_IsUndefined(text_value) && !JS_IsNull(text_value);
+  if (has_index == has_text) {
+    JS_FreeValue(context, index_value);
+    JS_FreeValue(context, text_value);
+    return JS_ThrowTypeError(context, "listChoose: sel needs exactly one of index or text");
+  }
+  if (has_index) {
+    double number = 0;
+    if (!JS_IsNumber(index_value) || JS_ToFloat64(context, &number, index_value) ||
+        !std::isfinite(number) || std::trunc(number) != number || number < 0.0 ||
+        number > 1000000.0) {
+      JS_FreeValue(context, index_value);
+      JS_FreeValue(context, text_value);
+      return JS_ThrowTypeError(context, "listChoose: index must be an integer >= 0");
+    }
+    payload.set("index", json::Value::number(number));
+  } else {
+    if (!JS_IsString(text_value)) {
+      JS_FreeValue(context, index_value);
+      JS_FreeValue(context, text_value);
+      return JS_ThrowTypeError(context, "listChoose: text must be a string");
+    }
+    const char* text = JS_ToCString(context, text_value);
+    if (!text) {
+      JS_FreeValue(context, index_value);
+      JS_FreeValue(context, text_value);
+      return JS_EXCEPTION;
+    }
+    payload.set("text", json::Value::string(text));
+    JS_FreeCString(context, text);
+  }
+  JS_FreeValue(context, index_value);
+  JS_FreeValue(context, text_value);
+  bool notify = true;
+  bool notify_present = false;
+  int notify_arg = 2;
+  if (argc >= 3 && (JS_IsBool(argv[2]) || JS_IsUndefined(argv[2]) || JS_IsNull(argv[2]))) {
+    if (JS_IsBool(argv[2])) {
+      notify = JS_ToBool(context, argv[2]) != 0;
+      notify_present = true;
+    }
+    notify_arg = 3;
+  }
+  if (notify_present) payload.set("notifyParent", json::Value::boolean(notify));
+  const int options_arg = notify_arg;
+  const bool has_options = argc > options_arg;
+  return dispatch_control(context, argv[0], has_options ? argv[options_arg] : JS_UNDEFINED,
+                          has_options, "listChoose(id, sel[, notifyParent[, options]])",
+                          "control.list.choose", std::move(payload), binding);
+}
+
+// control.listFind(id, text[, options]) -> { index } (0 = miss, a result)
+JSValue control_list_find(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                          void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 2 || argc > 3) return JS_ThrowTypeError(context, "listFind(id, text[, options])");
+  if (!JS_IsString(argv[1])) {
+    return JS_ThrowTypeError(context, "listFind(id, text): text must be a string");
+  }
+  const char* text = JS_ToCString(context, argv[1]);
+  if (!text) return JS_EXCEPTION;
+  json::Value payload = json::Value::object();
+  payload.set("text", json::Value::string(text));
+  JS_FreeCString(context, text);
+  return dispatch_control(context, argv[0], argc == 3 ? argv[2] : JS_UNDEFINED, argc == 3,
+                          "listFind(id, text)", "control.list.find", std::move(payload), binding);
+}
+
+// control.listIndex(id[, options]) -> { index }
+JSValue control_list_index(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                           void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "listIndex(id[, options])");
+  return dispatch_control(context, argv[0], argc == 2 ? argv[1] : JS_UNDEFINED, argc == 2,
+                          "listIndex(id)", "control.list.index", json::Value::object(), binding);
+}
+
+// control.listChoice(id[, index[, options]]) -> { text }
+JSValue control_list_choice(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                            void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 1 || argc > 3) return JS_ThrowTypeError(context, "listChoice(id[, index[, options]])");
+  json::Value payload = json::Value::object();
+  JSValueConst options_value = JS_UNDEFINED;
+  bool has_options = false;
+  if (argc >= 2 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+    if (is_plain_object(argv[1])) {
+      if (argc > 2) {
+        return JS_ThrowTypeError(context, "listChoice(id[, index[, options]]): too many arguments");
+      }
+      options_value = argv[1];
+      has_options = true;
+    } else {
+      double number = 0;
+      if (!JS_IsNumber(argv[1]) || JS_ToFloat64(context, &number, argv[1]) ||
+          !std::isfinite(number) || std::trunc(number) != number || number < 0.0 ||
+          number > 1000000.0) {
+        return JS_ThrowTypeError(context, "listChoice: index must be an integer >= 0");
+      }
+      payload.set("index", json::Value::number(number));
+      if (argc == 3) {
+        options_value = argv[2];
+        has_options = true;
+      }
+    }
+  } else if (argc == 3) {
+    options_value = argv[2];
+    has_options = true;
+  }
+  return dispatch_control(context, argv[0], options_value, has_options,
+                          "listChoice(id[, index[, options]])", "control.list.choice",
+                          std::move(payload), binding);
+}
+
+// control.listItems(id[, limit[, options]]) -> { items[] }
+JSValue control_list_items(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                           void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 1 || argc > 3) return JS_ThrowTypeError(context, "listItems(id[, limit[, options]])");
+  json::Value payload = json::Value::object();
+  JSValueConst options_value = JS_UNDEFINED;
+  bool has_options = false;
+  if (argc >= 2 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+    if (is_plain_object(argv[1])) {
+      if (argc > 2) {
+        return JS_ThrowTypeError(context, "listItems(id[, limit[, options]]): too many arguments");
+      }
+      options_value = argv[1];
+      has_options = true;
+    } else {
+      double number = 0;
+      if (!JS_IsNumber(argv[1]) || JS_ToFloat64(context, &number, argv[1]) ||
+          !std::isfinite(number) || std::trunc(number) != number || number < 1.0 ||
+          number > 10000.0) {
+        return JS_ThrowTypeError(context, "listItems: limit must be an integer in 1..10000");
+      }
+      payload.set("limit", json::Value::number(number));
+      if (argc == 3) {
+        options_value = argv[2];
+        has_options = true;
+      }
+    }
+  } else if (argc == 3) {
+    options_value = argv[2];
+    has_options = true;
+  }
+  return dispatch_control(context, argv[0], options_value, has_options,
+                          "listItems(id[, limit[, options]])", "control.list.items",
+                          std::move(payload), binding);
+}
+
+// control.tabSelect(id, index[, options]) -> { selected: true }
+JSValue control_tab_select(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                           void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 2 || argc > 3) return JS_ThrowTypeError(context, "tabSelect(id, index[, options])");
+  double number = 0;
+  if (!JS_IsNumber(argv[1]) || JS_ToFloat64(context, &number, argv[1]) ||
+      !std::isfinite(number) || std::trunc(number) != number || number < 1.0 ||
+      number > 1000000.0) {
+    return JS_ThrowTypeError(context, "tabSelect: index must be an integer >= 1");
+  }
+  json::Value payload = json::Value::object();
+  payload.set("index", json::Value::number(number));
+  return dispatch_control(context, argv[0], argc == 3 ? argv[2] : JS_UNDEFINED, argc == 3,
+                          "tabSelect(id, index)", "control.tab.select", std::move(payload),
+                          binding);
+}
+
+// control.editCount(id[, options]) -> { lines }
+JSValue control_edit_count(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                           void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "editCount(id[, options])");
+  return dispatch_control(context, argv[0], argc == 2 ? argv[1] : JS_UNDEFINED, argc == 2,
+                          "editCount(id)", "control.edit.count", json::Value::object(), binding);
+}
+
+// control.editCaret(id[, options]) -> { line, col }
+JSValue control_edit_caret(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                           void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "editCaret(id[, options])");
+  return dispatch_control(context, argv[0], argc == 2 ? argv[1] : JS_UNDEFINED, argc == 2,
+                          "editCaret(id)", "control.edit.caret", json::Value::object(), binding);
+}
+
+// control.editLine(id, line[, options]) -> { text }
+JSValue control_edit_line(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                          void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 2 || argc > 3) return JS_ThrowTypeError(context, "editLine(id, line[, options])");
+  double number = 0;
+  if (!JS_IsNumber(argv[1]) || JS_ToFloat64(context, &number, argv[1]) ||
+      !std::isfinite(number) || std::trunc(number) != number || number < 1.0 ||
+      number > 1000000.0) {
+    return JS_ThrowTypeError(context, "editLine: line must be an integer >= 1");
+  }
+  json::Value payload = json::Value::object();
+  payload.set("line", json::Value::number(number));
+  return dispatch_control(context, argv[0], argc == 3 ? argv[2] : JS_UNDEFINED, argc == 3,
+                          "editLine(id, line)", "control.edit.line", std::move(payload), binding);
+}
+
+// control.editSelected(id[, options]) -> { text }
+JSValue control_edit_selected(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                              void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "editSelected(id[, options])");
+  return dispatch_control(context, argv[0], argc == 2 ? argv[1] : JS_UNDEFINED, argc == 2,
+                          "editSelected(id)", "control.edit.selected", json::Value::object(),
+                          binding);
+}
+
+// control.editPaste(id, text[, options]) -> { text }
+JSValue control_edit_paste(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                           void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 2 || argc > 3) return JS_ThrowTypeError(context, "editPaste(id, text[, options])");
+  if (!JS_IsString(argv[1])) {
+    return JS_ThrowTypeError(context, "editPaste(id, text): text must be a string");
+  }
+  const char* text = JS_ToCString(context, argv[1]);
+  if (!text) return JS_EXCEPTION;
+  json::Value payload = json::Value::object();
+  payload.set("text", json::Value::string(text));
+  JS_FreeCString(context, text);
+  return dispatch_control(context, argv[0], argc == 3 ? argv[2] : JS_UNDEFINED, argc == 3,
+                          "editPaste(id, text)", "control.edit.paste", std::move(payload),
+                          binding);
+}
+
+// control.setChecked(id, checked[, ensureActive[, options]])
+// checked: true/false/-1 (toggle). Resolves { checked }.
+JSValue control_set_checked(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                            void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 2 || argc > 4)
+    return JS_ThrowTypeError(context, "setChecked(id, checked[, ensureActive[, options]])");
+  json::Value payload = json::Value::object();
+  if (JS_IsBool(argv[1])) {
+    payload.set("checked", json::Value::number(JS_ToBool(context, argv[1]) != 0 ? 1.0 : 0.0));
+  } else {
+    double number = 0;
+    if (!JS_IsNumber(argv[1]) || JS_ToFloat64(context, &number, argv[1]) ||
+        !std::isfinite(number) || std::trunc(number) != number || number < -1.0 ||
+        number > 1.0) {
+      return JS_ThrowTypeError(context, "setChecked: checked must be a boolean or -1, 0, 1");
+    }
+    payload.set("checked", json::Value::number(number));
+  }
+  // argv[2]: ensureActive bool, or the options object when no flag given.
+  JSValueConst options_value = JS_UNDEFINED;
+  bool has_options = false;
+  if (argc >= 3 && !JS_IsUndefined(argv[2]) && !JS_IsNull(argv[2])) {
+    if (JS_IsBool(argv[2])) {
+      payload.set("ensureActive", json::Value::boolean(JS_ToBool(context, argv[2]) != 0));
+      if (argc == 4) {
+        options_value = argv[3];
+        has_options = true;
+      }
+    } else if (is_plain_object(argv[2])) {
+      if (argc > 3) {
+        return JS_ThrowTypeError(
+            context, "setChecked(id, checked[, ensureActive[, options]]): too many arguments");
+      }
+      options_value = argv[2];
+      has_options = true;
+    } else {
+      return JS_ThrowTypeError(context, "setChecked: ensureActive must be a boolean");
+    }
+  } else if (argc == 4) {
+    options_value = argv[3];
+    has_options = true;
+  }
+  return dispatch_control(context, argv[0], options_value, has_options,
+                          "setChecked(id, checked[, ensureActive[, options]])",
+                          "control.setchecked", std::move(payload), binding);
+}
+
+// control.isChecked(id[, options]) -> { checked }
+JSValue control_is_checked(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                           void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "isChecked(id[, options])");
+  return dispatch_control(context, argv[0], argc == 2 ? argv[1] : JS_UNDEFINED, argc == 2,
+                          "isChecked(id)", "control.ischecked", json::Value::object(), binding);
 }
 
 // Synchronous queries: single Win32 reads, no Action, capability
@@ -633,7 +997,15 @@ int control_module_init(JSContext* context, JSModuleDef* module) {
       !add("focus", control_focus, 1) || !add("setText", control_set_text, 2) ||
       !add("getText", control_get_text, 1) || !add("sendText", control_send_text, 2) ||
       !add("isVisible", control_is_visible, 1) || !add("isEnabled", control_is_enabled, 1) ||
-      !add("rect", control_rect, 1) || !add("dispose", control_dispose, 1)) {
+      !add("rect", control_rect, 1) || !add("dispose", control_dispose, 1) ||
+      !add("listAdd", control_list_add, 2) || !add("listDelete", control_list_delete, 2) ||
+      !add("listChoose", control_list_choose, 2) || !add("listFind", control_list_find, 2) ||
+      !add("listIndex", control_list_index, 1) || !add("listChoice", control_list_choice, 1) ||
+      !add("listItems", control_list_items, 1) || !add("tabSelect", control_tab_select, 2) ||
+      !add("editCount", control_edit_count, 1) || !add("editCaret", control_edit_caret, 1) ||
+      !add("editLine", control_edit_line, 2) || !add("editSelected", control_edit_selected, 1) ||
+      !add("editPaste", control_edit_paste, 2) || !add("setChecked", control_set_checked, 2) ||
+      !add("isChecked", control_is_checked, 1)) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "control", control);
