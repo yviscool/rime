@@ -522,6 +522,12 @@
       "actions": ["automation.invoke"]
     },
     {
+      "name": "windows.automation.control",
+      "status": "planned",
+      "plannedBy": "docs/api/control.md (Phase 1: resolve/click/focus/setText/getText/sendText/sendKeys/checked/visibility/geometry/message)",
+      "actions": []
+    },
+    {
       "name": "process.inspect",
       "status": "implemented",
       "declared": "engine/win32/js/src/process_module.cpp:49",
@@ -600,7 +606,8 @@
         "engine/win32/js/src/screen_module.cpp:127",
         "engine/win32/js/src/screen_module.cpp:187",
         "engine/win32/js/src/screen_module.cpp:284",
-        "engine/win32/js/src/screen_module.cpp:349"
+        "engine/win32/js/src/screen_module.cpp:349",
+        "engine/win32/js/src/screen_module.cpp:389"
       ],
       "actions": []
     },
@@ -728,6 +735,11 @@
       "api": "screen.imageSearch(area, imagePath, options)",
       "capability": "screen.capture",
       "site": "engine/win32/js/src/screen_module.cpp:349"
+    },
+    {
+      "api": "screen.caret(options?)",
+      "capability": "screen.capture",
+      "site": "engine/win32/js/src/screen_module.cpp:389"
     }
   ]
 }
