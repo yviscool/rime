@@ -109,6 +109,7 @@ Bootstrap::Bootstrap(std::unordered_set<std::string> capabilities)
   automation_binding_ = {&automation_service_, &kernel_, &dispatcher_, &next_action_id_};
   storage_binding_ = {&storage_service_, &kernel_, &dispatcher_, &next_action_id_};
   registry_binding_ = {&registry_service_, &kernel_, &dispatcher_, &next_action_id_};
+  screen_binding_ = {&screen_service_, &kernel_};
 }
 
 Bootstrap::~Bootstrap() { (void)stop(); }
@@ -134,6 +135,9 @@ rime::core::Error Bootstrap::register_modules(rime::js::Runtime& runtime) {
   }
   if (const auto error = register_registry_module(runtime, &registry_binding_); !error.ok()) {
     return module_error("rime:registry", error);
+  }
+  if (const auto error = register_screen_module(runtime, &screen_binding_); !error.ok()) {
+    return module_error("rime:screen", error);
   }
   return rime::core::Error::none();
 }
@@ -263,7 +267,8 @@ std::unordered_set<std::string> production_capabilities() {
           "windows.hook.global", "windows.automation.find", "windows.automation.read",
           "windows.automation.invoke", "process.inspect", "process.launch",
           "process.terminate", "process.manage", "process.runas", "process.shutdown",
-          "filesystem.read", "filesystem.write", "registry.read", "registry.write"};
+          "filesystem.read", "filesystem.write", "registry.read", "registry.write",
+          "screen.capture"};
 }
 
 // Reload ceiling (AHK Reload itself has none): a script that asks for a

@@ -18,6 +18,7 @@ add_library(rime_win32 STATIC
   src/context_watcher.cpp
   src/registry.cpp
   src/registry_executor.cpp
+  src/screen.cpp
   src/storage.cpp
   src/storage_executor.cpp
 )

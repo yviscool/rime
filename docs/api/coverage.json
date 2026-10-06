@@ -2124,10 +2124,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/screen",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "screen.capture",
-      "contractTest": "missing",
+      "contractTest": "tests/native/screen_tests.cpp,tests/js/screen_slice.cpp",
       "lane": "ui/worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2139,10 +2139,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/screen",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "screen.capture",
-      "contractTest": "missing",
+      "contractTest": "tests/native/screen_tests.cpp,tests/js/screen_slice.cpp",
       "lane": "ui/worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2154,10 +2154,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/screen",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "screen.capture",
-      "contractTest": "missing",
+      "contractTest": "tests/native/screen_tests.cpp,tests/js/screen_slice.cpp",
       "lane": "ui/worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2169,10 +2169,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/screen",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "screen.capture",
-      "contractTest": "missing",
+      "contractTest": "tests/native/screen_tests.cpp,tests/js/screen_slice.cpp",
       "lane": "ui/worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2184,10 +2184,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/screen",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "screen.capture",
-      "contractTest": "missing",
+      "contractTest": "tests/native/screen_tests.cpp,tests/js/screen_slice.cpp",
       "lane": "ui/worker",
       "cancellation": "deadline+AbortSignal"
     },

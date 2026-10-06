@@ -592,6 +592,16 @@
       "actions": ["registry.write"]
     },
     {
+      "name": "screen.capture",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/screen_module.cpp:26",
+      "checked": [
+        "engine/win32/js/src/screen_module.cpp:91",
+        "engine/win32/js/src/screen_module.cpp:124"
+      ],
+      "actions": []
+    },
+    {
       "name": "media.sound",
       "status": "planned",
       "plannedBy": "docs/api/core-builtins.json (SoundGet/Set*)",
@@ -690,6 +700,16 @@
       "api": "registry.read(key, name)",
       "capability": "registry.read",
       "site": "engine/win32/js/src/registry_module.cpp:125"
+    },
+    {
+      "api": "screen.monitorCount()",
+      "capability": "screen.capture",
+      "site": "engine/win32/js/src/screen_module.cpp:91"
+    },
+    {
+      "api": "screen.monitor(index?)",
+      "capability": "screen.capture",
+      "site": "engine/win32/js/src/screen_module.cpp:124"
     }
   ]
 }

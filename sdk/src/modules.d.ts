@@ -25,6 +25,11 @@ declare module "rime:clipboard" {
   export { clipboard };
 }
 
+declare module "rime:screen" {
+  const screen: import("./screen").ScreenBridge;
+  export { screen };
+}
+
 declare module "rime:automation" {
   const automation: import("./automation").AutomationBridge;
   export { automation };
