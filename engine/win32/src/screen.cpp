@@ -216,4 +216,25 @@ Error ScreenService::image_search(const int left, const int top, const int right
   return Error::none();
 }
 
+ScreenService::Caret ScreenService::caret() const {
+  Caret out;
+  const HWND foreground = GetForegroundWindow();
+  if (!foreground) return out;
+  const DWORD thread = GetWindowThreadProcessId(foreground, nullptr);
+  if (thread == 0) return out;
+  GUITHREADINFO info{};
+  info.cbSize = sizeof(info);
+  if (!GetGUIThreadInfo(thread, &info) || !info.hwndCaret) return out;
+  // rcCaret is in the caret window's client coordinates; the conversion is the
+  // one AHK performs (vars.cpp:1012). A window that vanished between the two
+  // calls would leave screen coordinates that mean nothing, so it is reported
+  // as "no caret" rather than as a wrong point.
+  POINT point{info.rcCaret.left, info.rcCaret.top};
+  if (!ClientToScreen(info.hwndCaret, &point)) return out;
+  out.found = true;
+  out.x = point.x;
+  out.y = point.y;
+  return out;
+}
+
 }  // namespace rime::win32

@@ -1,8 +1,8 @@
 # Screen API
 
-状态：`implemented`（Monitor 族 + Pixel 族 + ImageSearch，含接线）：`screen.monitorCount()`、`screen.monitor(index?)`、`screen.pixel(x, y)`、`screen.pixelSearch(area, color, options)`、`screen.imageSearch(area, imagePath, options)` 已具备 Native service、纯扫描层、图像解码层、`rime:screen` 模块、SDK 门面与三层 contract（`tests/native/screen_tests.cpp`、`tests/js/screen_slice.cpp`）；`contracts/registry/actions.json` 的 `screen.capture` capability 行与 `readSurfaces` 五行、`Bootstrap` 接线与 `production_capabilities()`、`sdk/src/modules.d.ts` 的 `declare module "rime:screen"` 均已落地（逐项见"实现状态"）。
+状态：`implemented`（Monitor 族 + Pixel 族 + ImageSearch + CaretGetPos，含接线）：`screen.monitorCount()`、`screen.monitor(index?)`、`screen.pixel(x, y)`、`screen.pixelSearch(area, color, options)`、`screen.imageSearch(area, imagePath, options)`、`screen.caret(options)` 已具备 Native service、纯扫描层、图像解码层、`rime:screen` 模块、SDK 门面与三层 contract（`tests/native/screen_tests.cpp`、`tests/js/screen_slice.cpp`）；`contracts/registry/actions.json` 的 `screen.capture` capability 行与 `readSurfaces` 六行、`Bootstrap` 接线与 `production_capabilities()`、`sdk/src/modules.d.ts` 的 `declare module "rime:screen"` 均已落地（逐项见"实现状态"）。
 
-仍为 `contract-only`：`CaretGetPos`、`SysGet`、`SysGetIPAddresses`（逐行状态见 `docs/api/coverage.json`）。
+仍为 `contract-only`：`SysGet`、`SysGetIPAddresses`（逐行状态见 `docs/api/coverage.json`）。
 
 源码证据：`functions.h` 的 `Monitor*`、`SysGet`、`Pixel*`、`ImageSearch`、`CaretGetPos`；`source/lib/env.cpp`（Monitor 族实现）、`source/lib/pixel.cpp`、`source/lib/win.cpp`；`source/window.h:193-199` 的 `MonitorInfoPackage` 与 `COUNT_ALL_MONITORS INT_MIN`。
 
@@ -17,12 +17,14 @@
 | `screen.pixel(x, y, options?)` | Promise，直读服务（不入队） | worker lane | `screen.capture` | `PixelGetColor` |
 | `screen.pixelSearch(area, color, options?)` | Promise，直读服务（不入队） | worker lane | `screen.capture` | `PixelSearch` |
 | `screen.imageSearch(area, imagePath, options?)` | Promise，直读服务（不入队） | worker lane | `screen.capture` | `ImageSearch` |
+| `screen.caret(options?)` | Promise，直读服务（不入队） | worker lane | `screen.capture` | `CaretGetPos` |
 
-模块导出为 `screen`（注册名 `rime:screen`），五个函数原生 `length` 均为 `0`（可选参数不能用 arity 表达）。`monitor` 的首位参数按类型分流：数字是 `index`，`undefined`/`null`/对象是 `options`（因此 `screen.monitor(options)` 也合法），其余同步抛 `TypeError`。
+模块导出为 `screen`（注册名 `rime:screen`），六个函数原生 `length` 均为 `0`（可选参数不能用 arity 表达）。`monitor` 的首位参数按类型分流：数字是 `index`，`undefined`/`null`/对象是 `options`（因此 `screen.monitor(options)` 也合法），其余同步抛 `TypeError`。
 
 ```ts
 interface ScreenRect { left: number; top: number; right: number; bottom: number; }
 type ScreenPixelSearchResult = { found: false } | { found: true; x: number; y: number };
+type ScreenCaretResult = { found: false } | { found: true; x: number; y: number };
 interface ScreenPixelSearchOptions extends ActionOptions { variation?: number; }
 interface ScreenMonitor {
   index: number;    // 1-based, EnumDisplayMonitors 顺序
@@ -36,6 +38,7 @@ screen.monitor(index?, options?): Promise<ScreenMonitor>;
 screen.pixel(x, y, options?): Promise<number>;            // 0xRRGGBB
 screen.pixelSearch(area, color, options?): Promise<ScreenPixelSearchResult>;
 screen.imageSearch(area, imagePath, options?): Promise<ScreenPixelSearchResult>;
+screen.caret(options?): Promise<ScreenCaretResult>;       // 屏幕坐标
 ```
 
 `imagePath` 必须是字符串（否则同步 `TypeError`），按 UTF-8 交给解码层；`area` 与 `pixelSearch` 是同一个 `ScreenRect`。
@@ -47,8 +50,9 @@ screen.imageSearch(area, imagePath, options?): Promise<ScreenPixelSearchResult>;
 - `rime-research/AutoHotkey-alpha/source/lib/env.cpp:92-207`：`EnumMonitorProc`（回调填 `MonitorInfoPackage`）、`EnumForMonitorGet`（`COUNT_ALL_MONITORS INT_MIN` 时计数、否则取指定 monitor）、`MonitorGetCount`、`MonitorGetPrimary`、`MonitorGet(MonitorGetWorkArea)`、`MonitorGetName`。
 - `rime-research/AutoHotkey-alpha/source/window.h:193-199`：`MonitorInfoPackage{left, top, right, bottom, work_left, work_top, work_right, work_bottom}` 与 `COUNT_ALL_MONITORS`。
 - `rime-research/AutoHotkey-alpha/source/lib/pixel.cpp:145-640`：`PixelSearch` 与 `ImageSearch` 的共同骨架（`SET_COLOR_RANGE` 的 variation 规则、`red_low`/`red_high` 的不回绕语义、first-pixel optimization、`*` 选项解析、方向感知扫描）。
-- Rime 实现：`engine/win32/src/screen.cpp`（service、`clip_area` 与 `collect_monitor`）、`engine/win32/src/screen_pixels.cpp`（纯匹配层）、`engine/win32/src/screen_seam.cpp`（捕获 seam）、`engine/win32/src/image_loader.cpp`（GDI+ 解码）、`engine/win32/js/src/screen_module.cpp`（`rime:screen`）、`sdk/src/screen.ts`（SDK 门面）。
-- Win32 表面只有 `EnumDisplayMonitors` 与 `GetMonitorInfoW`（`user32`，由现有链接提供）；不使用 `SM_CMONITORS`（见"设计取舍"）。
+- `rime-research/AutoHotkey-alpha/source/lib/vars.cpp:991-1021`：`CaretGetPos`——前台窗口线程的 `GetGUIThreadInfo`、`hwndCaret` 判定、`rcCaret` 经 `ClientToScreen` 转屏幕坐标；无前台窗口或无 caret 时把输出变量置空并返回 FALSE。
+- Rime 实现：`engine/win32/src/screen.cpp`（service、`clip_area`、`caret` 与 `collect_monitor`）、`engine/win32/src/screen_pixels.cpp`（纯匹配层）、`engine/win32/src/screen_seam.cpp`（捕获 seam）、`engine/win32/src/image_loader.cpp`（GDI+ 解码）、`engine/win32/js/src/screen_module.cpp`（`rime:screen`）、`sdk/src/screen.ts`（SDK 门面）。
+- Win32 表面只有 `EnumDisplayMonitors`、`GetMonitorInfoW` 与 `GetForegroundWindow`/`GetGUIThreadInfo`/`ClientToScreen`（`user32`，由现有链接提供）；不使用 `SM_CMONITORS`（见"设计取舍"）。
 
 ## TS 类型
 
@@ -68,7 +72,7 @@ declare module "rime:screen" {
 }
 ```
 
-JS 边界的坐标与计数都是**虚拟桌面像素**（`rcMonitor`/`rcWork` 原样，可能为负——副屏在主屏左侧时 `left < 0`）。DPI 缩放不做隐式换算：返回的就是 `GetMonitorInfoW` 给的设备像素，调用方需要逻辑像素时自己除以 `GetDpiForWindow` 类的比例。颜色统一为 `0xRRGGBB` 数字，`pixel`/`pixelSearch`/`imageSearch` 共用同一种格式；caret 属于后续提交，本阶段类型里没有。
+JS 边界的坐标与计数都是**虚拟桌面像素**（`rcMonitor`/`rcWork` 原样，可能为负——副屏在主屏左侧时 `left < 0`）。DPI 缩放不做隐式换算：返回的就是 `GetMonitorInfoW` 给的设备像素，调用方需要逻辑像素时自己除以 `GetDpiForWindow` 类的比例。颜色统一为 `0xRRGGBB` 数字，`pixel`/`pixelSearch`/`imageSearch` 共用同一种格式；`caret` 返回同一种坐标空间的 `x`/`y`（屏幕坐标，见下）。
 
 ## 底层实现
 
@@ -157,6 +161,17 @@ JS 边界的坐标与计数都是**虚拟桌面像素**（`rcMonitor`/`rcWork` �
 4. 扫描方向与 `PixelSearch` 同一偏差：矩形归一化后按行主序取第一个命中，不跟随四角顺序换方向。
 5. 结果形状不同：AHK 用 `ErrorLevel` 1（屏幕上没找到）/2（文件问题）加输出变量；本实现"屏幕上没找到"是 `{found:false}`，文件问题是 `invalid_contract` 拒绝，没有第三种状态。
 
+## CaretGetPos（`caret`）
+
+第五个入口，也是唯一一个**不走捕获 seam** 的：caret 不是屏幕像素，而是焦点控件的状态，Win32 只能通过前台线程的 `GetGUIThreadInfo` 读到。
+
+- 语义对齐 `vars.cpp:991-1021`：`GetForegroundWindow()` → `GetWindowThreadProcessId` 取线程 → `GetGUIThreadInfo` → 要求 `hwndCaret` 非空 → `rcCaret`（caret 窗口的客户区坐标）经 `ClientToScreen` 转成屏幕坐标。
+- **没有 caret 不是错误**：无前台窗口、GUI 线程信息读不到、没有 caret、或窗口在两次调用之间消失（转换失败）都是 `{found:false}`，与 `pixelSearch` 的 miss 同形状、同样不带坐标；AHK 用"输出变量置空 + 返回 FALSE"表达同一状态。
+- 坐标固定是**屏幕坐标**，不跟随任何 CoordMode：AHK 会按 `CoordMode, Caret` 的设置用 `CoordToScreen(origin, COORD_MODE_CARET)` 换算成窗口/客户区相对坐标，本 runtime 尚无 CoordMode，因此不提供换算——这是该入口唯一一条坐标语义偏差，且方向是"少一个可变行为"。
+- 只有前台窗口的 caret 读得到：caret 属于焦点控件，而焦点只在前台线程里。要断言一个已知 caret，必须先让目标窗口拿到前台（生产 `window.focus()` 的激活阶梯），测试就是这么安排的。
+- 不用 UIA/`IAccessible`：`GetGUIThreadInfo` 是无 COM、无 Apartment 的 user32 调用，COM 路径会额外引入跨线程封送与完整性级别的失败面，而两者的输出一致。
+- 这个入口没有 `invalid_contract`/`execution_failed`：调用方没有参数可错，系统侧没有"资源不可用"与"没有 caret"的区别，全部折叠进 `found:false`。
+
 ## contract / native / stress 测试
 
 - `tests/native/screen_tests.cpp`（L5，一个文件内四层）：
@@ -167,9 +182,10 @@ JS 边界的坐标与计数都是**虚拟桌面像素**（`rcMonitor`/`rcWork` �
   - 真实端到端：从真实捕获里裁 4x4 作针，在**同一区域**搜索必须命中 (0,0)（针与区域等大 → 只有一个候选位置，不依赖桌面显示什么）；翻转针里一个通道的位之后必须 miss——命中与未命中两条都在真实捕获上走完整链路。
   - 随后**还原 seam** 再测真实捕获：16x16 矩形的宽高与字节数、`pixel_color(0,0)` 成功。
   - Monitor 部分：真实 `EnumDisplayMonitors` 下断言 `count >= 1`；`1..count` 全部可取且 `index` 自洽、名字非空、`work ⊆ bounds`、`right > left`；`count+1` 拒 `invalid_contract` 且消息含 `does not exist` 与该序号；负数拒 `invalid_contract`；恰有一个 `primary` 且 `monitor_at(0)` 就是那一条；`monitor_at(0)` 与按号码取它的记录在 bounds/work/name 上逐字相等。**计数的正确性由"`1..count` 成功且 `count+1` 失败"这对断言双向夹住**，不在测试里重写一遍枚举逻辑（否则会与被测实现同错同绿）。
-- `tests/js/screen_slice.cpp`（L5）：生产接线（`rime:screen` + 真实 `ScreenService`），pixel 与 image 段都注入合成屏以拿到字面量期望，BMP 针由测试自己写。段 1 用**运行时启动前先做的 native 读**作独立观察，逐字段比对 JS 返回的 count 与 primary 记录；段 2 钉住 `monitor(1)`/`monitor(count)`/`count+1 → invalid_contract`/`-1 → RangeError`/`'one' → TypeError`；段 3 钉住 `pixel(3,5)` 的字面量色、`pixelSearch` 命中 `(2,3)`、`{found:false}` 不带坐标、越界矩形 → `invalid_contract`、`1.5 → TypeError`、`9999999999 → RangeError`、`0x1000000 → RangeError`；段 4 钉住 `imageSearch` 命中 `(2,3)`、两种"针放不下/没有像素"的 miss、坏文件与越界区域的错误码、路径非字符串与 options 非对象的 `TypeError`、`variation: 300` 的 `RangeError`；随后断言 trace 为空；最后用空 capability 的第二个 runtime（同 `registry_slice` 的写法，JS lane 进程级，必须先停第一个）证明五个入口都按 `screen.capture` 拒绝。
-- `tests/sdk/screen.test.ts`（L3，`bun test --isolate tests/sdk`）：真 facade + 仪表化 `rime:screen` 桥（桥是环境，不是被测单元）。回归钉点是 `pixelSearch`/`imageSearch` 必须把 `variation` 与 action options **一起**交给 bridge——`runAction` 按字段重建 bridge 参数，域名参数由门面合并，丢掉它就等于静默改掉搜索语义；另有解包、miss 不带坐标、`ActionError` code 映射。
-- stress：本域无队列、无 Hook、无重入路径，当前没有单独 stress 测试；caret 查询落地后再看是否需要（那时才有时序问题）。
+  - caret 部分：本测试自己搭一个**前台窗口 + caret**——无边框 popup（客户区 == 窗口矩形）由 `WindowService` 建在它自己的 UI 线程上（建在本线程就不会泵消息，桌面上会显示成点不动的黑窗，激活阶梯还会堵在它上面），caret 也由该线程创建，前台用生产 `focus()` 的阶梯争抢并在到手后 `GetForegroundWindow()` 复核；期望点 = `GetWindowRect` + 本测试写入的偏移，**不经过被测查询**。命中后断言精确坐标，`HideCaret`/`DestroyCaret` 之后（窗口仍是前台）必须 `found:false`。取不到前台是环境抢占，按 FLAKY 协议隔离复跑，不允许降级断言。
+- `tests/js/screen_slice.cpp`（L5）：生产接线（`rime:screen` + 真实 `ScreenService`），pixel 与 image 段都注入合成屏以拿到字面量期望，BMP 针由测试自己写。caret 段**排在最前**（它是唯一依赖桌面的读）：同样自建前台窗口 + caret，先在 native 侧断言期望点，再钉 JS 侧的 `{found:true,x,y}` 与 `Object.keys` 恰好三个键、销毁 caret 后的 `{found:false}` 且只有 `found` 一个键。段 1 用**运行时启动前先做的 native 读**作独立观察，逐字段比对 JS 返回的 count 与 primary 记录；段 2 钉住 `monitor(1)`/`monitor(count)`/`count+1 → invalid_contract`/`-1 → RangeError`/`'one' → TypeError`；段 3 钉住 `pixel(3,5)` 的字面量色、`pixelSearch` 命中 `(2,3)`、`{found:false}` 不带坐标、越界矩形 → `invalid_contract`、`1.5 → TypeError`、`9999999999 → RangeError`、`0x1000000 → RangeError`；段 4 钉住 `imageSearch` 命中 `(2,3)`、两种"针放不下/没有像素"的 miss、坏文件与越界区域的错误码、路径非字符串与 options 非对象的 `TypeError`、`variation: 300` 的 `RangeError`；随后断言 trace 为空；最后用空 capability 的第二个 runtime（同 `registry_slice` 的写法，JS lane 进程级，必须先停第一个）证明六个入口都按 `screen.capture` 拒绝。
+- `tests/sdk/screen.test.ts`（L3，`bun test --isolate tests/sdk`）：真 facade + 仪表化 `rime:screen` 桥（桥是环境，不是被测单元）。回归钉点是 `pixelSearch`/`imageSearch` 必须把 `variation` 与 action options **一起**交给 bridge——`runAction` 按字段重建 bridge 参数，域名参数由门面合并，丢掉它就等于静默改掉搜索语义；`caret` 另钉 action options 转发与 miss 不带坐标；其余是解包与 `ActionError` code 映射。
+- stress：本域无队列、无 Hook、无重入路径，caret 落地后也没有改变这点（前台窗口由 OS 决定，不由本域排队），当前没有单独 stress 测试。
 
 ## 实现状态
 
@@ -181,9 +197,9 @@ JS 边界的坐标与计数都是**虚拟桌面像素**（`rcMonitor`/`rcWork` �
 | `rime:screen` 模块 | done | `engine/win32/js/include/rime/win32/js_screen.hpp`、`engine/win32/js/src/screen_module.cpp` |
 | SDK 门面 | done | `sdk/src/screen.ts` |
 | TS 模块声明 / 导出 | done | `sdk/src/modules.d.ts`、`sdk/src/index.ts` |
-| capability 台账 | done | `contracts/registry/actions.json`（`capabilities` + `readSurfaces` 五行） |
+| capability 台账 | done | `contracts/registry/actions.json`（`capabilities` + `readSurfaces` 六行） |
 | Bootstrap 接线与生产能力 | done | `engine/win32/js/src/bootstrap.{hpp,cpp}`（`production_capabilities()` 含 `screen.capture`） |
-| coverage 行 | done（Monitor 5 行 + `PixelGetColor`/`PixelSearch`/`ImageSearch` → `implemented`） | `docs/api/coverage.json` |
+| coverage 行 | done（Monitor 5 行 + `PixelGetColor`/`PixelSearch`/`ImageSearch`/`CaretGetPos` → `implemented`） | `docs/api/coverage.json` |
 | contract 测试 | done | `tests/native/screen_tests.cpp`、`tests/js/screen_slice.cpp`、`tests/sdk/screen.test.ts`、`tests/screen_image_fixture.hpp`（CMake 已登记） |
-| `CaretGetPos` | contract-only | caret 查询，不走捕获 seam |
+| `CaretGetPos` | done | `ScreenService::caret()`、`engine/win32/js/src/screen_module.cpp` 的 `screen_caret`、`sdk/src/screen.ts` |
 | `SysGet` / `SysGetIPAddresses` | contract-only | 待本域后续提交 |

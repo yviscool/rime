@@ -5,7 +5,9 @@
 // no Action, which the empty trace proves. A second capability-less runtime
 // proves the gate. ImageSearch runs against the same synthetic screen with a
 // BMP needle this test writes itself, so its expected corner is known before
-// the file decoder reads it.
+// the file decoder reads it. Caret is the one read that needs the desktop
+// arranged first: this test gives the process a foreground window with a
+// caret at a known offset and asserts the JS layer reports that point.
 
 #include "rime/action/kernel.hpp"
 #include "rime/core/json.hpp"
@@ -14,6 +16,7 @@
 #include "rime/win32/js_screen.hpp"
 #include "rime/win32/screen.hpp"
 #include "rime/win32/screen_seam.hpp"
+#include "rime/win32/window.hpp"
 #include "../screen_image_fixture.hpp"
 
 #include <cassert>
@@ -21,7 +24,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <string>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -112,6 +117,125 @@ int main() {
   rime::js::Runtime runtime;
   assert(rime::win32::register_screen_module(runtime, &binding).ok());
   assert(runtime.start().ok());
+
+  // Caret segment first: it is the only read that depends on the desktop's
+  // foreground window, so its fixture is built before anything else runs.
+  // Window and caret both live on WindowService's UI thread - a window owned
+  // by this thread would never pump its queue, which shows up as an
+  // unresponsive black box that the activation ladder blocks on.
+  rime::win32::WindowService windows;
+  assert(windows.start().ok());
+  HWND caret_window = nullptr;
+  assert(windows.ui()
+             .call([&] {
+               caret_window =
+                   CreateWindowExW(0, L"STATIC", L"Rime Caret Slice Fixture",
+                                   WS_POPUP | WS_VISIBLE, 40, 60, 320, 200, nullptr, nullptr,
+                                   GetModuleHandleW(nullptr), nullptr);
+             })
+             .ok());
+  assert(caret_window != nullptr);
+  std::vector<rime::win32::WindowInfo> listed;
+  assert(windows.list(listed).ok());
+  std::optional<std::uint64_t> caret_window_id;
+  for (const auto& window : listed) {
+    if (window.title.find("Rime Caret Slice Fixture") != std::string::npos) {
+      caret_window_id = window.id;
+    }
+  }
+  assert(caret_window_id.has_value());
+
+  // Re-ask for the foreground against a deadline: the desktop can take it
+  // back, and a failed assertion has to say so instead of weakening itself.
+  rime::core::Error focus_result = rime::core::Error::none();
+  bool focused = false;
+  const auto focus_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+  do {
+    focus_result = windows.focus(*caret_window_id);
+    focused = focus_result.ok();
+    if (!focused) std::this_thread::sleep_for(50ms);
+  } while (!focused && std::chrono::steady_clock::now() < focus_deadline);
+  if (!focused) {
+    std::fprintf(stderr, "caret fixture focus was never granted: %s - %s\n",
+                 rime::core::error_code_name(focus_result.code), focus_result.message.c_str());
+    std::fflush(stderr);
+  }
+  assert(focused);
+
+  BOOL created_caret = FALSE;
+  BOOL moved_caret = FALSE;
+  BOOL shown_caret = FALSE;
+  assert(windows.ui()
+             .call([&] {
+               created_caret = CreateCaret(caret_window, nullptr, 4, 16);
+               moved_caret = created_caret ? SetCaretPos(5, 7) : FALSE;
+               shown_caret = moved_caret ? ShowCaret(caret_window) : FALSE;
+             })
+             .ok());
+  assert(created_caret && moved_caret && shown_caret);
+
+  // Expected point = window position + the offset this test chose. The window
+  // position comes from GetWindowRect, which observes the window rather than
+  // the query under test; a popup has no non-client area, so its client
+  // origin is its window rect.
+  RECT fixture_rect{};
+  assert(GetWindowRect(caret_window, &fixture_rect));
+  const int expected_caret_x = fixture_rect.left + 5;
+  const int expected_caret_y = fixture_rect.top + 7;
+  assert(GetForegroundWindow() == caret_window);
+  ScreenService::Caret native_caret = screen_service.caret();
+  assert(native_caret.found);
+  assert(native_caret.x == expected_caret_x && native_caret.y == expected_caret_y);
+
+  check(runtime,
+        "import { screen } from 'rime:screen';\n"
+        "globalThis.caret = null;\n"
+        "screen.caret().then(r => { globalThis.caret = r; }, e => { globalThis.caret = String(e); });",
+        "screen-caret.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (typeof globalThis.caret === 'string') throw new Error(globalThis.caret);\n"
+        "const c = globalThis.caret;\n"
+        "if (c.found !== true)\n"
+        "  throw new Error('the fixture caret must be reported: ' + JSON.stringify(c));\n"
+        "if (JSON.stringify(Object.keys(c).sort()) !== JSON.stringify(['found', 'x', 'y']))\n"
+        "  throw new Error('caret must carry found, x and y: ' + JSON.stringify(c));\n"
+        "if (c.x !== " + number(expected_caret_x) + " || c.y !== " + number(expected_caret_y) + ")\n"
+        "  throw new Error('caret must be the fixture point: ' + JSON.stringify(c));",
+        "screen-caret-check.mjs");
+
+  // Second half of the contract, at the JS layer: once the caret is gone the
+  // same call resolves {found:false} with no coordinate at all, and our own
+  // window is still the foreground one.
+  BOOL hidden_caret = FALSE;
+  BOOL destroyed_caret = FALSE;
+  assert(windows.ui()
+             .call([&] {
+               hidden_caret = HideCaret(caret_window);
+               destroyed_caret = DestroyCaret();
+             })
+             .ok());
+  assert(hidden_caret && destroyed_caret);
+  assert(GetForegroundWindow() == caret_window);
+  check(runtime,
+        "import { screen } from 'rime:screen';\n"
+        "globalThis.noCaret = null;\n"
+        "screen.caret().then(r => { globalThis.noCaret = r; }, e => { globalThis.noCaret = String(e); });",
+        "screen-no-caret.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (typeof globalThis.noCaret === 'string') throw new Error(globalThis.noCaret);\n"
+        "const n = globalThis.noCaret;\n"
+        "if (n.found !== false)\n"
+        "  throw new Error('no caret must resolve found:false: ' + JSON.stringify(n));\n"
+        "if (JSON.stringify(Object.keys(n)) !== JSON.stringify(['found']))\n"
+        "  throw new Error('a miss must carry no coordinate: ' + JSON.stringify(n));",
+        "screen-no-caret-check.mjs");
+
+  BOOL destroyed_window = FALSE;
+  assert(windows.ui().call([&] { destroyed_window = DestroyWindow(caret_window); }).ok());
+  assert(destroyed_window);
+  assert(windows.stop().ok());
 
   // Segment 1: the count and the primary record both match the native read.
   check(runtime,
@@ -339,13 +463,15 @@ int main() {
           "globalThis.pixelDenied = null;\n"
           "globalThis.searchDenied = null;\n"
           "globalThis.imageDenied = null;\n"
+          "globalThis.caretDenied = null;\n"
           "screen.monitorCount().then(() => {}, e => { globalThis.countDenied = String(e); });\n"
           "screen.monitor().then(() => {}, e => { globalThis.monitorDenied = String(e); });\n"
           "screen.pixel(0, 0).then(() => {}, e => { globalThis.pixelDenied = String(e); });\n"
           "screen.pixelSearch({left: 0, top: 0, right: 1, bottom: 1}, 0)\n"
           "  .then(() => {}, e => { globalThis.searchDenied = String(e); });\n"
           "screen.imageSearch({left: 0, top: 0, right: 1, bottom: 1}, 'x.bmp')\n"
-          "  .then(() => {}, e => { globalThis.imageDenied = String(e); });",
+          "  .then(() => {}, e => { globalThis.imageDenied = String(e); });\n"
+          "screen.caret().then(() => {}, e => { globalThis.caretDenied = String(e); });",
           "screen-deny.mjs");
     assert(denied_runtime.settle(5000ms).ok());
     check(denied_runtime,
@@ -364,7 +490,10 @@ int main() {
           "  throw new Error('pixelSearch must name the capability: ' + globalThis.searchDenied);\n"
           "if (!globalThis.imageDenied ||\n"
           "    !globalThis.imageDenied.includes('screen.capture'))\n"
-          "  throw new Error('imageSearch must name the capability: ' + globalThis.imageDenied);",
+          "  throw new Error('imageSearch must name the capability: ' + globalThis.imageDenied);\n"
+          "if (!globalThis.caretDenied ||\n"
+          "    !globalThis.caretDenied.includes('screen.capture'))\n"
+          "  throw new Error('caret must name the capability: ' + globalThis.caretDenied);",
           "screen-deny-check.mjs");
     assert(denied_runtime.stop().ok());
   }

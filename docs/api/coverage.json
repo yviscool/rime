@@ -63,11 +63,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
       "tsModule": "@rime/screen",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "screen.capture",
-      "contractTest": "missing",
-      "lane": "ui/worker",
+      "contractTest": "tests/native/screen_tests.cpp,tests/js/screen_slice.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {

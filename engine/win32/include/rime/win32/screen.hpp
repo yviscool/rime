@@ -57,6 +57,20 @@ class ScreenService final {
                                  const std::string& image_path, int variation, bool& found,
                                  int& out_x, int& out_y) const;
 
+  // AHK CaretGetPos (rime-research .../lib/vars.cpp:991): the caret of the
+  // foreground window's thread, converted to screen pixels. Win32 exposes a
+  // thread's caret only through GetGUIThreadInfo, and a caret belongs to the
+  // focused control, so the foreground thread is the only place to look -
+  // a desktop with no foreground window or no caret is a plain `found:false`,
+  // the same blank answer AHK writes into its output variables, never an
+  // error. x/y are meaningless while `found` is false.
+  struct Caret {
+    bool found{false};
+    int x{0};
+    int y{0};
+  };
+  Caret caret() const;
+
  private:
   rime::core::Error collect(std::vector<Monitor>& out) const;
 };

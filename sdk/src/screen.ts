@@ -33,6 +33,11 @@ export interface ScreenPixelSearchOptions extends ActionOptions {
   variation?: number;
 }
 
+/** Result of `screen.caret`: a desktop without a caret carries no coordinate. */
+export type ScreenCaretResult =
+  | { found: false }
+  | { found: true; x: number; y: number };
+
 /** Bridge of the `rime:screen` module. Every call is a read. */
 export interface ScreenBridge {
   monitorCount(options?: NativeActionOptions): Promise<{ count: number }>;
@@ -49,6 +54,7 @@ export interface ScreenBridge {
     imagePath: string,
     options?: NativeActionOptions,
   ): Promise<ScreenPixelSearchResult>;
+  caret(options?: NativeActionOptions): Promise<ScreenCaretResult>;
 }
 
 // runAction's bridge options carry only action concerns (deadline, parent,
@@ -157,6 +163,19 @@ export const screen = {
       screenBridge().then((bridge) =>
         bridge.imageSearch(area, imagePath, withVariation(bridgeOptions, options?.variation)),
       ),
+    );
+  },
+  /**
+   * Caret (text insertion point) position in screen pixels (AHK
+   * `CaretGetPos`). Only the foreground window's caret can be read - a
+   * caret belongs to the focused control - so a desktop without one
+   * resolves `{found:false}`; that is a result, not an error.
+   *
+   * @throws ActionError with `capability_denied`, `cancelled`.
+   */
+  caret(options?: ActionOptions): Promise<ScreenCaretResult> {
+    return runAction(options, (bridgeOptions) =>
+      screenBridge().then((bridge) => bridge.caret(bridgeOptions)),
     );
   },
 };

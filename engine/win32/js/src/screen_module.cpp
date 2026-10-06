@@ -368,6 +368,39 @@ JSValue screen_image_search(JSContext* context, JSValueConst, int argc, JSValueC
       options.cancellation_id);
 }
 
+// screen.caret(options?): AHK CaretGetPos. The foreground thread's caret as
+// screen pixels; a desktop without a caret is {found:false}, never an error
+// (AHK writes blank output variables for the same state). Capability:
+// screen.capture. Query, so no Action Trace.
+JSValue screen_caret(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void*) {
+  ScreenModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:screen is not wired");
+  }
+  if (argc > 1) return JS_ThrowTypeError(context, "caret(options?)");
+  ActionOptions options;
+  if (argc == 1 && !parse_action_options(context, argv[0], options)) return JS_EXCEPTION;
+  rime::action::Kernel* kernel = binding->kernel;
+  ScreenService* service = binding->service;
+  return start_async(
+      context,
+      [kernel, service]() -> AsyncOutcome {
+        if (!kernel->allows(kScreenCaptureCapability)) {
+          return capability_denied(kScreenCaptureCapability);
+        }
+        const ScreenService::Caret caret = service->caret();
+        json::Value value = json::Value::object();
+        value.set("found", json::Value::boolean(caret.found));
+        if (caret.found) {
+          value.set("x", json::Value::number(caret.x));
+          value.set("y", json::Value::number(caret.y));
+        }
+        return async_success(json::stringify(value));
+      },
+      options.cancellation_id);
+}
+
 int screen_module_init(JSContext* context, JSModuleDef* module) {
   ScreenModuleBinding* binding = binding_of(context);
   if (!binding || !binding->service || !binding->kernel) {
@@ -390,7 +423,7 @@ int screen_module_init(JSContext* context, JSModuleDef* module) {
   };
   if (!add("monitorCount", screen_monitor_count, 0) || !add("monitor", screen_monitor, 0) ||
       !add("pixel", screen_pixel, 0) || !add("pixelSearch", screen_pixel_search, 0) ||
-      !add("imageSearch", screen_image_search, 0)) {
+      !add("imageSearch", screen_image_search, 0) || !add("caret", screen_caret, 0)) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "screen", screen);

@@ -19,10 +19,12 @@ let monitorCalls: Array<[number | undefined, NativeActionOptions | undefined]> =
 let pixelCalls: Array<[number, number, NativeActionOptions | undefined]> = [];
 let pixelSearchCalls: Array<[Area, number, ScreenOptions | undefined]> = [];
 let imageSearchCalls: Array<[Area, string, ScreenOptions | undefined]> = [];
+let caretCalls: Array<NativeActionOptions | undefined> = [];
 
 let pixelResult: { color: number } = { color: 0x00030540 };
 let pixelSearchResult: PixelResult = { found: true, x: 2, y: 3 };
 let imageSearchResult: PixelResult = { found: false };
+let caretResult: PixelResult = { found: true, x: 45, y: 67 };
 let pixelRejection: CodedRejection | null = null;
 
 function reset(): void {
@@ -31,9 +33,11 @@ function reset(): void {
   pixelCalls = [];
   pixelSearchCalls = [];
   imageSearchCalls = [];
+  caretCalls = [];
   pixelResult = { color: 0x00030540 };
   pixelSearchResult = { found: true, x: 2, y: 3 };
   imageSearchResult = { found: false };
+  caretResult = { found: true, x: 45, y: 67 };
   pixelRejection = null;
 }
 
@@ -64,6 +68,10 @@ const bridge = {
   async imageSearch(area: Area, imagePath: string, options?: ScreenOptions) {
     imageSearchCalls.push([area, imagePath, options]);
     return imageSearchResult;
+  },
+  async caret(options?: NativeActionOptions) {
+    caretCalls.push(options);
+    return caretResult;
   },
 };
 
@@ -145,4 +153,18 @@ test("a coded bridge rejection becomes an ActionError with that code", async () 
   pixelRejection = { code: "capability_denied", message: "required capability was not granted" };
   await expect(screen.pixel(0, 0)).rejects.toBeInstanceOf(ActionError);
   await expect(screen.pixel(0, 0)).rejects.toMatchObject({ code: "capability_denied" });
+});
+
+test("caret forwards the action options and unwraps the hit", async () => {
+  const result = await screen.caret({ deadlineMs: 100 });
+  expect(caretCalls).toEqual([{ deadlineMs: 100 }]);
+  expect(result).toEqual({ found: true, x: 45, y: 67 });
+});
+
+test("caret resolves a miss without coordinates", async () => {
+  caretResult = { found: false };
+  const result = await screen.caret();
+  expect(caretCalls).toEqual([undefined]);
+  expect(result).toEqual({ found: false });
+  expect("x" in result).toBe(false);
 });

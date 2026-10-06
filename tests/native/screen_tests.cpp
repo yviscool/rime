@@ -15,15 +15,29 @@
 // fixtures this test writes byte by byte (tests/screen_image_fixture.hpp) and
 // deletes again, so the pixels it searches for are known before GDI+ ever sees
 // them.
+//
+// CaretGetPos is the one section that has to arrange the desktop first: the
+// caret can only be read from the foreground thread, so this test gives the
+// desktop a foreground window of its own with a caret at a known offset and
+// uses the production focus ladder to activate it. The expected point is the
+// window's own position plus the offset the test chose - never a second read
+// through the query under test.
 
 #include "rime/win32/screen.hpp"
 #include "rime/win32/screen_pixels.hpp"
 #include "rime/win32/screen_seam.hpp"
+#include "rime/win32/window.hpp"
 #include "../screen_image_fixture.hpp"
 
+#include <windows.h>
+
 #include <cassert>
+#include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -370,6 +384,106 @@ int main() {
   found_y = 7;
   assert(service.image_search(0, 0, 3, 3, real_needle_path.path(), 0, found, found_x, found_y).ok());
   assert(!found && found_x == 7 && found_y == 7);
+
+  // CaretGetPos end to end on a real desktop: a popup of this process (no
+  // non-client area, so its client origin is its window rect) with a caret at
+  // a known offset, activated through the production focus ladder. The
+  // expectation is window position + offset - the window position comes from
+  // GetWindowRect, which observes the window, not the caret query. Window and
+  // caret both live on the service's UI thread: a window owned by this thread
+  // would never pump its queue, so the desktop would show it as an
+  // unresponsive black box and the activation ladder would block on it.
+  rime::win32::WindowService windows;
+  assert(windows.start().ok());
+
+  HWND caret_window = nullptr;
+  assert(windows.ui()
+             .call([&] {
+               caret_window =
+                   CreateWindowExW(0, L"STATIC", L"Rime Caret Fixture", WS_POPUP | WS_VISIBLE, 40,
+                                   60, 320, 200, nullptr, nullptr, GetModuleHandleW(nullptr),
+                                   nullptr);
+             })
+             .ok());
+  assert(caret_window != nullptr);
+
+  std::vector<rime::win32::WindowInfo> listed;
+  assert(windows.list(listed).ok());
+  std::optional<std::uint64_t> caret_window_id;
+  for (const auto& window : listed) {
+    if (window.title.find("Rime Caret Fixture") != std::string::npos) caret_window_id = window.id;
+  }
+  assert(caret_window_id.has_value());
+
+  // The desktop keeps stealing the foreground back, so re-ask against a
+  // deadline (condition poll, no blind sleep) and fail outright with the
+  // reason instead of degrading to a weaker assertion.
+  rime::core::Error focus_result = rime::core::Error::none();
+  bool focused = false;
+  const auto focus_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+  do {
+    focus_result = windows.focus(*caret_window_id);
+    focused = focus_result.ok();
+    if (!focused) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  } while (!focused && std::chrono::steady_clock::now() < focus_deadline);
+  if (!focused) {
+    std::fprintf(stderr, "caret fixture focus was never granted: %s - %s\n",
+                 rime::core::error_code_name(focus_result.code), focus_result.message.c_str());
+    std::fflush(stderr);
+  }
+  assert(focused);
+
+  // The caret is created on the window's own thread - the thread
+  // GetGUIThreadInfo is later asked about - by that thread itself.
+  BOOL created_caret = FALSE;
+  BOOL moved_caret = FALSE;
+  BOOL shown_caret = FALSE;
+  assert(windows.ui()
+             .call([&] {
+               created_caret = CreateCaret(caret_window, nullptr, 4, 16);
+               moved_caret = created_caret ? SetCaretPos(5, 7) : FALSE;
+               shown_caret = moved_caret ? ShowCaret(caret_window) : FALSE;
+             })
+             .ok());
+  assert(created_caret && moved_caret && shown_caret);
+
+  RECT fixture_rect{};
+  assert(GetWindowRect(caret_window, &fixture_rect));
+  const int expected_x = fixture_rect.left + 5;
+  const int expected_y = fixture_rect.top + 7;
+
+  // Foreground is the query's precondition, so it is checked rather than
+  // assumed: otherwise a wrong coordinate could always be explained away as
+  // "some other window was focused".
+  assert(GetForegroundWindow() == caret_window);
+  const ScreenService::Caret caret = service.caret();
+  assert(caret.found);
+  assert(caret.x == expected_x);
+  assert(caret.y == expected_y);
+
+  // The other half of the contract: with no caret there is no coordinate to
+  // report. Our own window is still the foreground one, so `found:false`
+  // cannot be some other window's missing caret. Both calls run on the
+  // thread that owns the caret.
+  BOOL hidden_caret = FALSE;
+  BOOL destroyed_caret = FALSE;
+  assert(windows.ui()
+             .call([&] {
+               hidden_caret = HideCaret(caret_window);
+               destroyed_caret = DestroyCaret();
+             })
+             .ok());
+  assert(hidden_caret && destroyed_caret);
+  assert(GetForegroundWindow() == caret_window);
+  const ScreenService::Caret no_caret = service.caret();
+  assert(!no_caret.found);
+
+  BOOL destroyed_window = FALSE;
+  assert(windows.ui()
+             .call([&] { destroyed_window = DestroyWindow(caret_window); })
+             .ok());
+  assert(destroyed_window);
+  assert(windows.stop().ok());
 
   return 0;
 }
