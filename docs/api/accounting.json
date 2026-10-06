@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "rule": "terminal = implemented | js-native | unsupported-by-policy; objects members count by evidence until they gain a status column",
+  "ledgers": [
+    {
+      "ledger": "coverage",
+      "denominator": 253,
+      "terminal": 182,
+      "remaining": 71,
+      "breakdown": {
+        "implemented": 161,
+        "unsupported-by-policy": 10,
+        "contract-only": 71,
+        "js-native": 11
+      },
+      "rule": "status in implemented | js-native | unsupported-by-policy"
+    },
+    {
+      "ledger": "core-builtins",
+      "denominator": 101,
+      "terminal": 89,
+      "remaining": 12,
+      "breakdown": {
+        "js-native": 57,
+        "implemented": 14,
+        "unsupported-by-policy": 18,
+        "contract-only": 12
+      },
+      "rule": "status in implemented | js-native | unsupported-by-policy"
+    },
+    {
+      "ledger": "builtins",
+      "denominator": 134,
+      "terminal": 5,
+      "remaining": 129,
+      "breakdown": {
+        "unset": 129,
+        "implemented": 5,
+        "excluded": 11
+      },
+      "rule": "status in implemented | js-native | unsupported-by-policy (excluded leaves the denominator)"
+    },
+    {
+      "ledger": "objects",
+      "denominator": 243,
+      "terminal": 54,
+      "remaining": 189,
+      "breakdown": {
+        "compatibility-test": 54,
+        "uncovered": 189
+      },
+      "rule": "member has a compatibilityTest naming a real file (members carry no status until M8)"
+    }
+  ],
+  "total": {
+    "denominator": 731,
+    "terminal": 330,
+    "remaining": 401,
+    "percent": 45.14
+  },
+  "evidence_gaps": [
+    {
+      "ledger": "core-builtins",
+      "count": 6,
+      "names": [
+        "Click",
+        "Format",
+        "FormatTime",
+        "Round",
+        "Sort",
+        "VerCompare"
+      ]
+    }
+  ]
+}

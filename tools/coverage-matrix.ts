@@ -126,6 +126,265 @@ async function checkDrift(): Promise<void> {
   await checkActionRegistry(root, fail);
 }
 
+// ---------------------------------------------------------------------------
+// Terminal accounting.
+//
+// One rule, four ledgers, machine checked - the plan document carries a
+// generated block so its numbers can never disagree with the JSONs they
+// summarise. Historical note: the §1.2 table used to count objects as 0 while
+// the M4 record counted File's 31 members, i.e. the same milestone had two
+// different arithmetic. A generated block removes the human from the loop.
+// ---------------------------------------------------------------------------
+
+const TERMINAL = new Set(["implemented", "js-native", "unsupported-by-policy"]);
+
+interface LedgerRow {
+  ledger: string;
+  denominator: number;
+  terminal: number;
+  remaining: number;
+  breakdown: Record<string, number>;
+  rule: string;
+}
+
+interface EvidenceGap {
+  ledger: string;
+  count: number;
+  names: string[];
+}
+
+interface Accounting {
+  schemaVersion: number;
+  rule: string;
+  ledgers: LedgerRow[];
+  total: { denominator: number; terminal: number; remaining: number; percent: number };
+  evidence_gaps: EvidenceGap[];
+}
+
+// Terminal means the status reached a documented end state. Evidence means a
+// contract/compatibility test path that exists on disk. The two are tracked
+// separately on purpose: a status flip without evidence is exactly the kind
+// of self-reported progress this project refuses to count as done.
+async function computeAccounting(): Promise<Accounting> {
+  const coverage = JSON.parse(await readFile(coverage_path, "utf8")) as CoverageFile;
+  const core = JSON.parse(await readFile(core_builtins_path, "utf8")) as {
+    entries: Array<{ ahkName: string; status: string; contractTest?: string }>;
+  };
+  const builtins = JSON.parse(await readFile(resolve(root, "docs/api/builtins.json"), "utf8")) as {
+    domains: Record<string, Array<{ name: string; status?: string; compatibilityTest?: string }>>;
+  };
+  const objects = JSON.parse(await readFile(resolve(root, "docs/api/objects.json"), "utf8")) as {
+    objects: Array<{ name: string; members: Array<{ name: string; compatibilityTest?: string }> }>;
+  };
+
+  const count_status = (
+    list: Array<{ status: string }>,
+  ): { terminal: number; breakdown: Record<string, number> } => {
+    const breakdown: Record<string, number> = {};
+    for (const entry of list) {
+      const key = entry.status || "unset";
+      breakdown[key] = (breakdown[key] ?? 0) + 1;
+    }
+    return { terminal: list.filter((entry) => TERMINAL.has(entry.status)).length, breakdown };
+  };
+
+  const cov = count_status(coverage.entries);
+  const cor = count_status(core.entries);
+
+  const builtin_all = Object.values(builtins.domains).flat();
+  const builtin_excluded = builtin_all.filter((entry) => entry.status === "excluded").length;
+  const builtin_scored = builtin_all.filter((entry) => entry.status !== "excluded");
+  const bui = count_status(builtin_scored);
+
+  // objects.json members carry no `status` field yet (M8 owns the per-member
+  // restoration pass), so their terminal count is the evidence count: a
+  // compatibilityTest that names a real file. Until members gain a status
+  // column this is the only non-self-reported reading available.
+  let object_terminal = 0;
+  const object_members: Array<{ id: string; compatibilityTest?: string }> = [];
+  for (const object of objects.objects) {
+    for (const member of object.members) {
+      object_members.push({
+        id: `${object.name}.${member.name}`,
+        compatibilityTest: member.compatibilityTest,
+      });
+    }
+  }
+  object_terminal = object_members.filter(
+    (member) => typeof member.compatibilityTest === "string" && member.compatibilityTest !== "missing",
+  ).length;
+
+  const rows: LedgerRow[] = [
+    {
+      ledger: "coverage",
+      denominator: coverage.entries.length,
+      terminal: cov.terminal,
+      remaining: coverage.entries.length - cov.terminal,
+      breakdown: cov.breakdown,
+      rule: "status in implemented | js-native | unsupported-by-policy",
+    },
+    {
+      ledger: "core-builtins",
+      denominator: core.entries.length,
+      terminal: cor.terminal,
+      remaining: core.entries.length - cor.terminal,
+      breakdown: cor.breakdown,
+      rule: "status in implemented | js-native | unsupported-by-policy",
+    },
+    {
+      ledger: "builtins",
+      denominator: builtin_scored.length,
+      terminal: bui.terminal,
+      remaining: builtin_scored.length - bui.terminal,
+      breakdown: { ...bui.breakdown, excluded: builtin_excluded },
+      rule: "status in implemented | js-native | unsupported-by-policy (excluded leaves the denominator)",
+    },
+    {
+      ledger: "objects",
+      denominator: object_members.length,
+      terminal: object_terminal,
+      remaining: object_members.length - object_terminal,
+      breakdown: { "compatibility-test": object_terminal, uncovered: object_members.length - object_terminal },
+      rule: "member has a compatibilityTest naming a real file (members carry no status until M8)",
+    },
+  ];
+
+  const denominator = rows.reduce((sum, row) => sum + row.denominator, 0);
+  const terminal = rows.reduce((sum, row) => sum + row.terminal, 0);
+
+  // Evidence gaps: a terminal status with no test path on disk. Printed, not
+  // failed - `js-native` legitimately has none (no dedicated code exists) and
+  // `unsupported-by-policy` gates are M8's refusal tests. What must stay
+  // visible is `implemented` claiming a contract that no test file backs.
+  const gap_for = (
+    ledger: string,
+    list: Array<{ ahkName?: string; name?: string; status: string; contractTest?: string; compatibilityTest?: string }>,
+    evidence_key: "contractTest" | "compatibilityTest",
+  ): EvidenceGap | null => {
+    const names = list
+      .filter(
+        (entry) =>
+          entry.status === "implemented" &&
+          (!entry[evidence_key] || entry[evidence_key] === "missing"),
+      )
+      .map((entry) => entry.ahkName ?? entry.name ?? "?");
+    if (names.length === 0) return null;
+    return { ledger, count: names.length, names };
+  };
+
+  const gaps: EvidenceGap[] = [
+    gap_for("coverage", coverage.entries, "contractTest"),
+    gap_for("core-builtins", core.entries, "contractTest"),
+    gap_for(
+      "builtins",
+      builtin_scored.map((entry) => ({ ...entry, status: entry.status ?? "unset" })),
+      "compatibilityTest",
+    ),
+  ].filter((gap): gap is EvidenceGap => gap !== null);
+
+  return {
+    schemaVersion: 1,
+    rule: "terminal = implemented | js-native | unsupported-by-policy; objects members count by evidence until they gain a status column",
+    ledgers: rows,
+    total: { denominator, terminal, remaining: denominator - terminal, percent: Number(((terminal / denominator) * 100).toFixed(2)) },
+    evidence_gaps: gaps,
+  };
+}
+
+function render_accounting_doc(accounting: Accounting): string {
+  // Markdown cells cannot contain a raw pipe; the rule strings use `|` as a
+  // status alternation, so they are escaped for the table only.
+  const cell = (value: string): string => value.replace(/\|/g, "\\|");
+  const lines: string[] = [];
+  lines.push("| 清单 | 分母 | 终态 | 剩余 | 终态口径 |");
+  lines.push("|---|---:|---:|---:|---|");
+  for (const row of accounting.ledgers) {
+    const parts = Object.entries(row.breakdown)
+      .sort((a, b) => b[1] - a[1])
+      .map(([key, value]) => `${key} ${value}`)
+      .join("、");
+    lines.push(
+      `| ${row.ledger} | ${row.denominator} | ${row.terminal} | ${row.remaining} | ${cell(row.rule)}；实测 ${parts} |`,
+    );
+  }
+  lines.push(
+    `| **合计** | **${accounting.total.denominator}** | **${accounting.total.terminal}** | **${accounting.total.remaining}** | **${accounting.total.percent}%** |`,
+  );
+  const gaps = accounting.evidence_gaps;
+  lines.push("");
+  lines.push(
+    gaps.length === 0
+      ? "证据缺口：无（每个 `implemented` 条目都有指向真实文件的 contract/compatibility 测试路径）。"
+      : `证据缺口（` +
+          gaps.map((gap) => `\`${gap.ledger}\` ${gap.count} 项：${gap.names.slice(0, 8).join("、")}${gap.names.length > 8 ? " …" : ""}`).join("；") +
+          "）——状态已翻 `implemented` 但没有测试文件背书，按 AGENTS 反作弊第 9 条不得作为契约证据。",
+  );
+  lines.push("");
+  lines.push(
+    "本表由 `bun tools/coverage-matrix.ts --write` 生成，`bun run matrix:check` 校验；真值源为 `docs/api/accounting.json`。手工改写会被检查拒绝。",
+  );
+  return lines.join("\n");
+}
+
+const ACCOUNTING_START = "<!-- accounting:start generated by tools/coverage-matrix.ts -->";
+const ACCOUNTING_END = "<!-- accounting:end -->";
+
+async function checkAccounting(write: boolean): Promise<void> {
+  const accounting = await computeAccounting();
+  const json_path = resolve(root, "docs/api/accounting.json");
+  const doc_path = resolve(root, "docs/AHK99-IMPLEMENTATION-PLAN.md");
+  const expected_json = `${JSON.stringify(accounting, null, 2)}\n`;
+  const expected_doc = render_accounting_doc(accounting);
+
+  const doc = await readFile(doc_path, "utf8");
+  const start = doc.indexOf(ACCOUNTING_START);
+  const end = doc.indexOf(ACCOUNTING_END);
+  if (start < 0 || end < 0 || end < start) {
+    throw new Error(`accounting block markers missing in ${doc_path}`);
+  }
+
+  const actual_doc = doc.slice(start + ACCOUNTING_START.length, end).replace(/^\n/, "").trimEnd();
+  let actual_json = "";
+  try {
+    actual_json = await readFile(json_path, "utf8");
+  } catch {
+    actual_json = "";
+  }
+
+  if (write) {
+    await writeFile(json_path, expected_json, "utf8");
+    const next =
+      doc.slice(0, start + ACCOUNTING_START.length) +
+      `\n${expected_doc}\n` +
+      doc.slice(end);
+    await writeFile(doc_path, next, "utf8");
+    console.log(`Wrote ${json_path}`);
+    console.log(`Rewrote the accounting block in ${doc_path}`);
+  } else {
+    if (actual_json !== expected_json) {
+      console.error("docs/api/accounting.json is stale; run: bun tools/coverage-matrix.ts --write");
+      process.exit(1);
+    }
+    if (actual_doc !== expected_doc.trimEnd()) {
+      console.error(
+        "docs/AHK99-IMPLEMENTATION-PLAN.md accounting block is stale; run: bun tools/coverage-matrix.ts --write",
+      );
+      process.exit(1);
+    }
+  }
+
+  const gap_note =
+    accounting.evidence_gaps.length === 0
+      ? ""
+      : ` | evidence gaps: ${accounting.evidence_gaps
+          .map((gap) => `${gap.ledger} ${gap.count}`)
+          .join(", ")}`;
+  console.log(
+    `Terminal ${accounting.total.terminal}/${accounting.total.denominator} = ${accounting.total.percent}%` +
+      ` (${accounting.ledgers.map((row) => `${row.ledger} ${row.terminal}/${row.denominator}`).join(", ")})${gap_note}`,
+  );
+}
+
 // Action registry drift: the type strings the executors accept must equal
 // contracts/registry/actions.json, and every referenced file must exist.
 async function checkActionRegistry(
@@ -357,9 +616,10 @@ async function render(): Promise<string> {
   return normalize_newlines(lines.join("\n"));
 }
 
-await checkDrift();
-const expected = await render();
 const write = process.argv.includes("--write");
+await checkDrift();
+await checkAccounting(write);
+const expected = await render();
 if (write) {
   await writeFile(matrix_path, expected, "utf8");
   console.log(`Wrote ${matrix_path}`);
