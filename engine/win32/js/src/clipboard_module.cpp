@@ -39,9 +39,7 @@ JSValue clipboard_read(JSContext* context, JSValueConst, int argc, JSValueConst*
       context,
       [kernel, service]() -> AsyncOutcome {
         if (!kernel->allows(kClipboardReadCapability)) {
-          return async_failure("capability_denied",
-                               std::string("required capability was not granted: ") +
-                                   kClipboardReadCapability);
+          return capability_denied(kClipboardReadCapability);
         }
         std::string text;
         if (const auto error = service->read_text(text); !error.ok()) {

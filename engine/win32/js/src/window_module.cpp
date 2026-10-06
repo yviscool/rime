@@ -236,9 +236,7 @@ JSValue run_window_read(JSContext* context, std::uint64_t cancellation_id,
         // Ownership: kernel/service (raw) outlive the host; the task always
         // settles its promise, so no outcome is dropped.
         if (!kernel->allows(kWindowReadCapability)) {
-          return async_failure("capability_denied",
-                               std::string("required capability was not granted: ") +
-                                   kWindowReadCapability);
+          return capability_denied(kWindowReadCapability);
         }
         if (use_query) {
           std::vector<WindowInfo> windows;
@@ -293,9 +291,7 @@ JSValue run_window_probe(JSContext* context, std::uint64_t cancellation_id,
       context,
       [kernel, service, query, active_probe, timeout]() -> AsyncOutcome {
         if (!kernel->allows(kWindowReadCapability)) {
-          return async_failure("capability_denied",
-                               std::string("required capability was not granted: ") +
-                                   kWindowReadCapability);
+          return capability_denied(kWindowReadCapability);
         }
         bool found = false;
         const auto error = active_probe ? service->matches_active(query, found, timeout)
@@ -355,9 +351,7 @@ JSValue windows_active(JSContext* context, JSValueConst, int argc, JSValueConst*
       context,
       [kernel, service, timeout]() -> AsyncOutcome {
         if (!kernel->allows(kWindowReadCapability)) {
-          return async_failure("capability_denied",
-                               std::string("required capability was not granted: ") +
-                                   kWindowReadCapability);
+          return capability_denied(kWindowReadCapability);
         }
         std::optional<WindowInfo> active;
         if (const auto error = service->active(active, timeout); !error.ok()) {
@@ -404,17 +398,13 @@ bool parse_wait_until(JSContext* context, JSValueConst object, WaitCondition& ou
   return true;
 }
 
-// Poll cadence and per-poll UI budget for the wait loop: the loop sleeps on
-// the scheduler between evaluations (never blocking a thread) and re-checks
-// the condition; deadline/cancellation are evaluated after every poll.
-constexpr std::chrono::milliseconds kWaitPollInterval{25};
+// Per-poll UI budget for the wait loop: each evaluation may spend up to this
+// on UI-thread queries, while kSliceWaitInterval owns the sleep between them.
 constexpr std::chrono::milliseconds kWaitPollBudget{1000};
 
 // One WinWait-family wait loop. Ownership: held by shared_ptr through the
 // worker/timer closures; the Host outlives every armed task (its destructor
-// stops the timer service and joins the worker first). Exactly one terminal
-// path runs — resolve, reject, or the host's CancelById — and each erases
-// this token's pending/timer bookkeeping, so unload cannot wedge on it.
+// stops the timer service and joins the worker first).
 struct WaitLoop {
   rime::js::Host* host;
   WindowService* service;
@@ -423,65 +413,36 @@ struct WaitLoop {
   WaitCondition until{WaitCondition::Exists};
   std::uint64_t token{0};
   std::uint64_t cancellation_id{0};
-  std::int64_t deadline_unix_ms{0};  // absolute system ms since epoch
+  std::int64_t deadline_unix_ms{0};  // absolute system ms since the epoch
   std::uint64_t budget_ms{0};        // the requested deadlineMs (error text)
-};
 
-// One wait step: settles the promise or re-arms the poll. Runs on the worker
-// lane; the capability read-policy matches the other window reads (this path
-// is exempt from Action dispatch, so there is no Action Trace).
-void wait_step(std::shared_ptr<WaitLoop> loop) {
-  rime::js::Host* host = loop->host;
-  const std::uint64_t token = loop->token;
-  std::optional<AsyncOutcome> outcome;
-  try {
-    if (!loop->kernel->allows(kWindowReadCapability)) {
-      outcome = async_failure("capability_denied",
-                              std::string("required capability was not granted: ") +
-                                  kWindowReadCapability);
-    } else if (loop->cancellation_id != 0 && host->is_cancelled(loop->cancellation_id)) {
-      outcome = async_failure("cancelled", "wait cancelled");
-    } else {
-      WaitEvaluation evaluation;
-      if (const auto error = loop->service->evaluate_wait(loop->query, loop->until, evaluation,
-                                                          kWaitPollBudget);
-          !error.ok()) {
-        outcome = async_failure(error);
-      } else if (evaluation.met) {
-        outcome =
-            async_success(evaluation.target ? json::stringify(window_info_json(*evaluation.target))
-                                            : std::string("null"));
-      } else {
-        const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
-                                .count();
-        if (now_ms >= loop->deadline_unix_ms) {
-          outcome = async_failure(
-              "timeout", "wait timed out after " + std::to_string(loop->budget_ms) + "ms");
-        }
-      }
+  // One evaluation on the worker lane: capability, cancellation, condition,
+  // then deadline. Unset means "not met yet" - slice_wait_step re-arms the
+  // scheduler instead. No Action Trace: this path is exempt from dispatch.
+  std::optional<AsyncOutcome> evaluate() {
+    if (!kernel->allows(kWindowReadCapability)) {
+      return capability_denied(kWindowReadCapability);
     }
-  } catch (const std::exception& exception) {
-    outcome = async_failure("execution_failed", exception.what());
-  } catch (...) {
-    outcome = async_failure("execution_failed", "native wait step failed");
-  }
-  if (outcome.has_value()) {
-    if (outcome->ok) {
-      host->complete_async(token, true, std::move(outcome->payload));
-    } else {
-      host->complete_async(token, false, outcome->code + ":" + outcome->payload);
+    if (cancellation_id != 0 && host->is_cancelled(cancellation_id)) {
+      return async_failure("cancelled", "wait cancelled");
     }
-    return;
+    WaitEvaluation evaluation;
+    if (const auto error =
+            service->evaluate_wait(query, until, evaluation, kWaitPollBudget);
+        !error.ok()) {
+      return async_failure(error);
+    }
+    if (evaluation.met) {
+      return async_success(evaluation.target ? json::stringify(window_info_json(*evaluation.target))
+                                             : std::string("null"));
+    }
+    if (now_unix_ms() >= deadline_unix_ms) {
+      return async_failure("timeout",
+                           "wait timed out after " + std::to_string(budget_ms) + "ms");
+    }
+    return std::nullopt;
   }
-  // Not met yet: sleep on the scheduler, then poll again on the worker.
-  // A cancellation landing between checks resolves the promise through the
-  // host's CancelById; the next step observes is_cancelled and drains the
-  // timer bookkeeping through complete_async (dropped, but erasing the token).
-  host->schedule_task(token, kWaitPollInterval, [loop] {
-    loop->host->schedule_worker(loop->token, [loop] { wait_step(loop); });
-  });
-}
+};
 
 // windows.wait(options?): the WinWait family (WinWait/WinWaitActive/
 // WinWaitClose/WinWaitNotActive via `until`). Resolves with the target
@@ -515,15 +476,11 @@ JSValue windows_wait(JSContext* context, JSValueConst, int argc, JSValueConst* a
   }
   // deadline_ms is bounded by js_int64_strict (2^53), so now + budget stays
   // far inside int64 milliseconds since the epoch.
-  const auto deadline_unix_ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count() +
-      static_cast<std::int64_t>(options.deadline_ms);
+  const auto deadline_unix_ms = wait_deadline_unix_ms(options.deadline_ms);
   auto loop = std::make_shared<WaitLoop>(WaitLoop{
       host, binding->service, binding->kernel, std::move(query), until, token,
       options.cancellation_id, deadline_unix_ms, options.deadline_ms});
-  host->schedule_worker(token, [loop = std::move(loop)] { wait_step(loop); });
+  host->schedule_worker(token, [loop = std::move(loop)] { slice_wait_step(loop); });
   return promise;
 }
 
@@ -547,9 +504,7 @@ JSValue windows_info(JSContext* context, JSValueConst, int argc, JSValueConst* a
       context,
       [kernel, service, window_id, timeout]() -> AsyncOutcome {
         if (!kernel->allows(kWindowReadCapability)) {
-          return async_failure("capability_denied",
-                               std::string("required capability was not granted: ") +
-                                   kWindowReadCapability);
+          return capability_denied(kWindowReadCapability);
         }
         WindowInfo info;
         if (const auto error = service->info(window_id, info, timeout); !error.ok()) {
@@ -582,9 +537,7 @@ JSValue windows_controls(JSContext* context, JSValueConst, int argc, JSValueCons
       context,
       [kernel, service, window_id, timeout]() -> AsyncOutcome {
         if (!kernel->allows(kWindowReadCapability)) {
-          return async_failure("capability_denied",
-                               std::string("required capability was not granted: ") +
-                                   kWindowReadCapability);
+          return capability_denied(kWindowReadCapability);
         }
         std::vector<ControlInfo> controls;
         if (const auto error = service->controls(window_id, controls, timeout); !error.ok()) {
@@ -624,9 +577,7 @@ JSValue windows_text(JSContext* context, JSValueConst, int argc, JSValueConst* a
       context,
       [kernel, service, window_id, timeout]() -> AsyncOutcome {
         if (!kernel->allows(kWindowReadCapability)) {
-          return async_failure("capability_denied",
-                               std::string("required capability was not granted: ") +
-                                   kWindowReadCapability);
+          return capability_denied(kWindowReadCapability);
         }
         std::string text;
         if (const auto error = service->text(window_id, text, timeout); !error.ok()) {

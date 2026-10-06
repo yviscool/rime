@@ -534,8 +534,7 @@ JSValue input_mouse_get_pos(JSContext* context, JSValueConst, int argc, JSValueC
         // Ownership: kernel/window_service (raw) outlive the host; the task
         // always settles its promise, so no outcome is dropped.
         if (!kernel->allows("windows.input.read")) {
-          return async_failure("capability_denied",
-                               "required capability was not granted: windows.input.read");
+          return capability_denied("windows.input.read");
         }
         POINT point{};
         if (!GetCursorPos(&point)) {
@@ -797,8 +796,6 @@ JSValue input_get_key_state(JSContext* context, JSValueConst, int argc, JSValueC
   return JS_NewBool(context, down ? 1 : 0);
 }
 
-constexpr std::chrono::milliseconds kKeyWaitPollInterval{25};
-
 // input.getKeySC(keyName): AHK GetKeySC (script2.cpp:2303-2310) - the scan
 // code a key name maps to, or 0 when it maps to none. Name -> vk goes through
 // state_key like getKeyState/keyWait, then MapVirtualKeyW exactly as the
@@ -916,9 +913,6 @@ JSValue input_get_key_name(JSContext* context, JSValueConst, int argc, JSValueCo
 
 // One keyWait loop: held by shared_ptr through the worker/timer closures,
 // exactly like the window WaitLoop (the Host outlives every armed task).
-// Exactly one terminal path runs - resolve, reject, or CancelById - and
-// each erases this token's pending/timer bookkeeping, so unload cannot
-// wedge on it.
 struct KeyWaitLoop {
   rime::js::Host* host;
   InputService* service;
@@ -928,62 +922,30 @@ struct KeyWaitLoop {
   KeyStateType type{KeyStateType::Physical};
   std::uint64_t token{0};
   std::uint64_t cancellation_id{0};
-  std::int64_t deadline_unix_ms{0};  // absolute system ms since epoch
+  std::int64_t deadline_unix_ms{0};  // absolute system ms since the epoch
   std::uint64_t budget_ms{0};        // the requested deadlineMs (error text)
-};
 
-// One wait step: settles the promise or re-arms the 25ms poll. Runs on the
-// worker lane; capability/cancellation are checked before every read. Like
-// windows.wait this path is exempt from Action dispatch, so there is no
-// Action Trace.
-void key_wait_step(std::shared_ptr<KeyWaitLoop> loop) {
-  rime::js::Host* host = loop->host;
-  const std::uint64_t token = loop->token;
-  std::optional<AsyncOutcome> outcome;
-  try {
-    if (!loop->kernel->allows("windows.input.read")) {
-      outcome = async_failure("capability_denied",
-                              "required capability was not granted: windows.input.read");
-    } else if (loop->cancellation_id != 0 && host->is_cancelled(loop->cancellation_id)) {
-      outcome = async_failure("cancelled", "wait cancelled");
-    } else {
-      const bool down = loop->type == KeyStateType::Physical
-                            ? loop->service->physical_key_down(loop->vk)
-                            : read_key_state(loop->vk, loop->type);
-      if (down == loop->want_down) {
-        outcome = async_success("true");
-      } else {
-        const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
-                                .count();
-        if (now_ms >= loop->deadline_unix_ms) {
-          outcome = async_failure(
-              "timeout", "key wait timed out after " + std::to_string(loop->budget_ms) + "ms");
-        }
-      }
+  // One evaluation on the worker lane: capability, cancellation, key state,
+  // then deadline. Unset means "not reached yet" - slice_wait_step re-arms
+  // the scheduler. Like windows.wait this path dispatches no Action, so
+  // there is no Action Trace.
+  std::optional<AsyncOutcome> evaluate() {
+    if (!kernel->allows("windows.input.read")) {
+      return capability_denied("windows.input.read");
     }
-  } catch (const std::exception& exception) {
-    outcome = async_failure("execution_failed", exception.what());
-  } catch (...) {
-    outcome = async_failure("execution_failed", "native key wait failed");
-  }
-  if (outcome.has_value()) {
-    if (outcome->ok) {
-      host->complete_async(token, true, std::move(outcome->payload));
-    } else {
-      host->complete_async(token, false, outcome->code + ":" + outcome->payload);
+    if (cancellation_id != 0 && host->is_cancelled(cancellation_id)) {
+      return async_failure("cancelled", "wait cancelled");
     }
-    return;
+    const bool down = type == KeyStateType::Physical ? service->physical_key_down(vk)
+                                                     : read_key_state(vk, type);
+    if (down == want_down) return async_success("true");
+    if (now_unix_ms() >= deadline_unix_ms) {
+      return async_failure("timeout",
+                           "key wait timed out after " + std::to_string(budget_ms) + "ms");
+    }
+    return std::nullopt;
   }
-  // Not satisfied yet: sleep on the scheduler, then poll again on the
-  // worker. A cancellation landing between checks settles the promise
-  // through CancelById; the next step observes is_cancelled and drains the
-  // timer bookkeeping through complete_async (dropped, but erasing the
-  // token).
-  host->schedule_task(token, kKeyWaitPollInterval, [loop] {
-    loop->host->schedule_worker(loop->token, [loop] { key_wait_step(loop); });
-  });
-}
+};
 
 // input.keyWait(keyName[, options]): AHK KeyWait. Resolves true once the
 // key reaches the requested state; rejects `timeout` after deadlineMs
@@ -1051,15 +1013,11 @@ JSValue input_key_wait(JSContext* context, JSValueConst, int argc, JSValueConst*
   }
   // deadline_ms is bounded by js_int64_strict (2^53), so now + budget stays
   // far inside int64 milliseconds since the epoch.
-  const auto deadline_unix_ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count() +
-      static_cast<std::int64_t>(options.deadline_ms);
+  const auto deadline_unix_ms = wait_deadline_unix_ms(options.deadline_ms);
   auto loop = std::make_shared<KeyWaitLoop>(KeyWaitLoop{
       host, binding->service, binding->kernel, vk, want_down, type, token,
       options.cancellation_id, deadline_unix_ms, options.deadline_ms});
-  host->schedule_worker(token, [loop = std::move(loop)] { key_wait_step(loop); });
+  host->schedule_worker(token, [loop = std::move(loop)] { slice_wait_step(loop); });
   return promise;
 }
 

@@ -30,22 +30,8 @@ constexpr const char* kProcessManageCapability = "process.manage";
 constexpr const char* kProcessRunAsCapability = "process.runas";
 constexpr const char* kProcessShutdownCapability = "process.shutdown";
 
-// One bounded slice for every wait loop in this module: the loop sleeps on
-// the scheduler between evaluations (never blocking a thread) and re-checks
-// its condition; deadline/cancellation are evaluated after every slice.
-constexpr std::chrono::milliseconds kProcessWaitSlice{25};
-
-AsyncOutcome capability_denied(const char* capability) {
-  return async_failure("capability_denied",
-                       std::string("required capability was not granted: ") + capability);
-}
-
-std::int64_t now_unix_ms() {
-  return static_cast<std::int64_t>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count());
-}
+// The slice cadence, the capability_denied() failure and the clock helpers
+// live in async_task.hpp, shared with the other poll-style waits.
 
 ProcessModuleBinding* binding_of(JSContext* context) {
   auto* host = static_cast<rime::js::Host*>(JS_GetContextOpaque(context));
@@ -195,9 +181,7 @@ JSValue process_list(JSContext* context, JSValueConst, int argc, JSValueConst* a
       context,
       [kernel, service]() -> AsyncOutcome {
         if (!kernel->allows(kProcessInspectCapability)) {
-          return async_failure("capability_denied",
-                               std::string("required capability was not granted: ") +
-                                   kProcessInspectCapability);
+          return capability_denied(kProcessInspectCapability);
         }
         std::vector<ProcessInfo> processes;
         if (const auto error = service->list(processes); !error.ok()) {
@@ -232,9 +216,7 @@ JSValue process_info(JSContext* context, JSValueConst, int argc, JSValueConst* a
       context,
       [kernel, service, pid]() -> AsyncOutcome {
         if (!kernel->allows(kProcessInspectCapability)) {
-          return async_failure("capability_denied",
-                               std::string("required capability was not granted: ") +
-                                   kProcessInspectCapability);
+          return capability_denied(kProcessInspectCapability);
         }
         ProcessInfo info;
         if (const auto error = service->info(pid, info); !error.ok()) {
@@ -307,10 +289,10 @@ JSValue process_terminate(JSContext* context, JSValueConst, int argc, JSValueCon
 // ---- wait family: runWait / wait / waitClose -----------------------------
 //
 // The wait entries dispatch no Action, exactly like windows.wait: they run on
-// the worker lane in bounded kProcessWaitSlice slices, so nothing blocks or
+// the worker lane in bounded kSliceWaitInterval slices, so nothing blocks or
 // polls on the JS thread and there is no Action Trace for them (the
-// capability read-policy inside each step is the audit surface for this
-// family). What they do share with the action entries is the capability
+// capability read-policy inside each evaluation is the audit surface for
+// this family). What they do share with the action entries is the capability
 // gate, the deadline and the cancellation id.
 //
 // RunWait waits on the process handle a launch_waitable() reference owns and
@@ -347,118 +329,92 @@ struct ProcessWaitLoop {
   std::uint64_t cancellation_id{0};
   std::int64_t deadline_unix_ms{0};  // absolute system ms since epoch
   std::int64_t budget_ms{0};         // the requested deadlineMs (error text)
-};
 
-std::string wait_timeout_message(const ProcessWaitLoop& loop) {
-  return "wait timed out after " + std::to_string(loop.budget_ms) + "ms";
-}
+  std::string timeout_message() const {
+    return "wait timed out after " + std::to_string(budget_ms) + "ms";
+  }
 
-// One wait step: settles the promise - releasing any reference the loop still
-// owns first - or re-arms the slice. Runs on the worker lane.
-void process_wait_step(const std::shared_ptr<ProcessWaitLoop>& loop) {
-  rime::js::Host* host = loop->host;
-  const std::uint64_t token = loop->token;
-  std::optional<AsyncOutcome> outcome;
-  try {
+  // One evaluation on the worker lane: capability, cancellation, the
+  // kind-specific setup (launch / open) and then the wait itself. Unset
+  // means "not settled yet", so slice_wait_step re-arms the slice timer
+  // instead of holding the worker for the whole deadline.
+  std::optional<AsyncOutcome> evaluate() {
     const char* capability =
-        loop->kind == ProcessWaitLoop::Kind::RunWait ? kProcessLaunchCapability
-                                                     : kProcessInspectCapability;
-    if (!loop->kernel->allows(capability)) {
-      outcome = capability_denied(capability);
-    } else if (loop->cancellation_id != 0 && host->is_cancelled(loop->cancellation_id)) {
-      outcome = async_failure("cancelled", "wait cancelled");
-    } else if (loop->kind == ProcessWaitLoop::Kind::RunWait && !loop->launched) {
+        kind == Kind::RunWait ? kProcessLaunchCapability : kProcessInspectCapability;
+    if (!kernel->allows(capability)) return capability_denied(capability);
+    if (cancellation_id != 0 && host->is_cancelled(cancellation_id)) {
+      return async_failure("cancelled", "wait cancelled");
+    }
+    if (kind == Kind::RunWait && !launched) {
       // First step only: launch on the worker lane, keep hProcess as a
       // reference. A launch error settles immediately (no reference issued).
-      std::uint32_t pid = 0;
-      std::uint64_t ref_id = 0;
-      if (const auto error = loop->service->launch_waitable(loop->command, loop->args,
-                                                            loop->working_dir, pid, ref_id);
+      std::uint32_t launched_pid = 0;
+      std::uint64_t reference = 0;
+      if (const auto error =
+              service->launch_waitable(command, args, working_dir, launched_pid, reference);
           !error.ok()) {
-        outcome = async_failure(error);
-      } else {
-        loop->pid = pid;
-        loop->ref_id = ref_id;
-        loop->launched = true;
+        return async_failure(error);
       }
-    } else if (loop->kind == ProcessWaitLoop::Kind::Close && !loop->open_attempted) {
+      pid = launched_pid;
+      ref_id = reference;
+      launched = true;
+    } else if (kind == Kind::Close && !open_attempted) {
       // Try to wait on a real handle; `opened` false keeps the snapshot path.
-      std::uint64_t ref_id = 0;
+      std::uint64_t reference = 0;
       bool opened = false;
-      if (const auto error = loop->service->open_waitable_pid(loop->pid, ref_id, opened);
+      if (const auto error = service->open_waitable_pid(pid, reference, opened); !error.ok()) {
+        return async_failure(error);
+      }
+      ref_id = reference;
+      open_attempted = true;
+    }
+
+    if (ref_id != 0) {
+      // Handle-backed slice (RunWait, or waitClose once opened): exit is
+      // reported by wait_ref, which consumes the reference on success.
+      std::uint64_t exit_code = 0;
+      bool timed_out = false;
+      if (const auto error = service->wait_ref(ref_id, deadline_unix_ms, exit_code, timed_out);
           !error.ok()) {
-        outcome = async_failure(error);
-      } else {
-        loop->ref_id = ref_id;
-        loop->open_attempted = true;
+        return async_failure(error);
       }
+      if (timed_out) return async_failure("timeout", timeout_message());
+      ref_id = 0;
+      json::Value value = json::Value::object();
+      if (kind == Kind::RunWait) {
+        value.set("pid", json::Value::number(static_cast<double>(pid)));
+      }
+      value.set("exitCode", json::Value::number(static_cast<double>(exit_code)));
+      return async_success(json::stringify(value));
     }
 
-    if (!outcome.has_value()) {
-      if (loop->ref_id != 0) {
-        // Handle-backed slice (RunWait, or waitClose once opened): exit is
-        // reported by wait_ref, which consumes the reference on success.
-        std::uint64_t exit_code = 0;
-        bool timed_out = false;
-        if (const auto error = loop->service->wait_ref(loop->ref_id, loop->deadline_unix_ms,
-                                                       exit_code, timed_out); !error.ok()) {
-          outcome = async_failure(error);
-        } else if (timed_out) {
-          outcome = async_failure("timeout", wait_timeout_message(*loop));
-        } else {
-          loop->ref_id = 0;
-          json::Value value = json::Value::object();
-          if (loop->kind == ProcessWaitLoop::Kind::RunWait) {
-            value.set("pid", json::Value::number(static_cast<double>(loop->pid)));
-          }
-          value.set("exitCode", json::Value::number(static_cast<double>(exit_code)));
-          outcome = async_success(json::stringify(value));
-        }
-      } else {
-        // Snapshot path (ProcessWait, and waitClose when the open was
-        // refused): existence only, so an already-gone pid satisfies
-        // waitClose on the first step.
-        ProcessInfo info;
-        const bool exists = loop->service->info(loop->pid, info).ok();
-        const bool met = loop->kind == ProcessWaitLoop::Kind::Exists ? exists : !exists;
-        if (met) {
-          json::Value value = json::Value::object();
-          value.set("pid", json::Value::number(static_cast<double>(loop->pid)));
-          outcome = async_success(json::stringify(value));
-        } else if (now_unix_ms() >= loop->deadline_unix_ms) {
-          outcome = async_failure("timeout", wait_timeout_message(*loop));
-        }
-      }
+    // Snapshot path (ProcessWait, and waitClose when the open was
+    // refused): existence only, so an already-gone pid satisfies waitClose
+    // on the first step.
+    ProcessInfo info;
+    const bool exists = service->info(pid, info).ok();
+    const bool met = kind == Kind::Exists ? exists : !exists;
+    if (met) {
+      json::Value value = json::Value::object();
+      value.set("pid", json::Value::number(static_cast<double>(pid)));
+      return async_success(json::stringify(value));
     }
-  } catch (const std::exception& exception) {
-    outcome = async_failure("execution_failed", exception.what());
-  } catch (...) {
-    outcome = async_failure("execution_failed", "native process wait step failed");
+    if (now_unix_ms() >= deadline_unix_ms) return async_failure("timeout", timeout_message());
+    return std::nullopt;
   }
 
-  if (outcome.has_value()) {
-    // The single terminal path: a reference the loop still owns (timeout,
-    // cancel, capability loss, service error) is released here, so no handle
-    // outlives its wait. complete_async then erases this token's pending and
-    // delay_timers_ bookkeeping even when the promise was already settled.
-    if (loop->ref_id != 0) {
-      static_cast<void>(loop->service->cancel_wait(loop->ref_id));
-      loop->ref_id = 0;
+  // The single terminal path: a reference the loop still owns (timeout,
+  // cancel, capability loss, service error) is released here, so no handle
+  // outlives its wait. slice_wait_step runs this before it settles the
+  // promise, which then erases this token's pending/timer bookkeeping even
+  // when CancelById already settled it.
+  void on_terminal(const AsyncOutcome&) {
+    if (ref_id != 0) {
+      static_cast<void>(service->cancel_wait(ref_id));
+      ref_id = 0;
     }
-    if (outcome->ok) {
-      host->complete_async(token, true, std::move(outcome->payload));
-    } else {
-      host->complete_async(token, false, outcome->code + ":" + outcome->payload);
-    }
-    return;
   }
-  // Not settled yet: sleep on the scheduler, then continue on the worker.
-  // The token carries no cancellation id, so cancel_by_id can never disarm
-  // this timer - the loop has to keep waking until it releases its reference.
-  host->schedule_task(token, kProcessWaitSlice, [loop] {
-    loop->host->schedule_worker(loop->token, [loop] { process_wait_step(loop); });
-  });
-}
+};
 
 // Shared tail of the wait entries: creates the promise token (unbound by
 // design, see ProcessWaitLoop::cancellation_id), computes the absolute
@@ -474,14 +430,12 @@ JSValue arm_process_wait(JSContext* context, ProcessModuleBinding* binding,
   if (const auto error = host->begin_async(context, promise, token, 0); !error.ok()) {
     return JS_ThrowInternalError(context, "%s", error.message.c_str());
   }
-  // deadline_ms is bounded by js_int64_strict (2^53), so now + budget stays
-  // far inside int64 milliseconds since the epoch.
-  const auto deadline_unix_ms = now_unix_ms() + static_cast<std::int64_t>(options.deadline_ms);
+  const auto deadline_unix_ms = wait_deadline_unix_ms(options.deadline_ms);
   auto loop = std::make_shared<ProcessWaitLoop>(ProcessWaitLoop{
       kind, std::move(command), std::move(args), std::move(working_dir), pid, ref_id,
       false, false, host, binding->service, binding->kernel, token, options.cancellation_id,
       deadline_unix_ms, static_cast<std::int64_t>(options.deadline_ms)});
-  host->schedule_worker(token, [loop] { process_wait_step(loop); });
+  host->schedule_worker(token, [loop] { slice_wait_step(loop); });
   return promise;
 }
 

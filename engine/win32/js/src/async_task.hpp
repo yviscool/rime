@@ -171,6 +171,83 @@ JSValue start_async(JSContext* context, Work work, std::uint64_t cancellation_id
   return promise;
 }
 
+// ---- poll-style wait plumbing -------------------------------------------
+//
+// windows.wait, input.keyWait and the process wait family are the same
+// shape: check capability, check cancellation, evaluate a condition, then
+// either settle or sleep the scheduler and evaluate again. Only the
+// condition is domain code, so the skeleton lives here and each loop keeps
+// a small evaluate() member.
+
+// Sleep between evaluations. The loop never blocks a thread (the timer
+// service owns the sleep) and never pins a worker for a whole deadline, so a
+// long wait does not starve the other worker-lane work.
+inline constexpr std::chrono::milliseconds kSliceWaitInterval{25};
+
+// The failure every gated body returns when the policy refused the call. The
+// message names the capability so a script can tell "not granted" apart from
+// "the operation itself failed".
+inline AsyncOutcome capability_denied(const char* capability) {
+  return async_failure("capability_denied",
+                       std::string("required capability was not granted: ") + capability);
+}
+
+inline std::int64_t now_unix_ms() {
+  return static_cast<std::int64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count());
+}
+
+// Absolute deadline for a wait entered with `budget_ms` (the options
+// deadlineMs). That value is bounded by js_int64_strict (2^53), so now plus
+// budget stays far inside int64 milliseconds since the epoch.
+inline std::int64_t wait_deadline_unix_ms(std::uint64_t budget_ms) {
+  return now_unix_ms() + static_cast<std::int64_t>(budget_ms);
+}
+
+// One slice of a poll-style wait. `Loop` supplies `host`, `token`, an
+// `std::optional<AsyncOutcome> evaluate()` for the domain condition, and an
+// optional `on_terminal(const AsyncOutcome&)` run on the single terminal
+// path before the promise settles (the process family releases its waitable
+// reference there, so no handle outlives its wait).
+//
+// Exactly one terminal path runs - resolve, reject, or the host's
+// CancelById - and it always drains this token's pending/timer bookkeeping
+// through complete_async, so unload cannot wedge on the wait. No Action
+// Trace: these entries dispatch no Action, and the capability read-policy in
+// evaluate() is their audit surface.
+template <typename Loop>
+void slice_wait_step(const std::shared_ptr<Loop>& loop) {
+  rime::js::Host* host = loop->host;
+  const std::uint64_t token = loop->token;
+  std::optional<AsyncOutcome> outcome;
+  try {
+    outcome = loop->evaluate();
+  } catch (const std::exception& exception) {
+    outcome = async_failure("execution_failed", exception.what());
+  } catch (...) {
+    outcome = async_failure("execution_failed", "native wait step failed");
+  }
+  if (outcome.has_value()) {
+    if constexpr (requires(Loop& value, const AsyncOutcome& settled) {
+                    value.on_terminal(settled);
+                  }) {
+      loop->on_terminal(*outcome);
+    }
+    if (outcome->ok) {
+      host->complete_async(token, true, std::move(outcome->payload));
+    } else {
+      host->complete_async(token, false, outcome->code + ":" + outcome->payload);
+    }
+    return;
+  }
+  // Not settled yet: sleep on the scheduler, then continue on the worker.
+  host->schedule_task(token, kSliceWaitInterval, [loop] {
+    loop->host->schedule_worker(loop->token, [loop] { slice_wait_step(loop); });
+  });
+}
+
 // Builds the Action every native-module mutation sends through the kernel.
 // The id comes from the host's shared counter; the deadline is now plus the
 // options budget (default 5s).

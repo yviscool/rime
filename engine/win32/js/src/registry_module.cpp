@@ -123,9 +123,7 @@ JSValue registry_read(JSContext* context, JSValueConst, int argc, JSValueConst* 
       context,
       [kernel, service, key = std::move(key), name = std::move(name)]() -> AsyncOutcome {
         if (!kernel->allows(kRegistryReadCapability)) {
-          return async_failure("capability_denied",
-                               std::string("required capability was not granted: ") +
-                                   kRegistryReadCapability);
+          return capability_denied(kRegistryReadCapability);
         }
         RegValue value;
         if (const auto error = service->read(key, name, value); !error.ok()) {

@@ -39,14 +39,6 @@ StorageModuleBinding* binding_of(JSContext* context) {
   return static_cast<StorageModuleBinding*>(host->module_data("rime:storage"));
 }
 
-// The failure every gated body returns when the policy refused the call. The
-// message names the capability so a script can tell "not granted" apart from
-// "the operation itself failed".
-AsyncOutcome capability_denied(const char* capability) {
-  return async_failure("capability_denied",
-                       std::string("required capability was not granted: ") + capability);
-}
-
 // Copies a JS string into a std::string. Returns false with an exception
 // pending when the conversion fails, so callers can just return JS_EXCEPTION.
 bool copy_string(JSContext* context, JSValueConst value, std::string& out) {
