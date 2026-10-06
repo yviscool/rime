@@ -6,6 +6,8 @@
 #include "rime/win32/clipboard_executor.hpp"
 #include "rime/win32/input_executor.hpp"
 #include "rime/win32/process_executor.hpp"
+#include "rime/win32/registry_executor.hpp"
+#include "rime/win32/storage_executor.hpp"
 #include "rime/win32/window_executor.hpp"
 
 #include <chrono>
@@ -105,6 +107,8 @@ Bootstrap::Bootstrap(std::unordered_set<std::string> capabilities)
   clipboard_binding_ = {&clipboard_service_, &kernel_, &dispatcher_, &next_action_id_};
   window_binding_ = {&window_service_, &kernel_, &dispatcher_, &next_action_id_};
   automation_binding_ = {&automation_service_, &kernel_, &dispatcher_, &next_action_id_};
+  storage_binding_ = {&storage_service_, &kernel_, &dispatcher_, &next_action_id_};
+  registry_binding_ = {&registry_service_, &kernel_, &dispatcher_, &next_action_id_};
 }
 
 Bootstrap::~Bootstrap() { (void)stop(); }
@@ -124,6 +128,12 @@ rime::core::Error Bootstrap::register_modules(rime::js::Runtime& runtime) {
   }
   if (const auto error = register_automation_module(runtime, &automation_binding_); !error.ok()) {
     return module_error("rime:automation", error);
+  }
+  if (const auto error = register_storage_module(runtime, &storage_binding_); !error.ok()) {
+    return module_error("rime:storage", error);
+  }
+  if (const auto error = register_registry_module(runtime, &registry_binding_); !error.ok()) {
+    return module_error("rime:registry", error);
   }
   return rime::core::Error::none();
 }
@@ -154,10 +164,22 @@ rime::core::Error Bootstrap::register_executors() {
     return error;
   }
   const auto process_executor = std::make_shared<ProcessExecutor>(process_service_);
-  for (const char* type : {"process.launch", "process.terminate"}) {
+  for (const char* type :
+       {"process.launch", "process.terminate", "process.set.priority", "process.runas",
+        "process.shutdown"}) {
     if (const auto error = kernel_.register_executor(type, process_executor); !error.ok()) {
       return error;
     }
+  }
+  if (const auto error =
+          kernel_.register_executor("storage.write", std::make_shared<StorageExecutor>(storage_service_));
+      !error.ok()) {
+    return error;
+  }
+  if (const auto error = kernel_.register_executor(
+          "registry.write", std::make_shared<RegistryExecutor>(registry_service_));
+      !error.ok()) {
+    return error;
   }
   if (const auto error = kernel_.register_executor(
           "automation.find",
@@ -202,6 +224,10 @@ rime::core::Error Bootstrap::start() {
     (void)input_service_.stop();
     return error;
   }
+  // The two file/dir selectors browse the window service's pump; attaching
+  // only after every service is up keeps a rolled-back start from leaving a
+  // dangling pump reference behind.
+  storage_service_.set_ui_thread(&window_service_.ui());
   started_ = true;
   return rime::core::Error::none();
 }
@@ -210,6 +236,12 @@ rime::core::Error Bootstrap::stop() {
   if (!started_) return rime::core::Error::none();
   started_ = false;
   rime::core::Error first = rime::core::Error::none();
+  // Detach and sweep the storage/process services first: the selectors stop
+  // seeing the pump, residual file handles close and outstanding wait
+  // references release before the threads they borrow go away.
+  storage_service_.set_ui_thread(nullptr);
+  (void)storage_service_.stop();
+  (void)process_service_.stop();
   if (const auto error = automation_service_.stop(); !error.ok()) first = error;
   if (const auto error = window_service_.stop(); !error.ok() && first.ok()) first = error;
   if (const auto error = input_service_.stop(); !error.ok() && first.ok()) first = error;
@@ -223,13 +255,14 @@ std::unordered_set<std::string> demo_capabilities() {
 
 std::unordered_set<std::string> production_capabilities() {
   // Every capability whose status is `implemented` in
-  // contracts/registry/actions.json; planned capabilities (registry.*,
-  // media.sound) stay ungranted until their executors land.
+  // contracts/registry/actions.json; planned capabilities (media.sound)
+  // stay ungranted until their executors land.
   return {"windows.window.read", "windows.window.write", "windows.clipboard.read",
           "windows.clipboard.write", "windows.input.inject", "windows.input.read",
           "windows.hook.global", "windows.automation.find", "windows.automation.read",
           "windows.automation.invoke", "process.inspect", "process.launch",
-          "process.terminate"};
+          "process.terminate", "process.manage", "process.runas", "process.shutdown",
+          "filesystem.read", "filesystem.write", "registry.read", "registry.write"};
 }
 
 // Reload ceiling (AHK Reload itself has none): a script that asks for a

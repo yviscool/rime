@@ -10,8 +10,12 @@
 #include "rime/win32/js_clipboard.hpp"
 #include "rime/win32/js_input.hpp"
 #include "rime/win32/js_process.hpp"
+#include "rime/win32/js_registry.hpp"
+#include "rime/win32/js_storage.hpp"
 #include "rime/win32/js_window.hpp"
 #include "rime/win32/process.hpp"
+#include "rime/win32/registry.hpp"
+#include "rime/win32/storage.hpp"
 #include "rime/win32/window.hpp"
 
 #include <atomic>
@@ -25,9 +29,10 @@ class Runtime;
 
 namespace rime::win32 {
 
-// The one production wiring shape: the five Win32 services, the capability
-// policy the Kernel enforces, the shared Dispatcher queue, the 15 action
-// executors from contracts/registry/actions.json and the five JS modules.
+// The one production wiring shape: the seven Win32 services (input, process,
+// clipboard, window, UIA, storage, registry), the capability policy the
+// Kernel enforces, the shared Dispatcher queue, every implemented action
+// executor from contracts/registry/actions.json and the seven JS modules.
 // The bundle harness and the desktop host both run through this class, so
 // what the tests exercise is exactly what production runs.
 class Bootstrap final {
@@ -38,15 +43,16 @@ class Bootstrap final {
   Bootstrap(const Bootstrap&) = delete;
   Bootstrap& operator=(const Bootstrap&) = delete;
 
-  // Registers `rime:input`, `rime:process`, `rime:clipboard`, `rime:window`
-  // and `rime:automation` on the runtime. Must be called before the runtime
-  // starts; the bindings stay owned by this object for the whole lifetime.
+  // Registers `rime:input`, `rime:process`, `rime:clipboard`, `rime:window`,
+  // `rime:automation`, `rime:storage` and `rime:registry` on the runtime.
+  // Must be called before the runtime starts; the bindings stay owned by
+  // this object for the whole lifetime.
   rime::core::Error register_modules(rime::js::Runtime& runtime);
 
-  // Registers the 15 action executors on the kernel, then starts the
-  // services (input hook, window thread, UIA thread). A partial start is
-  // rolled back before the error is returned; stop() and the destructor are
-  // idempotent.
+  // Registers every implemented action executor on the kernel, then starts
+  // the services (input hook, window thread, UIA thread, storage UI pump
+  // attachment). A partial start is rolled back before the error is
+  // returned; stop() and the destructor are idempotent.
   rime::core::Error start();
   rime::core::Error stop();
 
@@ -61,6 +67,8 @@ class Bootstrap final {
   ClipboardService clipboard_service_;
   WindowService window_service_;
   rime::automation::UiaService automation_service_;
+  StorageService storage_service_;
+  RegistryService registry_service_;
 
   rime::action::Kernel kernel_;
   rime::action::Dispatcher dispatcher_;
@@ -71,6 +79,8 @@ class Bootstrap final {
   ClipboardModuleBinding clipboard_binding_;
   WindowModuleBinding window_binding_;
   AutomationModuleBinding automation_binding_;
+  StorageModuleBinding storage_binding_;
+  RegistryModuleBinding registry_binding_;
 
   bool started_{false};
 };
@@ -79,7 +89,7 @@ class Bootstrap final {
 // mutations still fail the policy with a clear reason.
 std::unordered_set<std::string> demo_capabilities();
 // The production grant: every implemented action capability in
-// contracts/registry/actions.json (12 of 16; planned capabilities stay out).
+// contracts/registry/actions.json; planned capabilities stay out.
 std::unordered_set<std::string> production_capabilities();
 
 // Reads the file at `path` and drives it through the full production

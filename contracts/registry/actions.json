@@ -376,6 +376,66 @@
       "sdk": "sdk/src/automation.ts:40",
       "tests": ["tests/js/automation_slice.cpp"],
       "status": "implemented"
+    },
+    {
+      "type": "storage.write",
+      "capability": "filesystem.write",
+      "target": { "kind": "storage", "example": "fs" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/storage_executor.cpp:78",
+      "executor": "engine/win32/src/storage_executor.cpp:421",
+      "module": "engine/win32/js/src/storage_module.cpp:683",
+      "sdk": "sdk/src/storage.ts:1211",
+      "tests": ["tests/native/storage_tests.cpp", "tests/js/storage_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "registry.write",
+      "capability": "registry.write",
+      "target": { "kind": "registry", "example": "HKCU\\Software\\Rime" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/registry_executor.cpp:50",
+      "executor": "engine/win32/src/registry_executor.cpp:109",
+      "module": "engine/win32/js/src/registry_module.cpp:185",
+      "sdk": "sdk/src/registry.ts:77",
+      "tests": ["tests/native/registry_tests.cpp", "tests/js/registry_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "process.set.priority",
+      "capability": "process.manage",
+      "target": { "kind": "process", "example": "1234" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/process_executor.cpp:108",
+      "executor": "engine/win32/src/process_executor.cpp:103",
+      "module": "engine/win32/js/src/process_module.cpp:598",
+      "sdk": "sdk/src/process.ts:169",
+      "tests": ["tests/native/process_tests.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "process.runas",
+      "capability": "process.runas",
+      "target": { "kind": "process", "example": "new" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/process_executor.cpp:158",
+      "executor": "engine/win32/src/process_executor.cpp:155",
+      "module": "engine/win32/js/src/process_module.cpp:643",
+      "sdk": "sdk/src/process.ts:181",
+      "tests": ["tests/native/process_tests.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "process.shutdown",
+      "capability": "process.shutdown",
+      "target": { "kind": "process", "example": "system" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/process_executor.cpp:225",
+      "executor": "engine/win32/src/process_executor.cpp:218",
+      "module": "engine/win32/js/src/process_module.cpp:694",
+      "sdk": "sdk/src/process.ts:193",
+      "tests": ["tests/native/process_tests.cpp"],
+      "status": "implemented"
     }
   ],
   "capabilities": [
@@ -411,7 +471,7 @@
       "name": "windows.input.inject",
       "status": "implemented",
       "declared": "engine/win32/js/src/input_module.cpp:352",
-      "checked": ["engine/action/src/kernel.cpp:97", "engine/win32/js/src/input_module.cpp:352", "engine/win32/js/src/input_module.cpp:402", "engine/win32/js/src/input_module.cpp:439", "engine/win32/js/src/input_module.cpp:919", "engine/win32/js/src/events_module.cpp:2492"],
+      "checked": ["engine/action/src/kernel.cpp:97", "engine/win32/js/src/input_module.cpp:352", "engine/win32/js/src/input_module.cpp:402", "engine/win32/js/src/input_module.cpp:439", "engine/win32/js/src/input_module.cpp:919", "engine/win32/js/src/input_module.cpp:1306", "engine/win32/js/src/events_module.cpp:2492"],
       "actions": ["input.send", "input.mouse"]
     },
     {
@@ -471,16 +531,53 @@
       "actions": ["process.terminate"]
     },
     {
+      "name": "filesystem.read",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/storage_module.cpp:28",
+      "checked": ["engine/win32/js/src/storage_module.cpp:215", "engine/win32/js/src/storage_module.cpp:491", "engine/win32/js/src/storage_module.cpp:819"],
+      "actions": []
+    },
+    {
+      "name": "filesystem.write",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/storage_module.cpp:29",
+      "checked": ["engine/action/src/kernel.cpp:97", "engine/win32/js/src/storage_module.cpp:764"],
+      "actions": ["storage.write"]
+    },
+    {
+      "name": "process.manage",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/process_module.cpp:29",
+      "checked": ["engine/action/src/kernel.cpp:97"],
+      "actions": ["process.set.priority"]
+    },
+    {
+      "name": "process.runas",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/process_module.cpp:30",
+      "checked": ["engine/action/src/kernel.cpp:97"],
+      "actions": ["process.runas"]
+    },
+    {
+      "name": "process.shutdown",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/process_module.cpp:31",
+      "checked": ["engine/action/src/kernel.cpp:97"],
+      "actions": ["process.shutdown"]
+    },
+    {
       "name": "registry.read",
-      "status": "planned",
-      "plannedBy": "docs/api/core-builtins.json (RegRead)",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/registry_module.cpp:21",
+      "checked": ["engine/win32/js/src/registry_module.cpp:125"],
       "actions": []
     },
     {
       "name": "registry.write",
-      "status": "planned",
-      "plannedBy": "docs/api/core-builtins.json (RegWrite, RegCreateKey, RegDelete, RegDeleteKey)",
-      "actions": []
+      "status": "implemented",
+      "declared": "engine/win32/js/src/registry_module.cpp:22",
+      "checked": ["engine/action/src/kernel.cpp:97"],
+      "actions": ["registry.write"]
     },
     {
       "name": "media.sound",
@@ -546,6 +643,41 @@
       "api": "process.info(pid)",
       "capability": "process.inspect",
       "site": "engine/win32/js/src/process_module.cpp:102"
+    },
+    {
+      "api": "storage.read(path)",
+      "capability": "filesystem.read",
+      "site": "engine/win32/js/src/storage_module.cpp:215"
+    },
+    {
+      "api": "storage.stat(path)",
+      "capability": "filesystem.read",
+      "site": "engine/win32/js/src/storage_module.cpp:276"
+    },
+    {
+      "api": "storage.list(path)",
+      "capability": "filesystem.read",
+      "site": "engine/win32/js/src/storage_module.cpp:304"
+    },
+    {
+      "api": "storage.envGet(name)",
+      "capability": "filesystem.read",
+      "site": "engine/win32/js/src/storage_module.cpp:337"
+    },
+    {
+      "api": "storage.iniRead(path, section, key)",
+      "capability": "filesystem.read",
+      "site": "engine/win32/js/src/storage_module.cpp:382"
+    },
+    {
+      "api": "storage.driveGet(field, letter)",
+      "capability": "filesystem.read",
+      "site": "engine/win32/js/src/storage_module.cpp:445"
+    },
+    {
+      "api": "registry.read(key, name)",
+      "capability": "registry.read",
+      "site": "engine/win32/js/src/registry_module.cpp:125"
     }
   ]
 }
