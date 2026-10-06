@@ -19,6 +19,8 @@ add_library(rime_win32 STATIC
   src/registry.cpp
   src/registry_executor.cpp
   src/screen.cpp
+  src/screen_pixels.cpp
+  src/screen_seam.cpp
   src/storage.cpp
   src/storage_executor.cpp
 )
@@ -26,7 +28,7 @@ target_include_directories(rime_win32 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
 target_link_libraries(rime_win32 PUBLIC rime_core rime_action)
 target_compile_features(rime_win32 PUBLIC cxx_std_20)
 target_compile_definitions(rime_win32 PUBLIC UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(rime_win32 PRIVATE user32)
+target_link_libraries(rime_win32 PRIVATE user32 gdi32)
 # Registry ops are advapi32; PRIVATE on a static library still propagates the
 # link line to every consumer (tests included), so the test's own raw Win32
 # reads resolve too.

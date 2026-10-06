@@ -7,6 +7,8 @@
 #include "async_task.hpp"
 #include "quickjs.h"
 
+#include <cmath>
+#include <cstdint>
 #include <string>
 
 namespace rime::win32 {
@@ -133,6 +135,159 @@ JSValue screen_monitor(JSContext* context, JSValueConst, int argc, JSValueConst*
       options.cancellation_id);
 }
 
+// ---- pixel family ---------------------------------------------------------
+
+// Strict integer read: coordinates and colors must be whole numbers, and a
+// value outside int32 range is a RangeError instead of a silent truncation.
+bool parse_int32(JSContext* context, JSValueConst value, const char* where, int& out) {
+  if (!JS_IsNumber(value)) {
+    JS_ThrowTypeError(context, "%s must be an integer", where);
+    return false;
+  }
+  double raw = 0;
+  if (JS_ToFloat64(context, &raw, value) < 0) return false;
+  if (!std::isfinite(raw)) {
+    JS_ThrowRangeError(context, "%s must be a finite integer", where);
+    return false;
+  }
+  if (raw != std::floor(raw)) {
+    JS_ThrowTypeError(context, "%s must be an integer", where);
+    return false;
+  }
+  if (raw < -2147483648.0 || raw > 2147483647.0) {
+    JS_ThrowRangeError(context, "%s must be an integer in -2147483648..2147483647", where);
+    return false;
+  }
+  out = static_cast<int>(raw);
+  return true;
+}
+
+// screen.pixel(x, y, options?): one pixel as 0xRRGGBB. The rectangle comes
+// from the capture seam, so the value is exact for whatever the seam (or the
+// desktop) shows. Capability: screen.capture. Query, no Action Trace.
+JSValue screen_pixel(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void*) {
+  ScreenModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:screen is not wired");
+  }
+  if (argc < 2 || argc > 3) return JS_ThrowTypeError(context, "pixel(x, y, options?)");
+  int x = 0;
+  int y = 0;
+  if (!parse_int32(context, argv[0], "pixel(x): x", x)) return JS_EXCEPTION;
+  if (!parse_int32(context, argv[1], "pixel(y): y", y)) return JS_EXCEPTION;
+  ActionOptions options;
+  if (argc == 3 && !parse_action_options(context, argv[2], options)) return JS_EXCEPTION;
+  rime::action::Kernel* kernel = binding->kernel;
+  ScreenService* service = binding->service;
+  return start_async(
+      context,
+      [kernel, service, x, y]() -> AsyncOutcome {
+        if (!kernel->allows(kScreenCaptureCapability)) {
+          return capability_denied(kScreenCaptureCapability);
+        }
+        std::uint32_t color = 0;
+        if (const auto error = service->pixel_color(x, y, color); !error.ok()) {
+          return async_failure(error);
+        }
+        json::Value value = json::Value::object();
+        value.set("color", json::Value::number(static_cast<double>(color)));
+        return async_success(json::stringify(value));
+      },
+      options.cancellation_id);
+}
+
+// Reads the {left, top, right, bottom} rectangle pixelSearch searches.
+bool parse_area(JSContext* context, JSValueConst value, int& left, int& top, int& right,
+                int& bottom) {
+  if (!JS_IsObject(value)) {
+    JS_ThrowTypeError(context, "pixelSearch(area, color, options?): area must be an object");
+    return false;
+  }
+  static constexpr const char* kKeys[] = {"left", "top", "right", "bottom"};
+  int* const outputs[] = {&left, &top, &right, &bottom};
+  for (std::size_t i = 0; i < 4; ++i) {
+    JSValue field = JS_GetPropertyStr(context, value, kKeys[i]);
+    if (JS_IsException(field)) return false;
+    const bool ok = parse_int32(context, field, kKeys[i], *outputs[i]);
+    JS_FreeValue(context, field);
+    if (!ok) return false;
+  }
+  return true;
+}
+
+// screen.pixelSearch(area, color, options?): first matching pixel, scanning
+// the top row first and left to right. Resolves {found:false} when nothing
+// matched - a miss is a result, not an error. Capability: screen.capture.
+// Query, no Action Trace.
+JSValue screen_pixel_search(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                            void*) {
+  ScreenModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:screen is not wired");
+  }
+  if (argc < 2 || argc > 3) {
+    return JS_ThrowTypeError(context, "pixelSearch(area, color, options?)");
+  }
+  int left = 0;
+  int top = 0;
+  int right = 0;
+  int bottom = 0;
+  if (!parse_area(context, argv[0], left, top, right, bottom)) return JS_EXCEPTION;
+  int color = 0;
+  if (!parse_int32(context, argv[1], "pixelSearch color", color)) return JS_EXCEPTION;
+  if (color < 0 || color > 0xFFFFFF) {
+    return JS_ThrowRangeError(context, "pixelSearch color must be in 0x000000..0xFFFFFF");
+  }
+  int variation = 0;
+  if (argc == 3) {
+    if (!JS_IsObject(argv[2])) {
+      return JS_ThrowTypeError(context, "pixelSearch(area, color, options?): options must be an object");
+    }
+    JSValue field = JS_GetPropertyStr(context, argv[2], "variation");
+    if (JS_IsException(field)) return JS_EXCEPTION;
+    if (!JS_IsUndefined(field) && !JS_IsNull(field)) {
+      if (!parse_int32(context, field, "variation", variation)) {
+        JS_FreeValue(context, field);
+        return JS_EXCEPTION;
+      }
+      if (variation < 0 || variation > 255) {
+        JS_FreeValue(context, field);
+        return JS_ThrowRangeError(context, "variation must be in 0..255");
+      }
+    }
+    JS_FreeValue(context, field);
+  }
+  ActionOptions options;
+  if (argc == 3 && !parse_action_options(context, argv[2], options)) return JS_EXCEPTION;
+  rime::action::Kernel* kernel = binding->kernel;
+  ScreenService* service = binding->service;
+  return start_async(
+      context,
+      [kernel, service, left, top, right, bottom, color, variation]() -> AsyncOutcome {
+        if (!kernel->allows(kScreenCaptureCapability)) {
+          return capability_denied(kScreenCaptureCapability);
+        }
+        bool found = false;
+        int x = 0;
+        int y = 0;
+        if (const auto error =
+                service->pixel_search(left, top, right, bottom,
+                                      static_cast<std::uint32_t>(color), variation, found, x, y);
+            !error.ok()) {
+          return async_failure(error);
+        }
+        json::Value value = json::Value::object();
+        value.set("found", json::Value::boolean(found));
+        if (found) {
+          value.set("x", json::Value::number(x));
+          value.set("y", json::Value::number(y));
+        }
+        return async_success(json::stringify(value));
+      },
+      options.cancellation_id);
+}
+
 int screen_module_init(JSContext* context, JSModuleDef* module) {
   ScreenModuleBinding* binding = binding_of(context);
   if (!binding || !binding->service || !binding->kernel) {
@@ -153,7 +308,8 @@ int screen_module_init(JSContext* context, JSModuleDef* module) {
     }
     return true;
   };
-  if (!add("monitorCount", screen_monitor_count, 0) || !add("monitor", screen_monitor, 0)) {
+  if (!add("monitorCount", screen_monitor_count, 0) || !add("monitor", screen_monitor, 0) ||
+      !add("pixel", screen_pixel, 0) || !add("pixelSearch", screen_pixel_search, 0)) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "screen", screen);

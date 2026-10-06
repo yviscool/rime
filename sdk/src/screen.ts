@@ -22,11 +22,28 @@ export interface ScreenMonitor {
   work: ScreenRect;
 }
 
+/** Result of a pixel search: a miss carries no coordinate on purpose. */
+export type ScreenPixelSearchResult =
+  | { found: false }
+  | { found: true; x: number; y: number };
+
+/** Options of `screen.pixelSearch`. */
+export interface ScreenPixelSearchOptions extends ActionOptions {
+  /** Per-channel slack 0..255 (default 0 = exact match). */
+  variation?: number;
+}
+
 /** Bridge of the `rime:screen` module. Every call is a read. */
 export interface ScreenBridge {
   monitorCount(options?: NativeActionOptions): Promise<{ count: number }>;
   monitor(options?: NativeActionOptions): Promise<ScreenMonitor>;
   monitor(index: number, options?: NativeActionOptions): Promise<ScreenMonitor>;
+  pixel(x: number, y: number, options?: NativeActionOptions): Promise<{ color: number }>;
+  pixelSearch(
+    area: ScreenRect,
+    color: number,
+    options?: NativeActionOptions,
+  ): Promise<ScreenPixelSearchResult>;
 }
 
 async function screenBridge(): Promise<ScreenBridge> {
@@ -63,6 +80,38 @@ export const screen = {
           ? bridge.monitor(bridgeOptions)
           : bridge.monitor(index, bridgeOptions),
       ),
+    );
+  },
+  /**
+   * One screen pixel as `0xRRGGBB` (AHK `PixelGetColor`, with AHK's `Mode`
+   * argument dropped - the runtime has one color format). Coordinates are
+   * virtual-desktop pixels and may be negative on multi-monitor layouts.
+   * @throws ActionError with `invalid_contract` (outside the virtual screen),
+   *   `capability_denied`, `cancelled`.
+   */
+  pixel(x: number, y: number, options?: ActionOptions): Promise<number> {
+    return runAction(options, (bridgeOptions) =>
+      screenBridge().then((bridge) => bridge.pixel(x, y, bridgeOptions).then((r) => r.color)),
+    );
+  },
+  /**
+   * First pixel matching `color` inside `area` (AHK `PixelSearch`), scanning
+   * the top row first and left to right. A miss resolves `{found:false}` -
+   * it is a result, not an error.
+   *
+   * @param area rectangle in virtual-desktop pixels; reversed corners are
+   *   accepted and normalized.
+   * @param color `0xRRGGBB`.
+   * @throws ActionError with `invalid_contract` (area misses the screen,
+   *   bad variation/color range), `capability_denied`, `cancelled`.
+   */
+  pixelSearch(
+    area: ScreenRect,
+    color: number,
+    options?: ScreenPixelSearchOptions,
+  ): Promise<ScreenPixelSearchResult> {
+    return runAction(options, (bridgeOptions) =>
+      screenBridge().then((bridge) => bridge.pixelSearch(area, color, bridgeOptions)),
     );
   },
 };

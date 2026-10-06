@@ -1,8 +1,8 @@
 # Screen API
 
-状态：`implemented`（Monitor 族，含接线）：`screen.monitorCount()`、`screen.monitor(index?)` 已具备 Native service、`rime:screen` 模块、SDK 门面与三层 contract（`tests/native/screen_tests.cpp`、`tests/js/screen_slice.cpp`）；`contracts/registry/actions.json` 的 `screen.capture` capability 行与 `readSurfaces` 两行、`Bootstrap` 接线与 `production_capabilities()`、`sdk/src/modules.d.ts` 的 `declare module "rime:screen"` 均已落地（逐项见"实现状态"）。
+状态：`implemented`（Monitor 族 + Pixel 族，含接线）：`screen.monitorCount()`、`screen.monitor(index?)`、`screen.pixel(x, y)`、`screen.pixelSearch(area, color, options)` 已具备 Native service、纯扫描层、`rime:screen` 模块、SDK 门面与三层 contract（`tests/native/screen_tests.cpp`、`tests/js/screen_slice.cpp`）；`contracts/registry/actions.json` 的 `screen.capture` capability 行与 `readSurfaces` 四行、`Bootstrap` 接线与 `production_capabilities()`、`sdk/src/modules.d.ts` 的 `declare module "rime:screen"` 均已落地（逐项见"实现状态"）。
 
-仍为 `contract-only`：`CaretGetPos`、`ImageSearch`、`PixelGetColor`、`PixelSearch`、`SysGet`、`SysGetIPAddresses`（逐行状态见 `docs/api/coverage.json`）——它们需要截图/像素/caret seam，属本域后续提交。
+仍为 `contract-only`：`CaretGetPos`、`ImageSearch`、`SysGet`、`SysGetIPAddresses`（逐行状态见 `docs/api/coverage.json`）。
 
 源码证据：`functions.h` 的 `Monitor*`、`SysGet`、`Pixel*`、`ImageSearch`、`CaretGetPos`；`source/lib/env.cpp`（Monitor 族实现）、`source/lib/pixel.cpp`、`source/lib/win.cpp`；`source/window.h:193-199` 的 `MonitorInfoPackage` 与 `COUNT_ALL_MONITORS INT_MIN`。
 
@@ -14,11 +14,15 @@
 | --- | --- | --- | --- | --- |
 | `screen.monitorCount(options?)` | Promise，直读服务（不入队） | worker lane | `screen.capture` | `MonitorGetCount` |
 | `screen.monitor(index?, options?)` | Promise，直读服务（不入队） | worker lane | `screen.capture` | `MonitorGet` / `MonitorGetWorkArea` / `MonitorGetName` / `MonitorGetPrimary` |
+| `screen.pixel(x, y, options?)` | Promise，直读服务（不入队） | worker lane | `screen.capture` | `PixelGetColor` |
+| `screen.pixelSearch(area, color, options?)` | Promise，直读服务（不入队） | worker lane | `screen.capture` | `PixelSearch` |
 
-模块导出为 `screen`（注册名 `rime:screen`），两函数原生 `length` 均为 `0`（可选参数不能用 arity 表达）。`monitor` 的首位参数按类型分流：数字是 `index`，`undefined`/`null`/对象是 `options`（因此 `screen.monitor(options)` 也合法），其余同步抛 `TypeError`。
+模块导出为 `screen`（注册名 `rime:screen`），四个函数原生 `length` 均为 `0`（可选参数不能用 arity 表达）。`monitor` 的首位参数按类型分流：数字是 `index`，`undefined`/`null`/对象是 `options`（因此 `screen.monitor(options)` 也合法），其余同步抛 `TypeError`。
 
 ```ts
 interface ScreenRect { left: number; top: number; right: number; bottom: number; }
+type ScreenPixelSearchResult = { found: false } | { found: true; x: number; y: number };
+interface ScreenPixelSearchOptions extends ActionOptions { variation?: number; }
 interface ScreenMonitor {
   index: number;    // 1-based, EnumDisplayMonitors 顺序
   primary: boolean;
@@ -28,6 +32,8 @@ interface ScreenMonitor {
 }
 screen.monitorCount(options?): Promise<number>;
 screen.monitor(index?, options?): Promise<ScreenMonitor>;
+screen.pixel(x, y, options?): Promise<number>;            // 0xRRGGBB
+screen.pixelSearch(area, color, options?): Promise<ScreenPixelSearchResult>;
 ```
 
 一个 `ScreenMonitor` 记录同时覆盖四条 AHK 命令：`MonitorGet` → `bounds`，`MonitorGetWorkArea` → `work`，`MonitorGetName` → `name`，`MonitorGetPrimary` → 省略 index 时选中的那一条（`primary` 标志同时告知它是不是主屏）。AHK 每条命令各自开一次 `EnumMonitorProc`，本实现一次枚举给出全部字段，但**字段全部逐一对齐 `MONITORINFOEX` 的 `rcMonitor`/`rcWork`/`szDevice`/`MONITORINFOF_PRIMARY`，不做任何换算**。
@@ -93,11 +99,11 @@ JS 边界的坐标与计数都是**虚拟桌面像素**（`rcMonitor`/`rcWork` �
 
 | Code | 文案 |
 | --- | --- |
-| `invalid_contract` | `monitor index must be 0 (primary) or a positive number`、`monitor index <n> does not exist, <m> monitor(s) connected` |
+| `invalid_contract` | `monitor index must be 0 (primary) or a positive number`、`monitor index <n> does not exist, <m> monitor(s) connected`、`pixel (<x>, <y>) is outside the virtual screen`、`search area does not intersect the virtual screen`、`variation must be in 0..255` |
 | `target_gone` | `no monitor is connected` |
-| `execution_failed` | `cannot enumerate monitors` |
+| `execution_failed` | `cannot enumerate monitors`、`cannot capture the screen at (<x>, <y>)`、`cannot capture the screen area`、`screen capture returned no pixel` |
 
-同步抛出（不入队，native 模块直接抛）：`RangeError`（`monitor(index): index must be 0 or a positive number`，index 为负或非 32 位可表示）、`TypeError`（`monitor(index?, options?): index must be a number`，既不是数字也不是对象；`monitor(index?, options?): expected monitor(index?, options?)`；`monitorCount(options?)`，argc > 1）。
+同步抛出（不入队，native 模块直接抛）：`RangeError`（`monitor(index): index must be 0 or a positive number`，index 为负；`<where> must be an integer in -2147483648..2147483647`；`pixelSearch color must be in 0x000000..0xFFFFFF`；`variation must be in 0..255`；`<where> must be a finite integer`）、`TypeError`（`monitor(index?, options?): index must be a number`；`monitor(index?, options?): expected monitor(index?, options?)`；`monitorCount(options?)`/`pixel(x, y, options?)`/`pixelSearch(area, color, options?)` 的 arity；`<where> must be an integer`，含小数与非数字；`pixelSearch(area, ...): area must be an object`；`options must be an object`）。
 
 注意同步 `RangeError`/`TypeError` 与异步 `invalid_contract` 是**两条不同的道**：负 index 在解析期就被拒绝（连 worker 都不进），而"正数但不存在"必须先枚举才知道，因此只能是拒绝的 Promise。测试分别用 `try/catch` 与 `e.code` 各钉一遍。
 
@@ -114,23 +120,43 @@ JS 边界的坐标与计数都是**虚拟桌面像素**（`rcMonitor`/`rcWork` �
 - **不施加 deadline**：见"异步/取消"。只读、单次、不可中断的 OS 调用给出 deadline 只会是假承诺，与 `registry.read` 的既有豁免同源。
 - **不进 Trace**：见"Trace"。本 runtime 把 Trace 绑定在可检查的副作用上，读屏信息没有副作用可回放。
 
+## Pixel 族（`pixel` / `pixelSearch`）
+
+三层，各层有各自的真相来源：
+
+1. **纯扫描层**（`engine/win32/src/screen_pixels.cpp`，无 OS、无时钟）：`Framebuffer{width, height, bgra}` 上的 `color_at` / `color_matches` / `search`。`color_matches` 逐通道做 `abs` 比较并把 variation 夹在 0..255——**不做无符号回绕**，所以 target 的红分量为 1 时不会把红分量 255 的像素当成"接近"（AHK 在 `pixel.cpp` 用 `red_low`/`red_high` 表达同一条规则）。`search` 先归一化反向矩形，再按行主序（上→下、左→右）扫描。
+2. **捕获 seam**（`engine/win32/include/rime/win32/screen_seam.hpp`）：`capture_rect(bounds, bgra, width, height)`。真实路径 `GetDC(nullptr)` → `CreateCompatibleBitmap` → `BitBlt` → `GetDIBits`（`biHeight` 取负得到 top-down 32bpp BGRA）；测试通过 `screen_seam::set_capture` 换掉**这一次屏幕读取**。seam 只替换环境，不替换被测单元——service、扫描层与模块全程真实运行（同 `input_seam` 的规则）。
+3. **服务与模块**：`ScreenService::pixel_color` / `pixel_search` 先用 `GetSystemMetrics(SM_XVIRTUALSCREEN 等)` 求虚拟屏矩形，坐标或矩形落在屏外即 `invalid_contract`——绝不 BitBlt 屏外区域、把返回的一片黑色当作"没找到"。矩形部分越界时裁到屏内，报告的坐标仍是真实屏幕坐标。模块层 `screen.pixel` / `screen.pixelSearch` 走 `start_async`，capability 每次求值先读。
+
+**与 AHK 的偏差**：
+
+1. `PixelGetColor` 的 `Mode` 参数不暴露：本 runtime 只有一种颜色格式，返回 `0xRRGGBB` 数字（AHK 返回 `0xRRGGBB` 形式的字符串）。
+2. `PixelSearch` 的扫描方向不跟随矩形四角顺序：反向矩形被归一化，答案永远是"行主序第一个命中"；AHK 会按 `right_to_left` / `bottom_to_top` 换扫描方向。
+3. 未命中返回 `{found:false}`（与 AHK 的 `Found=false` + 空坐标同义），**不携带坐标键**，而不是塞 `-1`；未命中是结果，不是错误。
+
 ## contract / native / stress 测试
 
-- `tests/native/screen_tests.cpp`（L5）：真实 `EnumDisplayMonitors` 下断言 `count >= 1`；`1..count` 全部可取且 `index` 自洽、名字非空、`work ⊆ bounds`、`right > left`；`count+1` 拒 `invalid_contract` 且消息含 `does not exist` 与该序号；负数拒 `invalid_contract`；恰有一个 `primary` 且 `monitor_at(0)` 就是那一条；`monitor_at(0)` 与按号码取它的记录在 bounds/work/name 上逐字相等。**计数的正确性由"`1..count` 成功且 `count+1` 失败"这对断言双向夹住**，不在测试里重写一遍枚举逻辑（否则会与被测实现同错同绿）。
-- `tests/js/screen_slice.cpp`（L5）：生产接线（`rime:screen` + 真实 `ScreenService`）。段 1 用**运行时启动前先做的 native 读**作独立观察，逐字段比对 JS 返回的 count 与 primary 记录；段 2 钉住 `monitor(1)`/`monitor(count)`/`count+1 → invalid_contract`/`-1 → RangeError`/`'one' → TypeError`；随后断言 trace 为空；最后用空 capability 的第二个 runtime（同 `registry_slice` 的写法，JS lane 进程级，必须先停第一个）证明两处门禁都按 `screen.capture` 拒绝。
-- stress：本域无队列、无 Hook、无重入路径，当前没有单独 stress 测试；像素/caret seam 落地后再补（它们才有取消竞态与时间窗）。
+- `tests/native/screen_tests.cpp`（L5，一个文件内三层）：
+  - 纯扫描层：手搭 4x3 framebuffer + 字面量颜色，覆盖 `color_at` 越界、variation 边界（0/1/5/63/64/255）、非回绕规则、行主序命中、反向矩形归一化、未命中时不动输出坐标。
+  - seam 路径：注入"红=绝对 x、绿=绝对 y、蓝=0x40"的合成屏，`pixel_color(3,5)` 断言字面量 `0x00030540`，`pixel_search` 断言 `(2,3)`，未命中、variation 64/63 边界、三个 `invalid_contract` 文案各钉一遍；随后**还原 seam** 再测真实捕获。
+  - 真实捕获：16x16 矩形的宽高与字节数、`pixel_color(0,0)` 成功。
+  - Monitor 部分：真实 `EnumDisplayMonitors` 下断言 `count >= 1`；`1..count` 全部可取且 `index` 自洽、名字非空、`work ⊆ bounds`、`right > left`；`count+1` 拒 `invalid_contract` 且消息含 `does not exist` 与该序号；负数拒 `invalid_contract`；恰有一个 `primary` 且 `monitor_at(0)` 就是那一条；`monitor_at(0)` 与按号码取它的记录在 bounds/work/name 上逐字相等。**计数的正确性由"`1..count` 成功且 `count+1` 失败"这对断言双向夹住**，不在测试里重写一遍枚举逻辑（否则会与被测实现同错同绿）。
+- `tests/js/screen_slice.cpp`（L5）：生产接线（`rime:screen` + 真实 `ScreenService`），pixel 段同样注入合成屏以拿到字面量期望。段 1 用**运行时启动前先做的 native 读**作独立观察，逐字段比对 JS 返回的 count 与 primary 记录；段 2 钉住 `monitor(1)`/`monitor(count)`/`count+1 → invalid_contract`/`-1 → RangeError`/`'one' → TypeError`；段 3 钉住 `pixel(3,5)` 的字面量色、`pixelSearch` 命中 `(2,3)`、`{found:false}` 不带坐标、越界矩形 → `invalid_contract`、`1.5 → TypeError`、`9999999999 → RangeError`、`0x1000000 → RangeError`；随后断言 trace 为空；最后用空 capability 的第二个 runtime（同 `registry_slice` 的写法，JS lane 进程级，必须先停第一个）证明四个入口都按 `screen.capture` 拒绝。
+- stress：本域无队列、无 Hook、无重入路径，当前没有单独 stress 测试；caret 查询与 ImageSearch 落地后再看是否需要（那时才有时时序问题）。
 
 ## 实现状态
 
 | 部件 | 状态 | 位置 |
 | --- | --- | --- |
 | Native service | done | `engine/win32/include/rime/win32/screen.hpp`、`engine/win32/src/screen.cpp` |
+| 纯扫描层 + 捕获 seam | done | `engine/win32/{include/rime/win32/screen_pixels.hpp,src/screen_pixels.cpp}`、`engine/win32/{include/rime/win32/screen_seam.hpp,src/screen_seam.cpp}` |
 | `rime:screen` 模块 | done | `engine/win32/js/include/rime/win32/js_screen.hpp`、`engine/win32/js/src/screen_module.cpp` |
 | SDK 门面 | done | `sdk/src/screen.ts` |
 | TS 模块声明 / 导出 | done | `sdk/src/modules.d.ts`、`sdk/src/index.ts` |
-| capability 台账 | done | `contracts/registry/actions.json`（`capabilities` + `readSurfaces`） |
+| capability 台账 | done | `contracts/registry/actions.json`（`capabilities` + `readSurfaces` 四行） |
 | Bootstrap 接线与生产能力 | done | `engine/win32/js/src/bootstrap.{hpp,cpp}`（`production_capabilities()` 含 `screen.capture`） |
-| coverage 行 | done（Monitor 5 行 → `implemented`） | `docs/api/coverage.json` |
+| coverage 行 | done（Monitor 5 行 + `PixelGetColor`/`PixelSearch` → `implemented`） | `docs/api/coverage.json` |
 | contract 测试 | done | `tests/native/screen_tests.cpp`、`tests/js/screen_slice.cpp`（CMake 已登记） |
-| `CaretGetPos` / `ImageSearch` / `PixelGetColor` / `PixelSearch` | contract-only | 待截图与像素 seam |
+| `ImageSearch` | contract-only | 复用同一捕获 seam 做模板匹配 |
+| `CaretGetPos` | contract-only | caret 查询，不走捕获 seam |
 | `SysGet` / `SysGetIPAddresses` | contract-only | 待本域后续提交 |

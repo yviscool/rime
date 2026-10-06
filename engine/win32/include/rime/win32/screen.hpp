@@ -2,6 +2,7 @@
 
 #include "rime/core/types.hpp"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -15,6 +16,11 @@ namespace rime::win32 {
 // in env.cpp:143 and we keep the same choice. Indexes are 1-based like AHK's,
 // and index 0 selects the primary monitor, which is what AHK's omitted
 // argument means.
+//
+// The pixel family (PixelGetColor / PixelSearch) reads the same virtual
+// desktop through capture_rect (screen_seam.hpp) and scans the result with
+// the pure helpers in screen_pixels.hpp, so every exact color assertion runs
+// against an injected framebuffer instead of whatever the desktop shows.
 class ScreenService final {
  public:
   struct Monitor {
@@ -35,6 +41,14 @@ class ScreenService final {
   // `index` 0 selects the primary monitor. An index with no monitor behind it
   // is an invalid contract, never a silent fallback to some other display.
   rime::core::Error monitor_at(int index, Monitor& out) const;
+
+  // One pixel as 0xRRGGBB in virtual-desktop coordinates.
+  rime::core::Error pixel_color(int x, int y, std::uint32_t& rgb) const;
+  // First matching pixel in the rectangle, scanning top row first and left to
+  // right; `found` stays false when nothing matched. Reversed corners are
+  // accepted and normalized.
+  rime::core::Error pixel_search(int left, int top, int right, int bottom, std::uint32_t color,
+                                 int variation, bool& found, int& out_x, int& out_y) const;
 
  private:
   rime::core::Error collect(std::vector<Monitor>& out) const;

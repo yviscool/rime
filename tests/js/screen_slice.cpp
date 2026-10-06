@@ -11,13 +11,16 @@
 #include "rime/js/runtime.hpp"
 #include "rime/win32/js_screen.hpp"
 #include "rime/win32/screen.hpp"
+#include "rime/win32/screen_seam.hpp"
 
 #include <cassert>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <string>
 #include <unordered_set>
+#include <vector>
 
 namespace {
 
@@ -42,10 +45,42 @@ std::string json_string(const std::string& text) {
 
 std::string number(const int value) { return std::to_string(value); }
 
+// The synthetic screen the pixel contract runs against: a pixel's red channel
+// carries its absolute x, its green channel its absolute y and its blue
+// channel a constant, so a golden expectation names one coordinate and no
+// other. Replacing the capture replaces the environment, never the code under
+// test (AGENTS testing rules).
+bool synthetic_capture(const RECT& bounds, std::vector<std::uint8_t>& bgra, int& width,
+                       int& height) {
+  width = bounds.right - bounds.left;
+  height = bounds.bottom - bounds.top;
+  if (width <= 0 || height <= 0) return false;
+  bgra.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u, 0);
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      const int absolute_x = bounds.left + x;
+      const int absolute_y = bounds.top + y;
+      const std::size_t offset =
+          (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) +
+           static_cast<std::size_t>(x)) *
+          4u;
+      bgra[offset + 0] = 0x40u;  // B
+      bgra[offset + 1] = static_cast<std::uint8_t>(absolute_y & 0xFF);  // G
+      bgra[offset + 2] = static_cast<std::uint8_t>(absolute_x & 0xFF);  // R
+      bgra[offset + 3] = 0xFFu;
+    }
+  }
+  return true;
+}
+
 }  // namespace
 
 int main() {
   ScreenService screen_service;
+  // The pixel contract needs exact colors, which no live desktop can promise;
+  // the monitor contract does not depend on it (geometry comes from
+  // EnumDisplayMonitors either way).
+  rime::win32::screen_seam::set_capture(synthetic_capture);
 
   // Independent observation: the OS answers before the runtime exists, so a
   // JS result is never only self-reported.
@@ -141,10 +176,75 @@ int main() {
         "                   JSON.stringify(globalThis.syncErrors));",
         "screen-index-check.mjs");
 
+  // Segment 3: the pixel family against the synthetic screen - exact golden
+  // colors, a found coordinate, a miss as a result, and the contract errors
+  // that keep a bad coordinate or color out of the worker lane.
+  check(runtime,
+        "import { screen } from 'rime:screen';\n"
+        "globalThis.pixelColor = null;\n"
+        "globalThis.pixelError = null;\n"
+        "globalThis.hit = null;\n"
+        "globalThis.miss = null;\n"
+        "globalThis.wideHit = null;\n"
+        "globalThis.searchError = null;\n"
+        "globalThis.syncErrors = [];\n"
+        "screen.pixel(3, 5)\n"
+        "  .then(c => { globalThis.pixelColor = c; }, e => { globalThis.pixelError = String(e); });\n"
+        "const area = { left: 0, top: 0, right: 7, bottom: 7 };\n"
+        "screen.pixelSearch(area, 0x00020340)\n"
+        "  .then(r => { globalThis.hit = r; }, e => { globalThis.hit = String(e); });\n"
+        "screen.pixelSearch(area, 0x123456)\n"
+        "  .then(r => { globalThis.miss = r; }, e => { globalThis.miss = String(e); });\n"
+        "screen.pixelSearch({ left: 2, top: 3, right: 2, bottom: 3 }, 0x00020300,\n"
+        "                    { variation: 64 })\n"
+        "  .then(r => { globalThis.wideHit = r; }, e => { globalThis.wideHit = String(e); });\n"
+        "screen.pixelSearch({ left: 10000000, top: 10000000, right: 10000001,\n"
+        "                      bottom: 10000001 }, 0x00020340)\n"
+        "  .then(() => {}, e => { globalThis.searchError = e.code + ':' + e.message; });\n"
+        "try { screen.pixel(1.5, 0); globalThis.syncErrors.push('fraction accepted'); }\n"
+        "catch (e) { globalThis.syncErrors.push(e.constructor.name); }\n"
+        "try { screen.pixel(9999999999, 0); globalThis.syncErrors.push('huge accepted'); }\n"
+        "catch (e) { globalThis.syncErrors.push(e.constructor.name); }\n"
+        "try { screen.pixelSearch(area, 0x1000000); globalThis.syncErrors.push('big color'); }\n"
+        "catch (e) { globalThis.syncErrors.push(e.constructor.name); }",
+        "screen-pixel.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.pixelError) throw new Error(globalThis.pixelError);\n"
+        "if (typeof globalThis.pixelColor === 'string')\n"
+        "  throw new Error(globalThis.pixelColor);\n"
+        "if (globalThis.pixelColor.color !== 0x00030540)\n"
+        "  throw new Error('pixel(3, 5) must be the synthetic color: 0x' +\n"
+        "                   globalThis.pixelColor.color.toString(16));\n"
+        "if (typeof globalThis.hit === 'string') throw new Error(globalThis.hit);\n"
+        "if (!globalThis.hit.found || globalThis.hit.x !== 2 || globalThis.hit.y !== 3)\n"
+        "  throw new Error('search must find (2, 3): ' + JSON.stringify(globalThis.hit));\n"
+        "if (typeof globalThis.miss === 'string') throw new Error(globalThis.miss);\n"
+        "if (globalThis.miss.found !== false)\n"
+        "  throw new Error('a miss must resolve {found:false}: ' +\n"
+        "                   JSON.stringify(globalThis.miss));\n"
+        "if ('x' in globalThis.miss)\n"
+        "  throw new Error('a miss must not carry coordinates: ' +\n"
+        "                   JSON.stringify(globalThis.miss));\n"
+        "if (typeof globalThis.wideHit === 'string') throw new Error(globalThis.wideHit);\n"
+        "if (!globalThis.wideHit.found || globalThis.wideHit.x !== 2 ||\n"
+        "    globalThis.wideHit.y !== 3)\n"
+        "  throw new Error('variation 64 must widen the match: ' +\n"
+        "                   JSON.stringify(globalThis.wideHit));\n"
+        "if (!globalThis.searchError || !globalThis.searchError.includes('intersect'))\n"
+        "  throw new Error('an area outside the screen must be invalid_contract: ' +\n"
+        "                   globalThis.searchError);\n"
+        "const expected = ['TypeError', 'RangeError', 'RangeError'];\n"
+        "if (JSON.stringify(globalThis.syncErrors) !== JSON.stringify(expected))\n"
+        "  throw new Error('argument rejections must be TypeError, RangeError, RangeError: ' +\n"
+        "                   JSON.stringify(globalThis.syncErrors));",
+        "screen-pixel-check.mjs");
+
   // A query dispatches no Action, so the trace stays empty across every call
   // above.
   assert(trace->snapshot().empty());
 
+  rime::win32::screen_seam::set_capture(nullptr);
   assert(runtime.stop().ok());
 
   // Capability gate: an empty policy rejects the read by name. The JS lane is
@@ -160,8 +260,13 @@ int main() {
           "import { screen } from 'rime:screen';\n"
           "globalThis.countDenied = null;\n"
           "globalThis.monitorDenied = null;\n"
+          "globalThis.pixelDenied = null;\n"
+          "globalThis.searchDenied = null;\n"
           "screen.monitorCount().then(() => {}, e => { globalThis.countDenied = String(e); });\n"
-          "screen.monitor().then(() => {}, e => { globalThis.monitorDenied = String(e); });",
+          "screen.monitor().then(() => {}, e => { globalThis.monitorDenied = String(e); });\n"
+          "screen.pixel(0, 0).then(() => {}, e => { globalThis.pixelDenied = String(e); });\n"
+          "screen.pixelSearch({left: 0, top: 0, right: 1, bottom: 1}, 0)\n"
+          "  .then(() => {}, e => { globalThis.searchDenied = String(e); });",
           "screen-deny.mjs");
     assert(denied_runtime.settle(5000ms).ok());
     check(denied_runtime,
@@ -171,7 +276,13 @@ int main() {
           "                   globalThis.countDenied);\n"
           "if (!globalThis.monitorDenied ||\n"
           "    !globalThis.monitorDenied.includes('screen.capture'))\n"
-          "  throw new Error('monitor must name the capability: ' + globalThis.monitorDenied);",
+          "  throw new Error('monitor must name the capability: ' + globalThis.monitorDenied);\n"
+          "if (!globalThis.pixelDenied ||\n"
+          "    !globalThis.pixelDenied.includes('screen.capture'))\n"
+          "  throw new Error('pixel must name the capability: ' + globalThis.pixelDenied);\n"
+          "if (!globalThis.searchDenied ||\n"
+          "    !globalThis.searchDenied.includes('screen.capture'))\n"
+          "  throw new Error('pixelSearch must name the capability: ' + globalThis.searchDenied);",
           "screen-deny-check.mjs");
     assert(denied_runtime.stop().ok());
   }
