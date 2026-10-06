@@ -310,7 +310,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "Close",
@@ -322,7 +322,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "no source error path - Close is idempotent when the stream is already closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "Encoding",
@@ -334,7 +334,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; ValueError on an unsupported encoding",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "Handle",
@@ -346,7 +346,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "unsupported-by-policy (raw OS HANDLE exposure); InvalidState when the FileRef is closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "Length",
@@ -358,7 +358,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "Pos",
@@ -370,7 +370,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; ValueError on an invalid origin",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "RawRead",
@@ -382,7 +382,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; TypeError when buffer is not a Buffer; ValueError when bytes exceeds the buffer size",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "RawWrite",
@@ -394,7 +394,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; ValueError when bytes exceeds the source length or the address is invalid",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "Read",
@@ -406,7 +406,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure; MemoryError on allocation failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "ReadChar",
@@ -418,7 +418,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "ReadDouble",
@@ -430,7 +430,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "ReadFloat",
@@ -442,7 +442,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "ReadInt",
@@ -454,7 +454,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "ReadInt64",
@@ -466,7 +466,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "ReadLine",
@@ -478,7 +478,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "ReadShort",
@@ -490,7 +490,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "ReadUChar",
@@ -502,7 +502,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "ReadUInt",
@@ -514,7 +514,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "ReadUShort",
@@ -526,7 +526,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "Seek",
@@ -538,7 +538,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; ValueError on an invalid origin",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "Write",
@@ -550,7 +550,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; TypeError when the value is an object",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "WriteChar",
@@ -562,7 +562,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "WriteDouble",
@@ -574,7 +574,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "WriteFloat",
@@ -586,7 +586,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "WriteInt",
@@ -598,7 +598,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "WriteInt64",
@@ -610,7 +610,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "WriteLine",
@@ -622,7 +622,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; TypeError when the value is an object",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "WriteShort",
@@ -634,7 +634,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "WriteUChar",
@@ -646,7 +646,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "WriteUInt",
@@ -658,7 +658,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
           "name": "WriteUShort",
@@ -670,7 +670,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
-          "compatibilityTest": "missing"
+          "compatibilityTest": "tests/sdk/storage.test.ts"
         }
       ]
     },

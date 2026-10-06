@@ -519,10 +519,10 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal",
       "minParams": 2,
@@ -532,7 +532,7 @@
       "sourceKind": "core-bif",
       "returnsObject": true,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "tests/sdk/storage.test.ts"
     },
     {
       "ahkName": "Floor",
@@ -1670,11 +1670,11 @@
         "rime-research/AutoHotkey-alpha/source/script.cpp",
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
-      "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "tsModule": "@rime/registry",
+      "status": "implemented",
       "async": "async",
       "capability": "registry.write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/registry_tests.cpp,tests/js/registry_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal",
       "minParams": 0,
@@ -1684,7 +1684,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "tests/sdk/registry.test.ts"
     },
     {
       "ahkName": "RegDelete",
@@ -1694,11 +1694,11 @@
         "rime-research/AutoHotkey-alpha/source/script.cpp",
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
-      "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "tsModule": "@rime/registry",
+      "status": "implemented",
       "async": "async",
       "capability": "registry.write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/registry_tests.cpp,tests/js/registry_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal",
       "minParams": 0,
@@ -1708,7 +1708,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "tests/sdk/registry.test.ts"
     },
     {
       "ahkName": "RegDeleteKey",
@@ -1718,11 +1718,11 @@
         "rime-research/AutoHotkey-alpha/source/script.cpp",
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
-      "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "tsModule": "@rime/registry",
+      "status": "implemented",
       "async": "async",
       "capability": "registry.write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/registry_tests.cpp,tests/js/registry_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal",
       "minParams": 0,
@@ -1732,7 +1732,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "tests/sdk/registry.test.ts"
     },
     {
       "ahkName": "RegRead",
@@ -1742,11 +1742,11 @@
         "rime-research/AutoHotkey-alpha/source/script.cpp",
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
-      "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "tsModule": "@rime/registry",
+      "status": "implemented",
       "async": "async",
       "capability": "registry.read",
-      "contractTest": "missing",
+      "contractTest": "tests/native/registry_tests.cpp,tests/js/registry_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal",
       "minParams": 0,
@@ -1756,7 +1756,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "tests/sdk/registry.test.ts"
     },
     {
       "ahkName": "RegWrite",
@@ -1766,11 +1766,11 @@
         "rime-research/AutoHotkey-alpha/source/script.cpp",
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
-      "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "tsModule": "@rime/registry",
+      "status": "implemented",
       "async": "async",
       "capability": "registry.write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/registry_tests.cpp,tests/js/registry_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal",
       "minParams": 1,
@@ -1780,7 +1780,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "tests/sdk/registry.test.ts"
     },
     {
       "ahkName": "Round",

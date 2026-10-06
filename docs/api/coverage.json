@@ -697,10 +697,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -712,10 +712,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -727,10 +727,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -742,10 +742,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -757,10 +757,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -774,10 +774,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "ui/worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -791,10 +791,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/regex.cpp"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -806,10 +806,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -821,10 +821,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -836,10 +836,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -851,10 +851,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -866,10 +866,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -881,10 +881,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -896,10 +896,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -911,10 +911,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -926,10 +926,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -941,10 +941,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -956,10 +956,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -971,10 +971,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -986,10 +986,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1001,10 +1001,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1127,10 +1127,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1142,10 +1142,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1202,10 +1202,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1218,10 +1218,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1233,10 +1233,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1248,10 +1248,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1265,10 +1265,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1280,10 +1280,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1295,10 +1295,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1325,10 +1325,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1340,10 +1340,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1370,10 +1370,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1386,10 +1386,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1403,10 +1403,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/regex.cpp"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1418,10 +1418,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1433,10 +1433,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1454,10 +1454,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "ui/worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1472,10 +1472,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1487,10 +1487,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1851,10 +1851,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1866,10 +1866,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1881,10 +1881,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2025,10 +2025,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/wait.cpp"
       ],
       "tsModule": "rime:runtime",
-      "status": "contract-only",
+      "status": "js-native",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "none"
     },
@@ -2507,10 +2507,10 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/window",
-      "status": "contract-only",
+      "status": "unsupported-by-policy",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "docs/api/window.md",
       "lane": "js",
       "cancellation": "none"
     },
@@ -2600,10 +2600,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
       ],
       "tsModule": "@rime/process-shell",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
-      "capability": "process.terminate",
-      "contractTest": "missing",
+      "capability": "process.manage",
+      "contractTest": "tests/native/process_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2615,10 +2615,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
       ],
       "tsModule": "@rime/process-shell",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "process.inspect",
-      "contractTest": "missing",
+      "contractTest": "tests/native/process_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2630,10 +2630,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/process.cpp"
       ],
       "tsModule": "@rime/process-shell",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "process.inspect",
-      "contractTest": "missing",
+      "contractTest": "tests/native/process_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2721,10 +2721,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/process-shell",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
-      "capability": "process.launch",
-      "contractTest": "missing",
+      "capability": "process.runas",
+      "contractTest": "tests/native/process_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2737,10 +2737,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/wait.cpp"
       ],
       "tsModule": "@rime/process-shell",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "process.launch",
-      "contractTest": "missing",
+      "contractTest": "tests/native/process_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2818,10 +2818,10 @@
         "rime-research/AutoHotkey-alpha/source/script.cpp"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "missing",
+      "contractTest": "tests/native/input_tests.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2839,10 +2839,10 @@
         "rime-research/AutoHotkey-alpha/source/script_autoit.cpp"
       ],
       "tsModule": "@rime/input",
-      "status": "contract-only",
+      "status": "unsupported-by-policy",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "missing",
+      "contractTest": "docs/api/window.md",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3003,10 +3003,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
       "tsModule": "@rime/registry",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "missing",
+      "contractTest": "tests/js/registry_slice.cpp,tests/sdk/registry.test.ts",
       "lane": "js",
       "cancellation": "none"
     },
@@ -3125,10 +3125,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/vars.cpp"
       ],
       "tsModule": "@rime/process-shell",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
-      "capability": "process.terminate",
-      "contractTest": "missing",
+      "capability": "process.shutdown",
+      "contractTest": "tests/native/process_tests.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
