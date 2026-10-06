@@ -1,0 +1,20 @@
+{
+  "name": "activate-window",
+  "iterations": 200,
+  "target": {
+    "kind": "self-fixture-window",
+    "title_token": "<pid>.<tick>",
+    "offscreen": true,
+    "no_taskbar_button": true
+  },
+  "task": "resolve window by exact title, then foreground-activate it",
+  "metrics": ["p50_us", "p90_us", "p95_us", "p99_us", "p99.9_us", "max_us", "success_rate"],
+  "machine": {
+    "cpu": "",
+    "ram_gb": 0,
+    "os": "",
+    "ahk_version": "",
+    "rime_commit": "",
+    "build": ""
+  }
+}

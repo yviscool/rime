@@ -1,0 +1,63 @@
+name: Bench
+
+# Nightly performance snapshot. Records numbers, asserts nothing: bench
+# binaries exit nonzero only on a broken pipeline (sanity checks), never on
+# slow numbers, so this workflow cannot go red from machine noise. Compare
+# artifacts by hand against docs/performance/SPEC.md disclosure rules.
+#
+# Only the non-interactive default suite runs here. Runners have no
+# interactive desktop: --input-latency, --pressure and --l4-* need a real
+# session and stay manual (see docs/performance/HARNESS.md).
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Toolchain
+        shell: pwsh
+        run: |
+          bun --version
+          cmake --version
+          ninja --version
+
+      - name: Configure (msvc + QuickJS, Release)
+        run: >
+          cmake -S . -B build/bench-nightly -G Ninja
+          -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+          -DCMAKE_BUILD_TYPE=Release
+          -DRIME_BUILD_TESTS=ON -DRIME_ENABLE_QUICKJS=ON
+          -DRIME_WARNINGS_AS_ERRORS=ON
+
+      - name: Build rime_bench
+        run: cmake --build build/bench-nightly --target rime_bench -j4
+
+      - name: Run default suite
+        shell: pwsh
+        run: |
+          $exe = "build/bench-nightly/tests/native/rime_bench.exe"
+          & $exe | Tee-Object -FilePath bench-default.log
+          if ($LASTEXITCODE -ne 0) { throw "rime_bench failed" }
+
+      - name: Upload numbers
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-default-${{ github.sha }}
+          path: bench-default.log
+          retention-days: 90

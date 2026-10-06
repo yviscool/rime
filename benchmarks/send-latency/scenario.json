@@ -1,0 +1,21 @@
+{
+  "name": "send-latency",
+  "iterations": 200,
+  "task": "Send one keystroke, time until the sender's own hook callback fires",
+  "rime": "rime_bench --input-latency (F24 down+up batch via service.send)",
+  "ahk": "ahk/send-latency.ahk (letter probe key into own off-screen Edit)",
+  "metrics": ["p50_us", "p90_us", "p95_us", "p99_us", "p99.9_us", "max_us", "received", "reordered"],
+  "caveats": [
+    "AHK OnKeyDown fires only for KeyOpt-N-registered keys; F13-F24 and Shift never arrive (probed). Probe key differs by side (F24 vs letter) by necessity.",
+    "Off-screen windows do not receive chars in any Send mode (probed); AHK integrity is hook receipt + foreground-held, not Edit text.",
+    "Rime pairs by down-event order; AHK pairs send-stamp to callback-stamp by index; negatives counted as reordered."
+  ],
+  "machine": {
+    "cpu": "",
+    "ram_gb": 0,
+    "os": "",
+    "ahk_version": "",
+    "rime_commit": "",
+    "build": ""
+  }
+}

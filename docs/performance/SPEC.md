@@ -21,10 +21,13 @@
 | L1 队列/分发 | `event.push+try_pop`、`event.post->handler` | `rime_bench` | 已有 |
 | L2 输入延迟 | `input.inject->hook callback`（真 F24 注入） | `rime_bench --input-latency`（需交互桌面） | 已有 |
 | L3 动作管线 | `action.submit` / `action.pump` / `kernel.allows` / `executor.noop` | `rime_bench` | 已有 |
-| L3 冷启动代理 | `runtime.create+start+stop`、`worker.start+stop` | `rime_bench` | 已有 |
+| L3 冷启动代理 | `runtime.create+start+stop`、`worker.start+stop`、`js.host.create+destroy`、`js.host.eval-trivial`、`js.1M-calls`（仅引用） | `rime_bench`（JS 行需 `quickjs` 预设） | 已有 |
 | L4 端到端任务 | Notepad 激活 / 剪贴板往返 / 窗口搜索激活 | 待建（fixture 窗口 + 双实现） | 计划 |
+| L4 首批 | `l4.query/focus/confirmed`、`l4.clipboard.*`、`l4.uia.*` | `rime_bench --l4-*`（交互桌面，手动） | 已有 |
 | L5 桌面压力 | 10k events/s mouse-move：CPU、队列深度、丢弃率、GC | 待建 | 计划 |
+| L5 首批 | `pressure.mouse-blast` + `inject->callback`（真实 SendInput） | `rime_bench --pressure`（交互桌面，手动） | 已有 |
 | L6 AHK 对照 | 同一 scenario.json，AHK 与 Rime 双实现，统一采集 | 待建 | 计划 |
+| L6 首场景 | `benchmarks/activate-window`（AHK 脚本 + Rime `--l4-activate`） | 手动双跑，机器声明强制 | 已有 |
 
 L0（纯语言循环对比）只作参考，不作结论：Rime 用 QuickJS，
 语言微基准的胜负与用户感知的自动化延迟无关。

@@ -1,0 +1,20 @@
+{
+  "name": "cold-start",
+  "iterations": 20,
+  "task": "spawn a runtime process, time until its first script line runs",
+  "ahk": "ahk/coldstart.ahk (spawns coldstart-target.ahk, QPC-to-signal-file)",
+  "rime": "pending: host-process spawn timing needs bootstrap wiring; in-process HostAbi load+execute (596us Debug / 251us Release) is the lower bound, NOT the counterpart",
+  "metrics": ["p50_us", "p90_us", "p99_us", "max_us"],
+  "caveats": [
+    "AHK number includes CreateProcess; 1ms file-poll quantum is inside the reported total and disclosed per run.",
+    "Rime in-process numbers must NOT be quoted against AHK process numbers."
+  ],
+  "machine": {
+    "cpu": "",
+    "ram_gb": 0,
+    "os": "",
+    "ahk_version": "",
+    "rime_commit": "",
+    "build": ""
+  }
+}
