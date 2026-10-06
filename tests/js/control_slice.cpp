@@ -92,10 +92,14 @@ class TargetWindow final {
     window_class.lpszClassName = k_class;
     window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     (void)RegisterClassW(&window_class);
+    INITCOMMONCONTROLSEX common{};
+    common.dwSize = sizeof(common);
+    common.dwICC = ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES;
+    InitCommonControlsEx(&common);
 
     HWND window = CreateWindowExW(
         0, k_class, L"Rime Control JS Target", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-        480, 360, nullptr, nullptr, window_class.hInstance, nullptr);
+        480, 420, nullptr, nullptr, window_class.hInstance, nullptr);
     if (!window) return;
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
     HWND button = CreateWindowExW(
@@ -113,9 +117,48 @@ class TargetWindow final {
                                  WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 40, 230, 240, 28,
                                  window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(4)),
                                  window_class.hInstance, nullptr);
-    if (!button || !edit || !combo || !check) {
+    HWND listview = CreateWindowExW(0, WC_LISTVIEWW, L"", WS_CHILD | WS_VISIBLE | LVS_REPORT,
+                                    300, 40, 160, 120, window,
+                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(5)),
+                                    window_class.hInstance, nullptr);
+    HWND statusbar = CreateWindowExW(0, STATUSCLASSNAMEW, L"", WS_CHILD | WS_VISIBLE, 40, 330,
+                                     420, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(6)),
+                                     window_class.hInstance, nullptr);
+    if (!button || !edit || !combo || !check || !listview || !statusbar) {
       DestroyWindow(window);
       return;
+    }
+    for (int col = 0; col < 2; ++col) {
+      LVCOLUMNW column{};
+      column.mask = LVCF_TEXT;
+      wchar_t header[8] = {0};
+      header[0] = static_cast<wchar_t>(L'H' + col);
+      column.pszText = header;
+      ListView_InsertColumn(listview, col, &column);
+    }
+    for (int row = 0; row < 2; ++row) {
+      LVITEMW item{};
+      item.mask = LVIF_TEXT;
+      item.iItem = row;
+      wchar_t cell[8] = {0};
+      cell[0] = L'J';
+      cell[1] = static_cast<wchar_t>(L'1' + row);
+      item.pszText = cell;
+      ListView_InsertItem(listview, &item);
+      for (int col = 1; col < 2; ++col) {
+        wchar_t sub[8] = {0};
+        sub[0] = L'J';
+        sub[1] = static_cast<wchar_t>(L'1' + row);
+        sub[2] = L'C';
+        sub[3] = static_cast<wchar_t>(L'0' + col);
+        ListView_SetItemText(listview, row, col, sub);
+      }
+    }
+    {
+      int edges[2] = {200, -1};
+      SendMessageW(statusbar, SB_SETPARTS, 2, reinterpret_cast<LPARAM>(edges));
+      SendMessageW(statusbar, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"js-ready"));
+      SendMessageW(statusbar, SB_SETTEXTW, 1, reinterpret_cast<LPARAM>(L"js-idle"));
     }
     ShowWindow(window, SW_SHOW);
     thread_id_ = GetCurrentThreadId();
@@ -384,6 +427,27 @@ int main() {
         "}\n",
         "control-send.mjs");
   assert(runtime.settle(15000ms).ok());
+
+  // ---- ListView / StatusBar -------------------------------------------------
+  check(runtime,
+        "globalThis.lv = await globalThis.control.resolve(globalThis.windowId, "
+        "  { classNN: 'SysListView321' });\n"
+        "const rows = await globalThis.control.listviewCount(globalThis.lv.id);\n"
+        "if (!rows || rows.rows !== 2) throw new Error('listview must have 2 rows');\n"
+        "const cell = await globalThis.control.listviewText(globalThis.lv.id, 2, 2);\n"
+        "if (!cell || cell.text !== 'J2C1') throw new Error('cell must be J2C1');\n"
+        "const all = await globalThis.control.listviewItems(globalThis.lv.id);\n"
+        "if (!all || all.items.length !== 2 || all.items[1].c1 !== 'J2')\n"
+        "  throw new Error('listview items mismatch: ' + JSON.stringify(all));\n"
+        "globalThis.sb = await globalThis.control.resolve(globalThis.windowId, "
+        "  { classNN: 'msctls_statusbar321' });\n"
+        "const part = await globalThis.control.statusbarText(globalThis.sb.id, 1);\n"
+        "if (!part || part.text !== 'js-ready')\n"
+        "  throw new Error('statusbar part 1 must be js-ready');\n"
+        "const waited = await globalThis.control.statusbarWait(globalThis.sb.id, 'idle', 2);\n"
+        "if (!waited || waited.waited !== true) throw new Error('statusbarWait must resolve');\n",
+        "control-listview.mjs");
+  assert(runtime.settle(5000ms).ok());
 
   // Checkbox through the pipeline (posted clicks converge like the native test).
   check(runtime,

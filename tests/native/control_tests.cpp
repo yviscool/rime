@@ -85,7 +85,7 @@ class TargetWindow final {
     (void)RegisterClassW(&window_class);
     INITCOMMONCONTROLSEX common{};
     common.dwSize = sizeof(common);
-    common.dwICC = ICC_TAB_CLASSES;
+    common.dwICC = ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES;
     InitCommonControlsEx(&common);
 
     HWND window = CreateWindowExW(
@@ -124,7 +124,16 @@ class TargetWindow final {
                                        WS_CHILD | WS_VISIBLE | TCS_BUTTONS, 300, 290, 140, 60,
                                        window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(8)),
                                        window_class.hInstance, nullptr);
-    if (!button || !edit || !combo || !list || !edit_multi || !check || !tab || !tab_buttons) {
+    HWND listview = CreateWindowExW(0, WC_LISTVIEWW, L"",
+                                    WS_CHILD | WS_VISIBLE | LVS_REPORT, 480, 40, 280, 120,
+                                    window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(9)),
+                                    window_class.hInstance, nullptr);
+    HWND statusbar = CreateWindowExW(0, STATUSCLASSNAMEW, L"",
+                                     WS_CHILD | WS_VISIBLE, 40, 330, 420, 24, window,
+                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(10)),
+                                     window_class.hInstance, nullptr);
+    if (!button || !edit || !combo || !list || !edit_multi || !check || !tab || !tab_buttons ||
+        !listview || !statusbar) {
       DestroyWindow(window);
       return;
     }
@@ -135,10 +144,52 @@ class TargetWindow final {
       label[0] = static_cast<wchar_t>(L'P' + page);
       label[1] = static_cast<wchar_t>(L'1' + page);
       item.pszText = label;
-      if (TabCtrl_InsertItem(tab, page, &item) < 0) {
+      if (TabCtrl_InsertItem(tab, page, &item) < 0 ||
+          TabCtrl_InsertItem(tab_buttons, page, &item) < 0) {
         DestroyWindow(window);
         return;
       }
+    }
+    for (int col = 0; col < 3; ++col) {
+      LVCOLUMNW column{};
+      column.mask = LVCF_TEXT;
+      wchar_t header[16] = {0};
+      header[0] = static_cast<wchar_t>(L'H' + col);
+      column.pszText = header;
+      if (ListView_InsertColumn(listview, col, &column) < 0) {
+        DestroyWindow(window);
+        return;
+      }
+    }
+    for (int row = 0; row < 3; ++row) {
+      LVITEMW item{};
+      item.mask = LVIF_TEXT;
+      item.iItem = row;
+      wchar_t cell[16] = {0};
+      cell[0] = L'R';
+      cell[1] = static_cast<wchar_t>(L'1' + row);
+      item.pszText = cell;
+      if (ListView_InsertItem(listview, &item) < 0) {
+        DestroyWindow(window);
+        return;
+      }
+      for (int col = 1; col < 3; ++col) {
+        wchar_t sub[16] = {0};
+        sub[0] = L'R';
+        sub[1] = static_cast<wchar_t>(L'1' + row);
+        sub[2] = L'C';
+        sub[3] = static_cast<wchar_t>(L'0' + col);
+        ListView_SetItemText(listview, row, col, sub);
+      }
+    }
+    {
+      int edges[2] = {200, -1};
+      if (!SendMessageW(statusbar, SB_SETPARTS, 2, reinterpret_cast<LPARAM>(edges))) {
+        DestroyWindow(window);
+        return;
+      }
+      SendMessageW(statusbar, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(L"ready"));
+      SendMessageW(statusbar, SB_SETTEXTW, 1, reinterpret_cast<LPARAM>(L"idle"));
     }
     ShowWindow(window, SW_SHOW);
     thread_id_ = GetCurrentThreadId();
@@ -225,6 +276,8 @@ int main() {
   std::uint64_t check_id = 0;
   std::uint64_t tab_id = 0;
   std::uint64_t tab_buttons_id = 0;
+  std::uint64_t listview_id = 0;
+  std::uint64_t statusbar_id = 0;
   for (const auto& control : controls) {
     if (control.class_nn == "Button1") button_id = control.id;
     if (control.class_nn == "Edit1") edit_id = control.id;
@@ -234,9 +287,12 @@ int main() {
     if (control.class_nn == "Button2") check_id = control.id;
     if (control.class_nn == "SysTabControl321") tab_id = control.id;
     if (control.class_nn == "SysTabControl322") tab_buttons_id = control.id;
+    if (control.class_nn == "SysListView321") listview_id = control.id;
+    if (control.class_nn == "msctls_statusbar321") statusbar_id = control.id;
   }
   assert(button_id != 0 && edit_id != 0 && combo_id != 0 && list_id != 0 &&
-         edit_multi_id != 0 && check_id != 0 && tab_id != 0 && tab_buttons_id != 0);
+         edit_multi_id != 0 && check_id != 0 && tab_id != 0 && tab_buttons_id != 0 &&
+         listview_id != 0 && statusbar_id != 0);
 
   auto policy = std::make_shared<StaticCapabilityPolicy>(
       std::unordered_set<std::string>{"windows.automation.control"});
@@ -251,7 +307,9 @@ int main() {
         "control.edit.selected", "control.edit.paste", "control.setchecked",
         "control.ischecked", "control.show", "control.hide", "control.move",
         "control.setenabled", "control.tab.index", "control.dropdown.show",
-        "control.dropdown.hide", "control.set.style", "control.set.exstyle", "control.send"}) {
+        "control.dropdown.hide", "control.set.style", "control.set.exstyle", "control.send",
+        "control.listview.count", "control.listview.text", "control.listview.items",
+        "control.statusbar.text", "control.statusbar.wait"}) {
     assert(kernel.register_executor(type, executor).ok());
   }
   Dispatcher dispatcher(kernel, 64);
@@ -650,6 +708,45 @@ int main() {
   Result send_bad_vk = run("control.send", edit_multi,
                            "{\"steps\": [{\"vk\": 999, \"down\": true}]}");
   assert(!send_bad_vk.succeeded && send_bad_vk.error.code == Code::InvalidContract);
+
+  // ---- ListView (remote-memory reads work same-process too) -------------------
+  const std::string listview = std::to_string(listview_id);
+  Result lv_count = run("control.listview.count", listview, "{}");
+  assert(lv_count.succeeded && lv_count.value.find("rows")->as_number() == 3.0);
+  Result lv_11 = run("control.listview.text", listview, "{\"row\": 2, \"col\": 3}");
+  assert(lv_11.succeeded && lv_11.value.find("text")->as_string() == "R2C2");
+  Result lv_bad_row = run("control.listview.text", listview, "{\"row\": 0, \"col\": 1}");
+  assert(!lv_bad_row.succeeded && lv_bad_row.error.code == Code::InvalidContract);
+  Result lv_items = run("control.listview.items", listview, "{\"limit\": 10}");
+  assert(lv_items.succeeded);
+  {
+    const auto* items = lv_items.value.find("items");
+    assert(items && items->is_array() && items->size() == 3);
+    const auto* r0 = items->as_array()[0].find("c1");
+    const auto* r2c3 = items->as_array()[2].find("c3");
+    assert(r0 && r0->as_string() == "R1");
+    assert(r2c3 && r2c3->as_string() == "R3C2");
+  }
+  Result lv_gone = run("control.listview.count", "999999", "{}");
+  assert(!lv_gone.succeeded && lv_gone.error.code == Code::TargetGone);
+
+  // ---- StatusBar ----------------------------------------------------------------
+  const std::string statusbar = std::to_string(statusbar_id);
+  Result sb1 = run("control.statusbar.text", statusbar, "{\"part\": 1}");
+  assert(sb1.succeeded && sb1.value.find("text")->as_string() == "ready");
+  Result sb2 = run("control.statusbar.text", statusbar, "{}");
+  assert(sb2.succeeded && sb2.value.find("text")->as_string() == "ready");
+  Result sb_bad = run("control.statusbar.text", statusbar, "{\"part\": 0}");
+  assert(!sb_bad.succeeded && sb_bad.error.code == Code::InvalidContract);
+  // statusbar.wait is already satisfied: resolves without polling long.
+  Result sb_wait = run("control.statusbar.wait", statusbar, "{\"text\": \"read\"}");
+  assert(sb_wait.succeeded);
+  // A deadline in the past fails as Timeout, never hangs.
+  Action expired_wait = make_action(next++, "control.statusbar.wait", statusbar,
+                                    "{\"text\": \"never-appears-zzz\"}");
+  expired_wait.deadline_unix_ms = static_cast<std::uint64_t>(unix_ms_now() - 1000);
+  Result expired_result = run_one(dispatcher, expired_wait);
+  assert(!expired_result.succeeded);
 
   // Sync queries through the service: visibility, enabled, rect, liveness.
   bool visible = false;

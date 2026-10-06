@@ -2057,10 +2057,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
       "tsModule": "@rime/control",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.automation.control",
-      "contractTest": "missing",
+      "contractTest": "tests/native/control_tests.cpp,tests/js/control_slice.cpp",
       "lane": "automation",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3208,10 +3208,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
       "tsModule": "@rime/control",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.automation.control",
-      "contractTest": "missing",
+      "contractTest": "tests/native/control_tests.cpp,tests/js/control_slice.cpp",
       "lane": "automation",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3224,10 +3224,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
       "tsModule": "@rime/control",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.automation.control",
-      "contractTest": "missing",
+      "contractTest": "tests/native/control_tests.cpp,tests/js/control_slice.cpp",
       "lane": "automation",
       "cancellation": "deadline+AbortSignal"
     },

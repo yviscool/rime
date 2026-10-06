@@ -175,7 +175,10 @@ rime::core::Error Bootstrap::register_executors() {
                            "control.setchecked", "control.ischecked", "control.show",
                            "control.hide", "control.move", "control.setenabled",
                            "control.tab.index", "control.dropdown.show", "control.dropdown.hide",
-                           "control.set.style", "control.set.exstyle", "control.send"}) {
+                           "control.set.style", "control.set.exstyle", "control.send",
+                           "control.listview.count", "control.listview.text",
+                           "control.listview.items", "control.statusbar.text",
+                           "control.statusbar.wait"}) {
     if (const auto error = kernel_.register_executor(type, control_executor); !error.ok()) {
       return error;
     }

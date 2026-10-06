@@ -125,7 +125,7 @@ if (WIN32 AND TARGET rime_win32_js)
   add_test(NAME quickjs_automation_slice COMMAND rime_automation_slice)
 
   add_executable(rime_control_slice control_slice.cpp)
-  target_link_libraries(rime_control_slice PRIVATE rime_js rime_win32 rime_win32_js rime_test_support)
+  target_link_libraries(rime_control_slice PRIVATE rime_js rime_win32 rime_win32_js rime_test_support comctl32)
   target_compile_features(rime_control_slice PRIVATE cxx_std_20)
   if (MINGW)
     target_link_options(rime_control_slice PRIVATE -static-libstdc++ -static-libgcc)

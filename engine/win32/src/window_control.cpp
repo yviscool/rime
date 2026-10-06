@@ -1705,4 +1705,265 @@ rime::core::Error WindowService::control_send_keys(
   return result;
 }
 
+// ---- ListView / StatusBar (cross-process reads) ---------------------------
+// Text-bearing messages carry a caller buffer pointer, which is meaningless
+// across processes (AHK allocates remote memory for exactly this reason).
+// Same-process targets take the stack-buffer fast path; foreign targets go
+// through a VirtualAllocEx round-trip. Either way the caller sees text.
+
+namespace {
+
+struct RemoteBuffer {
+  HANDLE process{nullptr};
+  LPVOID remote{nullptr};
+
+  RemoteBuffer() = default;
+  RemoteBuffer(const RemoteBuffer&) = delete;
+  RemoteBuffer& operator=(const RemoteBuffer&) = delete;
+  ~RemoteBuffer() {
+    if (remote != nullptr && process != nullptr) {
+      (void)VirtualFreeEx(process, remote, 0, MEM_RELEASE);
+    }
+    if (process != nullptr) CloseHandle(process);
+  }
+
+  bool open(DWORD pid, SIZE_T bytes) {
+    process = OpenProcess(PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE, FALSE,
+                          pid);
+    if (process == nullptr) return false;
+    remote = VirtualAllocEx(process, nullptr, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    return remote != nullptr;
+  }
+};
+
+bool process_of(HWND window, DWORD& pid) {
+  pid = 0;
+  return GetWindowThreadProcessId(window, &pid) != 0 && pid != 0;
+}
+
+}  // namespace
+
+rime::core::Error WindowService::control_listview_count(const std::uint64_t id, int& rows,
+                                                        const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control listview count timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        DWORD_PTR count = 0;
+        if (!send2(control, LVM_GETITEMCOUNT, 0, 0, count)) {
+          result = {Code::ExecutionFailed, "control item count failed"};
+          return;
+        }
+        rows = static_cast<int>(count);
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_listview_columns(const std::uint64_t id, int& cols,
+                                                          const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control listview columns timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        DWORD_PTR header_raw = 0;
+        if (!send2(control, LVM_GETHEADER, 0, 0, header_raw)) {
+          result = {Code::ExecutionFailed, "control header read failed"};
+          return;
+        }
+        const HWND header = reinterpret_cast<HWND>(header_raw);
+        if (!header) {
+          cols = 1;  // No header: single implicit column (AHK rule treats it so).
+          return;
+        }
+        DWORD_PTR items = 0;
+        if (!send2(header, HDM_GETITEMCOUNT, 0, 0, items)) {
+          result = {Code::ExecutionFailed, "control column count failed"};
+          return;
+        }
+        cols = static_cast<int>(items);
+        if (cols < 1) cols = 1;
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_listview_text(const std::uint64_t id, const int row1,
+                                                       const int col1, std::string& out,
+                                                       const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control listview text timed out before dispatch"};
+  }
+  if (row1 < 1 || col1 < 1) {
+    return {Code::InvalidContract, "control listview row/col start at 1"};
+  }
+  out.clear();
+  Error result = Error::none();
+  std::wstring wide;
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        constexpr SIZE_T kChars = 512;
+        wchar_t local[512] = {0};
+        DWORD pid = 0;
+        if (!process_of(control, pid)) {
+          result = {Code::ExecutionFailed, "control process is unreadable"};
+          return;
+        }
+        const bool lineal = pid == GetCurrentProcessId();
+        LVITEMW item{};
+        item.iSubItem = col1 - 1;
+        item.cchTextMax = static_cast<int>(kChars);
+        wchar_t* text_ptr = local;
+        RemoteBuffer remote;
+        LPVOID remote_item = nullptr;
+        if (!lineal) {
+          if (!remote.open(pid, sizeof(LVITEMW) + kChars * sizeof(wchar_t))) {
+            result = {Code::ExecutionFailed, "control process memory is unreachable"};
+            return;
+          }
+          remote_item = remote.remote;
+          text_ptr = reinterpret_cast<wchar_t*>(static_cast<char*>(remote.remote) +
+                                                       sizeof(LVITEMW));
+          item.pszText = text_ptr;
+          SIZE_T written = 0;
+          LVITEMW setup = item;
+          if (!WriteProcessMemory(remote.process, remote_item, &setup, sizeof(setup), &written) ||
+              written != sizeof(setup)) {
+            result = {Code::ExecutionFailed, "control process write failed"};
+            return;
+          }
+        } else {
+          item.pszText = local;
+        }
+        DWORD_PTR answered = 0;
+        const LPARAM target = lineal ? reinterpret_cast<LPARAM>(&item)
+                                     : reinterpret_cast<LPARAM>(remote_item);
+        if (!send5(control, LVM_GETITEMTEXTW, static_cast<WPARAM>(row1 - 1), target, answered)) {
+          result = {Code::ExecutionFailed, "control item text failed"};
+          return;
+        }
+        if (!lineal) {
+          SIZE_T read = 0;
+          if (!ReadProcessMemory(remote.process, text_ptr, local, kChars * sizeof(wchar_t),
+                                 &read) ||
+              read == 0) {
+            result = {Code::ExecutionFailed, "control process read failed"};
+            return;
+          }
+        }
+        wide = local;
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  if (!result.ok()) return result;
+  out = to_utf8(wide);
+  return Error::none();
+}
+
+rime::core::Error WindowService::control_statusbar_text(const std::uint64_t id, const int part1,
+                                                        std::string& out,
+                                                        const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control statusbar text timed out before dispatch"};
+  }
+  if (part1 < 1) {
+    return {Code::InvalidContract, "control statusbar part starts at 1"};
+  }
+  out.clear();
+  Error result = Error::none();
+  std::wstring wide;
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        DWORD_PTR parts = 0;
+        if (!send2(control, SB_GETPARTS, 0, 0, parts) || parts == 0) {
+          result = {Code::ExecutionFailed, "control has no statusbar parts"};
+          return;
+        }
+        if (part1 > static_cast<int>(parts)) {
+          result = {Code::InvalidContract, "control statusbar part is past the last part"};
+          return;
+        }
+        constexpr SIZE_T kChars = 512;
+        wchar_t local[512] = {0};
+        DWORD pid = 0;
+        if (!process_of(control, pid)) {
+          result = {Code::ExecutionFailed, "control process is unreadable"};
+          return;
+        }
+        const bool lineal = pid == GetCurrentProcessId();
+        wchar_t* text_ptr = local;
+        RemoteBuffer remote;
+        if (!lineal) {
+          if (!remote.open(pid, kChars * sizeof(wchar_t))) {
+            result = {Code::ExecutionFailed, "control process memory is unreachable"};
+            return;
+          }
+          text_ptr = static_cast<wchar_t*>(remote.remote);
+        }
+        DWORD_PTR got = 0;
+        if (!send5(control, SB_GETTEXTW, static_cast<WPARAM>(part1 - 1),
+                   reinterpret_cast<LPARAM>(text_ptr), got)) {
+          result = {Code::ExecutionFailed, "control statusbar text failed"};
+          return;
+        }
+        if (!lineal) {
+          SIZE_T read = 0;
+          if (!ReadProcessMemory(remote.process, text_ptr, local, kChars * sizeof(wchar_t),
+                                 &read) ||
+              read == 0) {
+            result = {Code::ExecutionFailed, "control process read failed"};
+            return;
+          }
+        }
+        wide = local;
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  if (!result.ok()) return result;
+  out = to_utf8(wide);
+  return Error::none();
+}
+
 }  // namespace rime::win32

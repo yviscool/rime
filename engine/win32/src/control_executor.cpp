@@ -34,7 +34,9 @@ const std::unordered_set<std::string>& control_action_types() {
       "control.edit.selected", "control.edit.paste", "control.setchecked", "control.ischecked",
       "control.show", "control.hide", "control.move", "control.setenabled",
       "control.tab.index", "control.dropdown.show", "control.dropdown.hide",
-      "control.set.style", "control.set.exstyle", "control.send"};
+      "control.set.style", "control.set.exstyle", "control.send", "control.listview.count",
+      "control.listview.text", "control.listview.items", "control.statusbar.text",
+      "control.statusbar.wait"};
   return types;
 }
 
@@ -672,6 +674,137 @@ rime::action::Result ControlExecutor::execute(const rime::action::Action& action
     rime::core::json::Value result_value = rime::core::json::Value::object();
     result_value.set("index", rime::core::json::Value::number(static_cast<double>(index1)));
     return {action.id, true, false, "control tab index read", {}, std::move(result_value)};
+  }
+
+  // ---- ListView -------------------------------------------------------------
+  if (action.type == "control.listview.count") {
+    int rows = 0;
+    if (const auto op = service_.control_listview_count(id, rows, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("rows", rime::core::json::Value::number(static_cast<double>(rows)));
+    return {action.id, true, false, "control rows counted", {}, std::move(result_value)};
+  }
+  if (action.type == "control.listview.text") {
+    int row1 = 0;
+    int col1 = 0;
+    std::string field_error;
+    if (!read_index_field(*payload.value, "row", action.type, false, row1, field_error) ||
+        !read_index_field(*payload.value, "col", action.type, false, col1, field_error)) {
+      return fail(action, Code::InvalidContract, field_error);
+    }
+    std::string out;
+    if (const auto op = service_.control_listview_text(id, row1, col1, out, timeout);
+        !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("text", rime::core::json::Value::string(out));
+    return {action.id, true, false, "control cell read", {}, std::move(result_value)};
+  }
+  if (action.type == "control.listview.items") {
+    std::uint64_t limit = 100;
+    std::string field_error;
+    if (payload.value->find("limit") != nullptr) {
+      if (!read_optional_ms(*payload.value, "limit", 100, limit) || limit == 0 ||
+          limit > 10000) {
+        return fail(action, Code::InvalidContract,
+                    "control.listview.items limit must be an integer in 1..10000");
+      }
+    }
+    int rows = 0;
+    if (const auto op = service_.control_listview_count(id, rows, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    int cols = 0;
+    if (const auto op = service_.control_listview_columns(id, cols, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    rime::core::json::Value array = rime::core::json::Value::array();
+    const int total_rows =
+        (std::min)(rows, static_cast<int>(static_cast<std::size_t>(limit)));
+    for (int row = 1; row <= total_rows; ++row) {
+      if (cancellation.cancelled()) {
+        return {action.id, false, true, "control.listview.items cancelled",
+                {Code::Cancelled, "cancelled"}, {}};
+      }
+      rime::core::json::Value record = rime::core::json::Value::object();
+      for (int col = 1; col <= cols; ++col) {
+        std::string cell;
+        if (const auto op = service_.control_listview_text(id, row, col, cell, timeout);
+            !op.ok()) {
+          return fail(action, op.code, op.message);
+        }
+        record.set("c" + std::to_string(col), rime::core::json::Value::string(cell));
+      }
+      array.push(std::move(record));
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("items", std::move(array));
+    return {action.id, true, false, "control listview read", {}, std::move(result_value)};
+  }
+
+  // ---- StatusBar -------------------------------------------------------------
+  if (action.type == "control.statusbar.text") {
+    int part1 = 1;
+    std::string field_error;
+    if (payload.value->find("part") != nullptr) {
+      if (!read_index_field(*payload.value, "part", action.type, false, part1, field_error)) {
+        return fail(action, Code::InvalidContract, field_error);
+      }
+    }
+    std::string out;
+    if (const auto op = service_.control_statusbar_text(id, part1, out, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("text", rime::core::json::Value::string(out));
+    return {action.id, true, false, "control statusbar read", {}, std::move(result_value)};
+  }
+  if (action.type == "control.statusbar.wait") {
+    int part1 = 1;
+    std::string field_error;
+    if (payload.value->find("part") != nullptr) {
+      if (!read_index_field(*payload.value, "part", action.type, false, part1, field_error)) {
+        return fail(action, Code::InvalidContract, field_error);
+      }
+    }
+    std::string want;
+    if (!read_text_field(*payload.value, "text", action.type, want, field_error)) {
+      return fail(action, Code::InvalidContract, field_error);
+    }
+    // Bounded poll on the worker lane (AHK StatusBarWait rule): short slices
+    // so cancellation lands promptly; the deadline bounds the whole wait.
+    for (;;) {
+      if (cancellation.cancelled()) {
+        return {action.id, false, true, "control.statusbar.wait cancelled",
+                {Code::Cancelled, "cancelled"}, {}};
+      }
+      std::chrono::milliseconds slice{0};
+      if (!remaining_timeout(action, slice)) {
+        return fail(action, Code::Timeout, "control.statusbar.wait timed out");
+      }
+      std::string current;
+      if (const auto op = service_.control_statusbar_text(id, part1, current, slice);
+          !op.ok()) {
+        if (op.code == Code::TargetGone) return fail(action, op.code, op.message);
+        return fail(action, op.code, op.message);
+      }
+      if (current.find(want) != std::string::npos) break;
+      if (!settle_wait(50, cancellation)) {
+        return {action.id, false, true, "control.statusbar.wait cancelled",
+                {Code::Cancelled, "cancelled"}, {}};
+      }
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("waited", rime::core::json::Value::boolean(true));
+    return {action.id, true, false, "control statusbar matched", {}, std::move(result_value)};
   }
 
   // control.gettext: no payload fields.

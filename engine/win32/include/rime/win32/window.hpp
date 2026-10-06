@@ -341,6 +341,20 @@ class WindowService final {
   // Liveness probe for dispose(): true when the id still resolves.
   rime::core::Error control_alive(std::uint64_t id, bool& out,
                                   std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // ListView content (AHK ListViewGetContent rule): rows × columns through
+  // LVM_GETITEMCOUNT/LVM_GETITEMTEXT. Cross-process windows need the LVITEM
+  // plus text buffer allocated inside the target process (VirtualAllocEx
+  // round-trip) - a local buffer silently reads nothing there.
+  rime::core::Error control_listview_count(std::uint64_t id, int& rows,
+                                            std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error control_listview_columns(std::uint64_t id, int& cols,
+                                             std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error control_listview_text(std::uint64_t id, int row1, int col1, std::string& out,
+                                          std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // StatusBar text (AHK StatusBarGetText rule): part index 1-based,
+  // SB_GETTEXTLENGTH/SB_GETTEXT with the same remote-buffer round-trip.
+  rime::core::Error control_statusbar_text(std::uint64_t id, int part1, std::string& out,
+                                           std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // ClassNN of one control (AHK ControlGetClassNN rule): numbers the
   // control among its parent's children exactly like controls() does, so
   // the answer always agrees with enumeration.

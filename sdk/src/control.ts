@@ -159,6 +159,34 @@ export interface ControlBridge {
   getExStyle(id: ControlId): number;
   /** Focused child of a window, or 0. Sync. */
   focusedChild(windowId: number): number;
+  /** ListView row count. */
+  listviewCount(id: ControlId, options?: NativeActionOptions): Promise<{ rows: number }>;
+  /** ListView cell text, 1-based row/col. */
+  listviewText(
+    id: ControlId,
+    row: number,
+    col: number,
+    options?: NativeActionOptions,
+  ): Promise<{ text: string }>;
+  /** Whole ListView content up to `limit` rows (each row: {c1, c2, ...}). */
+  listviewItems(
+    id: ControlId,
+    limit?: number,
+    options?: NativeActionOptions,
+  ): Promise<{ items: Array<Record<string, string>> }>;
+  /** StatusBar part text (1-based part, default 1). */
+  statusbarText(
+    id: ControlId,
+    part?: number,
+    options?: NativeActionOptions,
+  ): Promise<{ text: string }>;
+  /** Waits until a part contains text (bounded by deadline). */
+  statusbarWait(
+    id: ControlId,
+    text: string,
+    part?: number,
+    options?: NativeActionOptions,
+  ): Promise<{ waited: true }>;
 }
 
 async function controlBridge(): Promise<ControlBridge> {
@@ -474,6 +502,53 @@ export class Control {
   /** Raw GWL_EXSTYLE bits. Sync. */
   get exStyleBits(): number {
     return controlBridgeSync().getExStyle(this.id);
+  }
+
+  /** ListView row count. */
+  listviewCount(options?: ActionOptions): Promise<{ rows: number }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.listviewCount(id, native)),
+    );
+  }
+
+  /** ListView cell text, 1-based row/col. */
+  listviewText(row: number, col: number, options?: ActionOptions): Promise<{ text: string }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.listviewText(id, row, col, native)),
+    );
+  }
+
+  /** Whole ListView content up to `limit` rows (each row: {c1, c2, ...}). */
+  listviewItems(
+    limit?: number,
+    options?: ActionOptions,
+  ): Promise<{ items: Array<Record<string, string>> }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.listviewItems(id, limit, native)),
+    );
+  }
+
+  /** StatusBar part text (1-based part, default 1). */
+  statusbarText(part?: number, options?: ActionOptions): Promise<{ text: string }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.statusbarText(id, part, native)),
+    );
+  }
+
+  /** Waits until a part contains text (bounded by deadline). */
+  statusbarWait(
+    text: string,
+    part?: number,
+    options?: ActionOptions,
+  ): Promise<{ waited: true }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.statusbarWait(id, text, part, native)),
+    );
   }
 
   /** IsWindowVisible. Synchronous. */

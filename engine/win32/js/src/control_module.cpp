@@ -1187,6 +1187,160 @@ JSValue control_send(JSContext* context, JSValueConst, int argc, JSValueConst* a
                           "send(id, keys)", "control.send", std::move(payload), binding);
 }
 
+// control.listviewCount(id[, options]) -> { rows }
+JSValue control_listview_count(JSContext* context, JSValueConst, int argc, JSValueConst* argv,
+                               int, void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "listviewCount(id[, options])");
+  return dispatch_control(context, argv[0], argc == 2 ? argv[1] : JS_UNDEFINED, argc == 2,
+                          "listviewCount(id)", "control.listview.count", json::Value::object(),
+                          binding);
+}
+
+// control.listviewText(id, row, col[, options]) -> { text } (1-based)
+JSValue control_listview_text(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                              void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 3 || argc > 4) return JS_ThrowTypeError(context, "listviewText(id, row, col[, options])");
+  for (int i = 1; i <= 2; ++i) {
+    double number = 0;
+    if (!JS_IsNumber(argv[i]) || JS_ToFloat64(context, &number, argv[i]) ||
+        !std::isfinite(number) || std::trunc(number) != number || number < 1.0 ||
+        number > 1000000.0) {
+      return JS_ThrowTypeError(context, "listviewText: row and col start at 1");
+    }
+  }
+  double row_number = 0;
+  double col_number = 0;
+  JS_ToFloat64(context, &row_number, argv[1]);
+  JS_ToFloat64(context, &col_number, argv[2]);
+  json::Value payload = json::Value::object();
+  payload.set("row", json::Value::number(row_number));
+  payload.set("col", json::Value::number(col_number));
+  return dispatch_control(context, argv[0], argc == 4 ? argv[3] : JS_UNDEFINED, argc == 4,
+                          "listviewText(id, row, col)", "control.listview.text",
+                          std::move(payload), binding);
+}
+
+// control.listviewItems(id[, limit[, options]]) -> { items: [{c1..}] }
+JSValue control_listview_items(JSContext* context, JSValueConst, int argc, JSValueConst* argv,
+                               int, void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 1 || argc > 3) return JS_ThrowTypeError(context, "listviewItems(id[, limit[, options]])");
+  json::Value payload = json::Value::object();
+  JSValueConst options_value = JS_UNDEFINED;
+  bool has_options = false;
+  if (argc >= 2 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+    if (is_plain_object(argv[1])) {
+      if (argc > 2) {
+        return JS_ThrowTypeError(context, "listviewItems(id[, limit[, options]]): too many arguments");
+      }
+      options_value = argv[1];
+      has_options = true;
+    } else {
+      double number = 0;
+      if (!JS_IsNumber(argv[1]) || JS_ToFloat64(context, &number, argv[1]) ||
+          !std::isfinite(number) || std::trunc(number) != number || number < 1.0 ||
+          number > 10000.0) {
+        return JS_ThrowTypeError(context, "listviewItems: limit must be an integer in 1..10000");
+      }
+      payload.set("limit", json::Value::number(number));
+      if (argc == 3) {
+        options_value = argv[2];
+        has_options = true;
+      }
+    }
+  } else if (argc == 3) {
+    options_value = argv[2];
+    has_options = true;
+  }
+  return dispatch_control(context, argv[0], options_value, has_options,
+                          "listviewItems(id[, limit[, options]])", "control.listview.items",
+                          std::move(payload), binding);
+}
+
+// control.statusbarText(id[, part[, options]]) -> { text } (part 1-based)
+JSValue control_statusbar_text(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                               void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 1 || argc > 3) return JS_ThrowTypeError(context, "statusbarText(id[, part[, options]])");
+  json::Value payload = json::Value::object();
+  JSValueConst options_value = JS_UNDEFINED;
+  bool has_options = false;
+  if (argc >= 2 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+    if (is_plain_object(argv[1])) {
+      if (argc > 2) {
+        return JS_ThrowTypeError(context, "statusbarText(id[, part[, options]]): too many arguments");
+      }
+      options_value = argv[1];
+      has_options = true;
+    } else {
+      double number = 0;
+      if (!JS_IsNumber(argv[1]) || JS_ToFloat64(context, &number, argv[1]) ||
+          !std::isfinite(number) || std::trunc(number) != number || number < 1.0 ||
+          number > 1000000.0) {
+        return JS_ThrowTypeError(context, "statusbarText: part starts at 1");
+      }
+      payload.set("part", json::Value::number(number));
+      if (argc == 3) {
+        options_value = argv[2];
+        has_options = true;
+      }
+    }
+  } else if (argc == 3) {
+    options_value = argv[2];
+    has_options = true;
+  }
+  return dispatch_control(context, argv[0], options_value, has_options,
+                          "statusbarText(id[, part[, options]])", "control.statusbar.text",
+                          std::move(payload), binding);
+}
+
+// control.statusbarWait(id, text[, part[, options]]) -> { waited: true }
+JSValue control_statusbar_wait(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                               void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 2 || argc > 4)
+    return JS_ThrowTypeError(context, "statusbarWait(id, text[, part[, options]])");
+  if (!JS_IsString(argv[1])) {
+    return JS_ThrowTypeError(context, "statusbarWait(id, text): text must be a string");
+  }
+  const char* text = JS_ToCString(context, argv[1]);
+  if (!text) return JS_EXCEPTION;
+  json::Value payload = json::Value::object();
+  payload.set("text", json::Value::string(text));
+  JS_FreeCString(context, text);
+  JSValueConst options_value = JS_UNDEFINED;
+  bool has_options = false;
+  if (argc >= 3 && !JS_IsUndefined(argv[2]) && !JS_IsNull(argv[2])) {
+    if (is_plain_object(argv[2])) {
+      if (argc > 3) {
+        return JS_ThrowTypeError(context, "statusbarWait(id, text[, part[, options]]): too many arguments");
+      }
+      options_value = argv[2];
+      has_options = true;
+    } else {
+      double number = 0;
+      if (!JS_IsNumber(argv[2]) || JS_ToFloat64(context, &number, argv[2]) ||
+          !std::isfinite(number) || std::trunc(number) != number || number < 1.0 ||
+          number > 1000000.0) {
+        return JS_ThrowTypeError(context, "statusbarWait: part starts at 1");
+      }
+      payload.set("part", json::Value::number(number));
+      if (argc == 4) {
+        options_value = argv[3];
+        has_options = true;
+      }
+    }
+  } else if (argc == 4) {
+    options_value = argv[3];
+    has_options = true;
+  }
+  return dispatch_control(context, argv[0], options_value, has_options,
+                          "statusbarWait(id, text[, part[, options]])", "control.statusbar.wait",
+                          std::move(payload), binding);
+}
+
 // control.show(id[, options]) / control.hide(id[, options])
 JSValue control_show_hide(JSContext* context, int argc, JSValueConst* argv, bool show,
                           ControlModuleBinding* binding) {
@@ -1487,7 +1641,12 @@ int control_module_init(JSContext* context, JSModuleDef* module) {
       !add("setStyle", control_set_style, 2) || !add("setExStyle", control_set_ex_style, 2) ||
       !add("send", control_send, 2) || !add("classNN", control_class_nn, 1) ||
       !add("getStyle", control_get_style, 1) || !add("getExStyle", control_get_ex_style, 1) ||
-      !add("focusedChild", control_focused_child, 1)) {
+      !add("focusedChild", control_focused_child, 1) ||
+      !add("listviewCount", control_listview_count, 1) ||
+      !add("listviewText", control_listview_text, 3) ||
+      !add("listviewItems", control_listview_items, 1) ||
+      !add("statusbarText", control_statusbar_text, 1) ||
+      !add("statusbarWait", control_statusbar_wait, 2)) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "control", control);
