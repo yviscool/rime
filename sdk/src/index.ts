@@ -100,5 +100,6 @@ export * from "./input";
 export * from "./process";
 export * from "./clipboard";
 export * from "./automation";
+export * from "./storage";
 export * from "./contracts";
 export * from "./runtime-language";

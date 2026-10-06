@@ -1,0 +1,643 @@
+import { beforeEach, expect, mock, test } from "bun:test";
+import { ActionError, type NativeActionOptions } from "../../sdk/src/action";
+import {
+  File,
+  storage,
+  type DirEntry,
+  type DriveInfo,
+  type FileInfo,
+  type StorageBridge,
+  type StorageSelectFileOptions,
+  type StorageWritePayload,
+} from "../../sdk/src/storage";
+
+// Realism: L3 - the real sdk/src/storage.ts facade and the real File class
+// run against an instrumented rime:storage bridge (only the native module is
+// replaced). The bridge below is an in-memory byte store: it is the
+// environment, never the unit under test. Everything asserted here is the
+// facade's own behaviour - which arguments it forwarded, which result it
+// unwrapped, how a coded rejection became an ActionError, and the byte-level
+// layout the File codecs produce. Encoding expectations are written out as
+// literal byte arrays rather than derived from the codec, so a bug in the
+// codec cannot make its own expectation pass.
+
+type CodedRejection = { code: string; message: string };
+
+const codedError = ({ code, message }: CodedRejection) =>
+  Object.assign(new Error(message), { code });
+
+// ---- bridge state ----------------------------------------------------------
+
+let sessionEncoding = "utf-8";
+let textFiles = new Map<string, string>();
+let binFiles = new Map<string, number[]>();
+let handles = new Map<number, { data: number[]; pos: number }>();
+let nextHandle = 1;
+
+let readCalls: Array<[string, NativeActionOptions | undefined]> = [];
+let statCalls: Array<[string, NativeActionOptions | undefined]> = [];
+let openCalls: Array<[string, string, NativeActionOptions | undefined]> = [];
+let driveCalls: Array<[string, string | undefined, NativeActionOptions | undefined]> = [];
+let writeCalls: Array<[StorageWritePayload, NativeActionOptions | undefined]> = [];
+let selectFileCalls: StorageSelectFileOptions[] = [];
+let selectDirCalls: unknown[] = [];
+let setEncodingCalls: string[] = [];
+
+let readRejection: CodedRejection | null = null;
+let writeRejection: CodedRejection | null = null;
+let openRejection: CodedRejection | null = null;
+
+const failIfSet = (rejection: CodedRejection | null): void => {
+  if (rejection) throw codedError(rejection);
+};
+
+function reset(): void {
+  sessionEncoding = "utf-8";
+  textFiles = new Map();
+  binFiles = new Map();
+  handles = new Map();
+  nextHandle = 1;
+  readCalls = [];
+  statCalls = [];
+  openCalls = [];
+  driveCalls = [];
+  writeCalls = [];
+  selectFileCalls = [];
+  selectDirCalls = [];
+  setEncodingCalls = [];
+  readRejection = null;
+  writeRejection = null;
+  openRejection = null;
+}
+
+function seed(path: string, bytes: number[]): void {
+  binFiles.set(path, bytes.slice());
+}
+
+function stored(path: string): number[] {
+  return binFiles.get(path) ?? [];
+}
+
+const bridge: StorageBridge = {
+  async readText(path, options) {
+    readCalls.push([path, options]);
+    failIfSet(readRejection);
+    return { text: textFiles.get(path) ?? "" };
+  },
+  async readBytes(path, options) {
+    readCalls.push([path, options]);
+    failIfSet(readRejection);
+    return { bytes: stored(path).slice() };
+  },
+  async stat(path, options): Promise<FileInfo> {
+    statCalls.push([path, options]);
+    failIfSet(readRejection);
+    const data = binFiles.get(path);
+    if (!data) throw codedError({ code: "execution_failed", message: `file not found: ${path}` });
+    return { size: data.length, mtimeMs: 1700000000000, attrib: "A", isDir: false };
+  },
+  async list(path, options): Promise<{ entries: DirEntry[] }> {
+    readCalls.push([path, options]);
+    failIfSet(readRejection);
+    return { entries: [{ name: "child.txt", isDir: false }] };
+  },
+  async envGet(name, options) {
+    readCalls.push([name, options]);
+    failIfSet(readRejection);
+    return { value: name === "RIME_TEST_SET" ? "yes" : "" };
+  },
+  async iniRead(path, section, key, options) {
+    readCalls.push([path, options]);
+    failIfSet(readRejection);
+    return { value: `${section}/${key}` };
+  },
+  async driveGet(field, letter, options): Promise<DriveInfo> {
+    driveCalls.push([field, letter, options]);
+    failIfSet(readRejection);
+    return {
+      letter: letter ? `${letter}:` : "",
+      filesystem: "NTFS",
+      label: "System",
+      type: "Fixed",
+      status: "Ready",
+      totalBytes: 1000,
+      freeBytes: 400,
+      serial: 42,
+      list: letter ? [] : ["C"],
+      capacityPercent: 60,
+    };
+  },
+  async open(path, mode, options) {
+    openCalls.push([path, mode, options]);
+    failIfSet(openRejection);
+    if (mode === "r" && !binFiles.has(path)) {
+      throw codedError({ code: "execution_failed", message: `file not found: ${path}` });
+    }
+    if (mode === "w") binFiles.set(path, []);
+    if (!binFiles.has(path)) binFiles.set(path, []);
+    const data = binFiles.get(path) as number[];
+    const handle = nextHandle++;
+    handles.set(handle, { data, pos: mode === "a" ? data.length : 0 });
+    return { handle, length: data.length };
+  },
+  async fileRead(handle, count, options) {
+    const file = handles.get(handle);
+    if (!file) throw codedError({ code: "invalid_state", message: "file handle is not open" });
+    const remaining = Math.max(0, file.data.length - file.pos);
+    const take = Math.min(count, remaining);
+    const bytes = file.data.slice(file.pos, file.pos + take);
+    file.pos += take;
+    return { bytes, eof: take < count };
+  },
+  async fileSeek(handle, offset, whence, options) {
+    const file = handles.get(handle);
+    if (!file) throw codedError({ code: "invalid_state", message: "file handle is not open" });
+    const target =
+      whence === 0 ? offset : whence === 1 ? file.pos + offset : file.data.length + offset;
+    if (target < 0) {
+      throw codedError({
+        code: "execution_failed",
+        message: "file seek moved before the start of the file",
+      });
+    }
+    file.pos = target;
+    return { pos: file.pos };
+  },
+  async fileStat(handle, options) {
+    const file = handles.get(handle);
+    if (!file) throw codedError({ code: "invalid_state", message: "file handle is not open" });
+    return { pos: file.pos, length: file.data.length };
+  },
+  async fileClose(handle, options) {
+    if (!handles.has(handle)) {
+      throw codedError({ code: "invalid_state", message: "file handle is not open" });
+    }
+    handles.delete(handle);
+    return {};
+  },
+  async write(payload, options) {
+    writeCalls.push([payload, options]);
+    failIfSet(writeRejection);
+    if (payload.op === "handleWrite") {
+      const file = handles.get(payload.handle);
+      if (!file) throw codedError({ code: "invalid_state", message: "file handle is not open" });
+      const bytes =
+        typeof payload.data === "string"
+          ? Array.from(payload.data, (ch) => ch.charCodeAt(0) & 0xff)
+          : payload.data;
+      while (file.data.length < file.pos) file.data.push(0);
+      for (const byte of bytes) {
+        if (file.pos < file.data.length) file.data[file.pos] = byte;
+        else file.data.push(byte);
+        file.pos++;
+      }
+    }
+    return { op: payload.op };
+  },
+  encoding() {
+    return { encoding: sessionEncoding as "utf-8" };
+  },
+  setEncoding(encoding) {
+    setEncodingCalls.push(encoding);
+    sessionEncoding = encoding.toLowerCase();
+    return { encoding: sessionEncoding as "utf-8" };
+  },
+  async download(url, path, options) {
+    readCalls.push([url, options]);
+    failIfSet(readRejection);
+    return { bytes: 1234 };
+  },
+  async selectFile(options) {
+    selectFileCalls.push(options ?? {});
+    failIfSet(readRejection);
+    return { paths: ["C:\\picked\\file.txt"] };
+  },
+  async selectDir(options) {
+    selectDirCalls.push(options ?? {});
+    failIfSet(readRejection);
+    return { path: "C:\\picked\\dir" };
+  },
+};
+
+mock.module("rime:storage", () => ({ storage: bridge }));
+
+const { storage: facade } = await import("../../sdk/src/storage");
+
+beforeEach(reset);
+
+// ---- facade ----------------------------------------------------------------
+
+test("the facade unwraps every wire result into the documented shape", async () => {
+  textFiles.set("C:/data.txt", "hello");
+  seed("C:/data.txt", [0x68, 0x69]);
+
+  expect(await facade.read("C:/data.txt")).toBe("hello");
+  expect(await facade.readBytes("C:/data.txt")).toEqual([0x68, 0x69]);
+  expect(await facade.stat("C:/data.txt")).toEqual({
+    size: 2,
+    mtimeMs: 1700000000000,
+    attrib: "A",
+    isDir: false,
+  });
+  expect(await facade.list("C:/")).toEqual([{ name: "child.txt", isDir: false }]);
+  expect(await facade.envGet("RIME_TEST_SET")).toBe("yes");
+  expect(await facade.envGet("RIME_TEST_UNSET")).toBe("");
+  expect(await facade.iniRead("C:/a.ini", "sec", "key")).toBe("sec/key");
+  expect(await facade.driveGet("capacity", "C")).toMatchObject({
+    filesystem: "NTFS",
+    capacityPercent: 60,
+  });
+  expect(await facade.download("https://example.test/a", "C:/a.bin")).toBe(1234);
+  expect(await facade.selectFile()).toEqual(["C:\\picked\\file.txt"]);
+  expect(await facade.selectDir()).toBe("C:\\picked\\dir");
+
+  expect(readCalls.some(([path]) => path === "C:/data.txt")).toBe(true);
+  expect(driveCalls.at(-1)).toEqual(["capacity", "C", undefined]);
+});
+
+test("a coded rejection surfaces as ActionError carrying the same code", async () => {
+  readRejection = { code: "target_gone", message: "file not found: C:/gone.txt" };
+  const error = await facade.read("C:/gone.txt").catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(ActionError);
+  expect((error as ActionError).code).toBe("target_gone");
+  expect((error as ActionError).message).toBe("file not found: C:/gone.txt");
+});
+
+test("write forwards the payload unchanged and resolves {op}", async () => {
+  const payload: StorageWritePayload = { op: "mkdir", path: "C:/new" };
+  const result = await facade.write(payload, { deadlineMs: 50 });
+  expect(result).toEqual({ op: "mkdir" });
+  expect(writeCalls).toEqual([[payload, { deadlineMs: 50 }]]);
+});
+
+test("write rejects a capability refusal as ActionError with its code", async () => {
+  writeRejection = {
+    code: "capability_denied",
+    message: "required capability was not granted: filesystem.write",
+  };
+  const error = await facade.write({ op: "delete", path: "C:/x" }).catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(ActionError);
+  expect((error as ActionError).code).toBe("capability_denied");
+  expect((error as ActionError).message).toContain("filesystem.write");
+});
+
+test("an already-aborted signal short-circuits before the bridge", async () => {
+  const reason = new Error("signal already aborted");
+  const signal = { aborted: true, reason };
+  await expect(
+    facade.write({ op: "delete", path: "C:/x" }, { signal }),
+  ).rejects.toThrow("signal already aborted");
+  await expect(facade.read("C:/data.txt", { signal })).rejects.toThrow("signal already aborted");
+  expect(writeCalls).toHaveLength(0);
+  expect(readCalls).toHaveLength(0);
+});
+
+test("selectFile defaults the filter the native service refuses to be without", async () => {
+  await facade.selectFile();
+  expect(selectFileCalls.at(-1)?.filter).toBe("All Files (*.*)");
+
+  await facade.selectFile({ filter: "*.txt", multi: true, defaultName: "a.txt" });
+  expect(selectFileCalls.at(-1)).toMatchObject({
+    filter: "*.txt",
+    multi: true,
+    defaultName: "a.txt",
+  });
+});
+
+test("encoding reads the session and setEncoding validates before it awaits", async () => {
+  expect(await facade.encoding()).toBe("utf-8");
+  expect(await facade.setEncoding("latin1")).toBe("latin1");
+  expect(setEncodingCalls).toEqual(["latin1"]);
+  // The name check runs synchronously, so it throws instead of rejecting.
+  expect(() => facade.setEncoding("bogus" as never)).toThrow(TypeError);
+  expect(setEncodingCalls).toEqual(["latin1"]);
+});
+
+test("openFile rejects an ANSI session encoding instead of silently guessing", async () => {
+  sessionEncoding = "cp0";
+  const error = await facade.openFile("C:/cp.txt", "r").catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(TypeError);
+  expect((error as Error).message).toContain("cp0 is unsupported");
+  // The encoding is resolved first, so the refusal never opens a handle that
+  // nothing would close.
+  expect(openCalls).toHaveLength(0);
+  sessionEncoding = "utf-8";
+});
+
+// ---- File shape ------------------------------------------------------------
+
+const FILE_MEMBERS = [
+  "AtEOF",
+  "Close",
+  "Encoding",
+  "Handle",
+  "Length",
+  "Pos",
+  "RawRead",
+  "RawWrite",
+  "Read",
+  "ReadChar",
+  "ReadDouble",
+  "ReadFloat",
+  "ReadInt",
+  "ReadInt64",
+  "ReadLine",
+  "ReadShort",
+  "ReadUChar",
+  "ReadUInt",
+  "ReadUShort",
+  "Seek",
+  "Write",
+  "WriteChar",
+  "WriteDouble",
+  "WriteFloat",
+  "WriteInt",
+  "WriteInt64",
+  "WriteLine",
+  "WriteShort",
+  "WriteUChar",
+  "WriteUInt",
+  "WriteUShort",
+];
+
+test("File exposes exactly the 31 documented members and nothing else", () => {
+  // The full prototype surface is listed, internals included, so adding or
+  // renaming any member has to be a deliberate edit of this expectation.
+  const internals = [
+    "putBytes",
+    "putText",
+    "enqueue",
+    "ensureOpen",
+    "fixedRead",
+    "fixedWrite",
+    "readUpTo",
+    "ready",
+  ];
+  const surface = Object.getOwnPropertyNames(File.prototype)
+    .filter((name) => name !== "constructor")
+    .sort();
+  expect(surface).toEqual([...FILE_MEMBERS, ...internals].sort());
+  expect(FILE_MEMBERS).toHaveLength(31);
+});
+
+// ---- File behaviour --------------------------------------------------------
+
+test("Read decodes literal byte sequences and advances only past what it consumed", async () => {
+  seed("C:/abc.txt", [0x41, 0x42, 0x43]);
+  const file = await facade.openFile("C:/abc.txt", "r");
+  expect(await file.Read()).toBe("ABC");
+  expect(await file.AtEOF).toBe(true);
+
+  seed("C:/abc2.txt", [0x41, 0x42, 0x43, 0x44]);
+  const two = await facade.openFile("C:/abc2.txt", "r");
+  expect(await two.Read(2)).toBe("AB");
+  expect(await two.Read()).toBe("CD");
+
+  // U+4E2D in UTF-8 is three bytes; one code unit must consume all three.
+  seed("C:/cjk.txt", [0xe4, 0xb8, 0xad, 0x41]);
+  const cjk = await facade.openFile("C:/cjk.txt", "r");
+  expect(await cjk.Read(1)).toBe("\u4e2d");
+  expect(await cjk.Read()).toBe("A");
+});
+
+test("a BOM is detected on open and never leaks into the decoded text", async () => {
+  seed("C:/bom.txt", [0xef, 0xbb, 0xbf, 0x48, 0x69]);
+  const file = await facade.openFile("C:/bom.txt", "r");
+  expect(await file.Read()).toBe("Hi");
+  // The sniff runs lazily on the first queued operation, so Encoding is only
+  // the detected name once something has been read.
+  expect(file.Encoding).toBe("utf-8-bom");
+  expect(await file.Pos).toBe(5);
+});
+
+test("Write emits the encoding's own bytes, with a BOM only into an empty file", async () => {
+  seed("C:/w.txt", []);
+  const utf8 = await facade.openFile("C:/w.txt", "w");
+  expect(await utf8.Write("Hi")).toBe(2);
+  expect(stored("C:/w.txt")).toEqual([0x48, 0x69]);
+
+  seed("C:/bomw.txt", []);
+  const bom = await facade.openFile("C:/bomw.txt", "w", { encoding: "utf-8-bom" });
+  expect(await bom.Write("A")).toBe(4);
+  expect(stored("C:/bomw.txt")).toEqual([0xef, 0xbb, 0xbf, 0x41]);
+  expect(await bom.Write("B")).toBe(1);
+  expect(stored("C:/bomw.txt")).toEqual([0xef, 0xbb, 0xbf, 0x41, 0x42]);
+
+  seed("C:/cp.txt", []);
+  const cp = await facade.openFile("C:/cp.txt", "w", { encoding: "cp1252" });
+  await cp.Write("\u20ac");
+  expect(stored("C:/cp.txt")).toEqual([0x80]);
+
+  // U+0041 in UTF-16LE is the two bytes 41 00; a BOM-less file still decodes
+  // once the file itself says which encoding to use.
+  seed("C:/u16.txt", [0x41, 0x00]);
+  const le = await facade.openFile("C:/u16.txt", "r", { encoding: "utf-16" });
+  expect(await le.Read()).toBe("A");
+  expect(await le.AtEOF).toBe(true);
+});
+
+test("ReadLine consumes one terminator and returns the line without it", async () => {
+  seed("C:/lines.txt", Array.from("one\r\ntwo\nthree", (ch) => ch.charCodeAt(0)));
+  const file = await facade.openFile("C:/lines.txt", "r");
+  expect(await file.ReadLine()).toBe("one");
+  expect(await file.ReadLine()).toBe("two");
+  expect(await file.ReadLine()).toBe("three");
+  expect(await file.ReadLine()).toBe("");
+  expect(await file.AtEOF).toBe(true);
+});
+
+test("fixed-width reads and writes use little-endian layout", async () => {
+  seed("C:/ints.bin", [
+    0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff,
+  ]);
+  const file = await facade.openFile("C:/ints.bin", "r");
+  expect(await file.ReadInt()).toBe(1);
+  expect(await file.ReadUInt()).toBe(1);
+  expect(await file.ReadInt()).toBe(-1);
+  expect(await file.ReadUInt()).toBe(4294967295);
+  expect(await file.AtEOF).toBe(true);
+
+  seed("C:/small.bin", [0x41, 0xff, 0xff, 0xff, 0xff, 0xff]);
+  const small = await facade.openFile("C:/small.bin", "r");
+  expect(await small.ReadUChar()).toBe(0x41);
+  expect(await small.ReadChar()).toBe(-1);
+  expect(await small.ReadUShort()).toBe(0xffff);
+  expect(await small.ReadShort()).toBe(-1);
+  expect(await small.AtEOF).toBe(true);
+
+  // 1.5 is 0x3FF8000000000000 as a double and 0x3FC00000 as a float.
+  seed("C:/double.bin", [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x3f]);
+  const doubles = await facade.openFile("C:/double.bin", "r");
+  expect(await doubles.ReadDouble()).toBe(1.5);
+
+  seed("C:/float.bin", [0x00, 0x00, 0xc0, 0x3f]);
+  const floats = await facade.openFile("C:/float.bin", "r");
+  expect(await floats.ReadFloat()).toBeCloseTo(1.5, 6);
+
+  seed("C:/i64.bin", [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+  const big = await facade.openFile("C:/i64.bin", "r");
+  expect(await big.ReadInt64()).toBe(1);
+});
+
+test("fixed-width writes land as the literal byte layout", async () => {
+  seed("C:/out.bin", []);
+  const file = await facade.openFile("C:/out.bin", "w");
+  expect(await file.WriteInt(-1)).toBe(4);
+  expect(await file.WriteUShort(0x1234)).toBe(2);
+  expect(await file.WriteDouble(1.5)).toBe(8);
+  expect(stored("C:/out.bin")).toEqual([
+    0xff, 0xff, 0xff, 0xff, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x3f,
+  ]);
+});
+
+test("a short fixed read rejects with the end-of-file message", async () => {
+  seed("C:/short.bin", [0x01, 0x02]);
+  const file = await facade.openFile("C:/short.bin", "r");
+  const error = await file.ReadInt().catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(ActionError);
+  expect((error as ActionError).code).toBe("execution_failed");
+  expect((error as ActionError).message).toBe("unexpected end of file: needed 4 bytes, got 2");
+});
+
+test("RawRead and RawWrite move bytes without any encoding", async () => {
+  seed("C:/raw.bin", [0x01, 0x02, 0x03]);
+  const file = await facade.openFile("C:/raw.bin", "a");
+  expect(await file.RawRead()).toEqual([]);
+  expect(await file.RawWrite([0x09, 0x08])).toBe(2);
+  expect(await file.RawWrite("A")).toBe(1);
+  expect(stored("C:/raw.bin")).toEqual([0x01, 0x02, 0x03, 0x09, 0x08, 0x41]);
+  file.Pos = 0;
+  expect(await file.RawRead()).toEqual([0x01, 0x02, 0x03, 0x09, 0x08, 0x41]);
+});
+
+test("Pos reads, writes, and surfaces a failed set on the next read", async () => {
+  seed("C:/pos.txt", [0x61, 0x62, 0x63]);
+  const file = await facade.openFile("C:/pos.txt", "r");
+  expect(await file.Pos).toBe(0);
+  file.Pos = 2;
+  expect(await file.Pos).toBe(2);
+  expect(() => {
+    file.Pos = -1;
+  }).toThrow(TypeError);
+  expect(() => {
+    file.Pos = 1e99;
+  }).toThrow(RangeError);
+});
+
+test("Seek reports only a move before the start of the file as false", async () => {
+  seed("C:/seek.txt", [0x61, 0x62, 0x63]);
+  const file = await facade.openFile("C:/seek.txt", "r");
+  expect(await file.Seek(2, 0)).toBe(true);
+  expect(await file.Seek(1, 1)).toBe(true); // 2 -> 3
+  expect(await file.Seek(-10, 2)).toBe(false); // end (3) - 10 is before the file
+  expect(await file.Seek(-1, 0)).toBe(false);
+  expect(await file.Seek(-1, 1)).toBe(true); // 3 -> 2
+  expect(await file.Pos).toBe(2);
+  expect(await file.Seek(1, 0)).toBe(true);
+  expect(await file.Pos).toBe(1);
+  await expect(file.Seek(0, 5)).rejects.toThrow(TypeError);
+});
+
+test("Length is readable but refuses a setter", async () => {
+  seed("C:/len.txt", [0x61, 0x62, 0x63]);
+  const file = await facade.openFile("C:/len.txt", "r");
+  expect(await file.Length).toBe(3);
+  expect(() => {
+    file.Length = 1;
+  }).toThrow(TypeError);
+});
+
+test("Encoding is synchronous, rejects an unknown name, and rejects cp0", async () => {
+  seed("C:/enc.txt", [0x61]);
+  const file = await facade.openFile("C:/enc.txt", "r");
+  expect(file.Encoding).toBe("utf-8");
+  file.Encoding = "latin1";
+  expect(file.Encoding).toBe("latin1");
+  expect(() => {
+    file.Encoding = "bogus";
+  }).toThrow(TypeError);
+  expect(() => {
+    file.Encoding = "cp0";
+  }).toThrow(TypeError);
+  expect(file.Encoding).toBe("latin1");
+});
+
+test("Handle always refuses to expose the OS handle", async () => {
+  seed("C:/h.txt", [0x61]);
+  const file = await facade.openFile("C:/h.txt", "r");
+  const read = () => file.Handle;
+  expect(read).toThrow(ActionError);
+  expect(read).toThrow("unsupported by policy");
+});
+
+test("Close is idempotent and every member then reports the file is closed", async () => {
+  seed("C:/c.txt", [0x61]);
+  const file = await facade.openFile("C:/c.txt", "r");
+  await file.Close();
+  await file.Close();
+
+  const error = await file.Read().catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(ActionError);
+  expect((error as ActionError).code).toBe("invalid_state");
+  expect((error as ActionError).message).toBe("file is closed");
+
+  const lineError = await file.ReadLine().catch((e: unknown) => e);
+  expect(lineError).toBeInstanceOf(ActionError);
+  expect((lineError as ActionError).message).toBe("file is closed");
+  expect(() => file.Encoding).toThrow("file is closed");
+  expect(() => file.Handle).toThrow("file is closed");
+  expect(() => {
+    file.Pos = 0;
+  }).toThrow("file is closed");
+  expect(() => {
+    file.Length = 0;
+  }).toThrow("file is closed");
+});
+
+test("members validate their arguments and leave the file untouched", async () => {
+  seed("C:/args.txt", [0x61]);
+  const file = await facade.openFile("C:/args.txt", "r");
+
+  await expect(file.Read(-1)).rejects.toThrow(TypeError);
+  await expect(file.RawRead(1.5)).rejects.toThrow(TypeError);
+  await expect(file.Write({} as never)).rejects.toThrow(TypeError);
+  await expect(file.WriteLine([] as never)).rejects.toThrow(TypeError);
+  await expect(file.RawWrite([300])).rejects.toThrow(TypeError);
+  await expect(file.Seek(1.5)).rejects.toThrow(TypeError);
+  await expect(file.Seek(0, 5)).rejects.toThrow(TypeError);
+  expect(() => file.WriteInt(1.5)).toThrow(TypeError);
+  expect(() => file.WriteUShort(1.5)).toThrow(TypeError);
+  expect(() => file.WriteUShort(70000)).toThrow(RangeError);
+  expect(() => file.WriteDouble(Number.NaN)).toThrow(TypeError);
+
+  // None of the refusals enqueued anything, so the file still reads whole.
+  expect(await file.Read()).toBe("a");
+});
+
+// ---- contract types --------------------------------------------------------
+
+test("payload types refuse what the contract does not define", () => {
+  const submit = (payload: StorageWritePayload): StorageWritePayload => payload;
+
+  // @ts-expect-error - "rename" is not one of the 24 ops
+  submit({ op: "rename", path: "C:/x" });
+  // @ts-expect-error - copy takes src/dst, not path
+  submit({ op: "copy", path: "C:/x" });
+  // @ts-expect-error - setTime requires a known `which`
+  submit({ op: "setTime", path: "C:/x", which: "btime", unixMs: 0 });
+
+  expect(submit({ op: "handleWrite", handle: 1, data: [65] })).toEqual({
+    op: "handleWrite",
+    handle: 1,
+    data: [65],
+  });
+});
+
+test("the bridge interface the module must export is satisfied", () => {
+  // Compile-time only: keeps sdk/src/storage.ts's StorageBridge honest against
+  // what the runtime module declaration and this mock agree on.
+  const probe: StorageBridge = bridge;
+  expect(typeof probe.readText).toBe("function");
+  expect(typeof probe.encoding).toBe("function");
+});

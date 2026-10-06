@@ -29,3 +29,8 @@ declare module "rime:automation" {
   const automation: import("./automation").AutomationBridge;
   export { automation };
 }
+
+declare module "rime:storage" {
+  const storage: import("./storage").StorageBridge;
+  export { storage };
+}

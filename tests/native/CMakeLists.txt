@@ -97,6 +97,17 @@ if (WIN32)
   endif()
   add_test(NAME rime_win32_clipboard_service COMMAND rime_clipboard_tests)
 
+  add_executable(rime_fs_tests storage_tests.cpp)
+  target_link_libraries(rime_fs_tests PRIVATE rime_win32 rime_core rime_action rime_test_support)
+  target_compile_features(rime_fs_tests PRIVATE cxx_std_20)
+  # The download test serves bytes from an in-process loopback HTTP server,
+  # so the test binary itself needs the Winsock library.
+  target_link_libraries(rime_fs_tests PRIVATE ws2_32)
+  if (MINGW)
+    target_link_options(rime_fs_tests PRIVATE -static-libstdc++ -static-libgcc)
+  endif()
+  add_test(NAME rime_win32_fs_service COMMAND rime_fs_tests)
+
   add_executable(rime_automation_tests automation_tests.cpp)
   target_link_libraries(rime_automation_tests PRIVATE rime_automation rime_core rime_test_support)
   target_compile_features(rime_automation_tests PRIVATE cxx_std_20)
