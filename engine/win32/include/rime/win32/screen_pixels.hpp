@@ -32,4 +32,16 @@ bool color_matches(std::uint32_t pixel_rgb, std::uint32_t target_rgb, int variat
 bool search(const Framebuffer& frame, int left, int top, int right, int bottom,
             std::uint32_t target_rgb, int variation, int& out_x, int& out_y);
 
+// Finds the top-left corner of the first place where `needle` fits inside
+// `frame` and every needle pixel matches. Candidate corners are tried in
+// row-major order (top row first, left to right), each one prefetched through
+// the needle's first pixel so a mismatch costs one comparison instead of
+// width * height. Matching uses color_matches, so only the RGB channels take
+// part (alpha never reaches this layer) and variation works exactly as it
+// does for search. Returns false and leaves out_x/out_y untouched when either
+// buffer has no pixels or the needle does not fit - an empty answer, never a
+// guess.
+bool image_search(const Framebuffer& frame, const Framebuffer& needle, int variation,
+                  int& out_x, int& out_y);
+
 }  // namespace rime::win32::pixels

@@ -50,6 +50,13 @@ class ScreenService final {
   rime::core::Error pixel_search(int left, int top, int right, int bottom, std::uint32_t color,
                                  int variation, bool& found, int& out_x, int& out_y) const;
 
+  // First position in the rectangle where `image_path` fits, scanning like
+  // pixel_search. The file is decoded through image_loader before the screen
+  // is touched, so a bad path is reported without reading the desktop.
+  rime::core::Error image_search(int left, int top, int right, int bottom,
+                                 const std::string& image_path, int variation, bool& found,
+                                 int& out_x, int& out_y) const;
+
  private:
   rime::core::Error collect(std::vector<Monitor>& out) const;
 };

@@ -10,10 +10,16 @@
 // injected at the OS boundary (the seam may replace the environment but never
 // the unit under test), and the real capture is checked for shape and contract
 // errors. Expectations never come from the code under test.
+//
+// ImageSearch adds a fourth ingredient, the file decoder: its needles are BMP
+// fixtures this test writes byte by byte (tests/screen_image_fixture.hpp) and
+// deletes again, so the pixels it searches for are known before GDI+ ever sees
+// them.
 
 #include "rime/win32/screen.hpp"
 #include "rime/win32/screen_pixels.hpp"
 #include "rime/win32/screen_seam.hpp"
+#include "../screen_image_fixture.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -173,6 +179,62 @@ int main() {
   assert(!pixels::search(framebuffer, 0, 0, 3, 2, 0x123456, 0, found_x, found_y));
   assert(found_x == 0 && found_y == 0);  // untouched on a miss
 
+  // ---- Template matching, on a hand-built field ---------------------------
+  // The needle is planted at (4, 2); the pixel at (1, 0) is a decoy that
+  // matches the needle's first pixel alone, so a scan reporting (1, 0) would
+  // be reporting a prefilter hit as if it were a match.
+  std::vector<std::uint8_t> field_bytes(6 * 4 * 4u, 0);
+  for (int y = 0; y < 4; ++y) {
+    for (int x = 0; x < 6; ++x) set_pixel(field_bytes, 6, x, y, 0x101010);
+  }
+  set_pixel(field_bytes, 6, 1, 0, 0x202020);  // decoy
+  set_pixel(field_bytes, 6, 4, 2, 0x202020);
+  set_pixel(field_bytes, 6, 5, 2, 0x303030);
+  const pixels::Framebuffer field{6, 4, field_bytes.data()};
+
+  std::vector<std::uint8_t> needle_bytes(2 * 1 * 4u, 0);
+  set_pixel(needle_bytes, 2, 0, 0, 0x202020);
+  set_pixel(needle_bytes, 2, 1, 0, 0x303030);
+  const pixels::Framebuffer needle{2, 1, needle_bytes.data()};
+
+  found_x = -1;
+  found_y = -1;
+  assert(pixels::image_search(field, needle, 0, found_x, found_y));
+  assert(found_x == 4 && found_y == 2);
+
+  // A needle whose second pixel is wrong does not match anywhere, and the
+  // coordinates stay as they were.
+  std::vector<std::uint8_t> absent_bytes(2 * 1 * 4u, 0);
+  set_pixel(absent_bytes, 2, 0, 0, 0x202020);
+  set_pixel(absent_bytes, 2, 1, 0, 0x999999);
+  const pixels::Framebuffer absent{2, 1, absent_bytes.data()};
+  found_x = 7;
+  found_y = 7;
+  assert(!pixels::image_search(field, absent, 0, found_x, found_y));
+  assert(found_x == 7 && found_y == 7);
+
+  // A needle wider than the field cannot fit anywhere in it: a miss, not a
+  // truncated search along its left edge.
+  std::vector<std::uint8_t> wide_bytes(7 * 1 * 4u, 0);
+  const pixels::Framebuffer too_wide{7, 1, wide_bytes.data()};
+  assert(!pixels::image_search(field, too_wide, 0, found_x, found_y));
+  assert(found_x == 7 && found_y == 7);
+
+  // Variation widens the template match the same way it widens a single
+  // pixel: the field's background is 0x101010, so a black needle needs
+  // exactly 16 of slack per channel to accept it.
+  std::vector<std::uint8_t> black_bytes(1 * 1 * 4u, 0);
+  set_pixel(black_bytes, 1, 0, 0, 0x000000);
+  const pixels::Framebuffer black{1, 1, black_bytes.data()};
+  found_x = -1;
+  found_y = -1;
+  assert(pixels::image_search(field, black, 0x10, found_x, found_y));
+  assert(found_x == 0 && found_y == 0);
+  found_x = 7;
+  found_y = 7;
+  assert(!pixels::image_search(field, black, 0x0F, found_x, found_y));
+  assert(found_x == 7 && found_y == 7);
+
   // ---- Capture -> scan wiring, with the OS replaced by a synthetic screen --
   rime::win32::screen_seam::set_capture(synthetic_capture);
   std::uint32_t sampled = 0;
@@ -214,6 +276,56 @@ int main() {
   assert(bad_variation.code == rime::core::Error::Code::InvalidContract);
   assert(bad_variation.message.find("0..255") != std::string::npos);
 
+  // ---- ImageSearch over the synthetic screen ------------------------------
+  // The fixture is a 2x1 strip of the two pixels the synthetic screen shows at
+  // (2, 3) and (3, 3). The red channel names the column and the green channel
+  // the row, so that corner is the only place the strip fits.
+  rime::test::TempImagePath needle_path;
+  assert(needle_path.usable());
+  assert(rime::test::write_bmp_24(needle_path.path(), 2, 1, {0x00020340, 0x00030340}));
+
+  found = false;
+  found_x = -1;
+  found_y = -1;
+  assert(service.image_search(0, 0, 7, 7, needle_path.path(), 0, found, found_x, found_y).ok());
+  assert(found && found_x == 2 && found_y == 3);
+
+  // A rectangle narrow enough that the strip cannot fit is a miss, and one
+  // wide enough but without the pixels is a miss too.
+  found = true;
+  found_x = 7;
+  found_y = 7;
+  assert(service.image_search(0, 0, 0, 7, needle_path.path(), 0, found, found_x, found_y).ok());
+  assert(!found && found_x == 7 && found_y == 7);
+  found = true;
+  found_x = 7;
+  found_y = 7;
+  assert(service.image_search(4, 0, 7, 7, needle_path.path(), 0, found, found_x, found_y).ok());
+  assert(!found && found_x == 7 && found_y == 7);
+
+  // A file that cannot be decoded is the caller's contract, and it is
+  // reported before the screen is read - the same order every search uses
+  // (variation, then area, then file, then capture).
+  const auto missing_file = service.image_search(0, 0, 7, 7, needle_path.path() + ".missing", 0,
+                                                 found, found_x, found_y);
+  assert(missing_file.code == rime::core::Error::Code::InvalidContract);
+  assert(missing_file.message.find("could not be loaded") != std::string::npos);
+  const auto empty_path =
+      service.image_search(0, 0, 7, 7, "", 0, found, found_x, found_y);
+  assert(empty_path.code == rime::core::Error::Code::InvalidContract);
+  assert(empty_path.message.find("must not be empty") != std::string::npos);
+
+  // The rectangle and variation rules are shared with pixelSearch.
+  const auto image_outside = service.image_search(10'000'000, 10'000'000, 10'000'001,
+                                                  10'000'001, needle_path.path(), 0, found, found_x,
+                                                  found_y);
+  assert(image_outside.code == rime::core::Error::Code::InvalidContract);
+  assert(image_outside.message.find("does not intersect") != std::string::npos);
+  const auto image_bad_variation = service.image_search(
+      0, 0, 7, 7, needle_path.path(), -1, found, found_x, found_y);
+  assert(image_bad_variation.code == rime::core::Error::Code::InvalidContract);
+  assert(image_bad_variation.message.find("0..255") != std::string::npos);
+
   // ---- Real capture --------------------------------------------------------
   rime::win32::screen_seam::set_capture(nullptr);
   RECT patch{0, 0, 16, 16};
@@ -225,6 +337,39 @@ int main() {
   assert(real_bytes.size() == 16u * 16u * 4u);
   std::uint32_t real_color = 0;
   assert(service.pixel_color(0, 0, real_color).ok());
+
+  // ImageSearch end to end on the real desktop: the needle is cut out of a
+  // real capture of a 4x4 patch and searched for in exactly that patch, so
+  // there is precisely one candidate position and the answer does not depend
+  // on what the desktop shows. The patch is at the virtual-screen origin,
+  // which pixel_color(0, 0) above already proved is on a real display.
+  const pixels::Framebuffer real_frame{real_width, real_height, real_bytes.data()};
+  std::vector<std::uint32_t> real_needle_rgb;
+  for (int y = 0; y < 4; ++y) {
+    for (int x = 0; x < 4; ++x) {
+      std::uint32_t pixel = 0;
+      assert(pixels::color_at(real_frame, x, y, pixel));
+      real_needle_rgb.push_back(pixel);
+    }
+  }
+  rime::test::TempImagePath real_needle_path;
+  assert(real_needle_path.usable());
+  assert(rime::test::write_bmp_24(real_needle_path.path(), 4, 4, real_needle_rgb));
+  found = false;
+  found_x = -1;
+  found_y = -1;
+  assert(service.image_search(0, 0, 3, 3, real_needle_path.path(), 0, found, found_x, found_y).ok());
+  assert(found && found_x == 0 && found_y == 0);
+
+  // Flip one channel of one needle pixel: the very patch the needle came from
+  // can no longer hold it, which is the other half of the contract.
+  real_needle_rgb.back() ^= 0x00FFFFFFu;
+  assert(rime::test::write_bmp_24(real_needle_path.path(), 4, 4, real_needle_rgb));
+  found = true;
+  found_x = 7;
+  found_y = 7;
+  assert(service.image_search(0, 0, 3, 3, real_needle_path.path(), 0, found, found_x, found_y).ok());
+  assert(!found && found_x == 7 && found_y == 7);
 
   return 0;
 }

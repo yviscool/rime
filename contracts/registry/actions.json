@@ -596,10 +596,11 @@
       "status": "implemented",
       "declared": "engine/win32/js/src/screen_module.cpp:28",
       "checked": [
-        "engine/win32/js/src/screen_module.cpp:93",
-        "engine/win32/js/src/screen_module.cpp:126",
-        "engine/win32/js/src/screen_module.cpp:186",
-        "engine/win32/js/src/screen_module.cpp:268"
+        "engine/win32/js/src/screen_module.cpp:94",
+        "engine/win32/js/src/screen_module.cpp:127",
+        "engine/win32/js/src/screen_module.cpp:187",
+        "engine/win32/js/src/screen_module.cpp:284",
+        "engine/win32/js/src/screen_module.cpp:349"
       ],
       "actions": []
     },
@@ -706,22 +707,27 @@
     {
       "api": "screen.monitorCount()",
       "capability": "screen.capture",
-      "site": "engine/win32/js/src/screen_module.cpp:93"
+      "site": "engine/win32/js/src/screen_module.cpp:94"
     },
     {
       "api": "screen.monitor(index?)",
       "capability": "screen.capture",
-      "site": "engine/win32/js/src/screen_module.cpp:126"
+      "site": "engine/win32/js/src/screen_module.cpp:127"
     },
     {
       "api": "screen.pixel(x, y)",
       "capability": "screen.capture",
-      "site": "engine/win32/js/src/screen_module.cpp:186"
+      "site": "engine/win32/js/src/screen_module.cpp:187"
     },
     {
       "api": "screen.pixelSearch(area, color, options)",
       "capability": "screen.capture",
-      "site": "engine/win32/js/src/screen_module.cpp:268"
+      "site": "engine/win32/js/src/screen_module.cpp:284"
+    },
+    {
+      "api": "screen.imageSearch(area, imagePath, options)",
+      "capability": "screen.capture",
+      "site": "engine/win32/js/src/screen_module.cpp:349"
     }
   ]
 }

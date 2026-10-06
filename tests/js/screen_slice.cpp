@@ -3,7 +3,9 @@
 // compared against a native read taken before the runtime started rather than
 // against the JS layer's own arithmetic. Nothing is mutated: a query dispatches
 // no Action, which the empty trace proves. A second capability-less runtime
-// proves the gate.
+// proves the gate. ImageSearch runs against the same synthetic screen with a
+// BMP needle this test writes itself, so its expected corner is known before
+// the file decoder reads it.
 
 #include "rime/action/kernel.hpp"
 #include "rime/core/json.hpp"
@@ -12,6 +14,7 @@
 #include "rime/win32/js_screen.hpp"
 #include "rime/win32/screen.hpp"
 #include "rime/win32/screen_seam.hpp"
+#include "../screen_image_fixture.hpp"
 
 #include <cassert>
 #include <chrono>
@@ -81,6 +84,13 @@ int main() {
   // the monitor contract does not depend on it (geometry comes from
   // EnumDisplayMonitors either way).
   rime::win32::screen_seam::set_capture(synthetic_capture);
+
+  // The ImageSearch needle is a 2x1 strip of the two pixels the synthetic
+  // screen shows at (2, 3) and (3, 3), written as a BMP by this test so the
+  // expected corner is known before any decoder reads the file.
+  rime::test::TempImagePath needle_path;
+  assert(needle_path.usable());
+  assert(rime::test::write_bmp_24(needle_path.path(), 2, 1, {0x00020340, 0x00030340}));
 
   // Independent observation: the OS answers before the runtime exists, so a
   // JS result is never only self-reported.
@@ -240,6 +250,72 @@ int main() {
         "                   JSON.stringify(globalThis.syncErrors));",
         "screen-pixel-check.mjs");
 
+  // Segment 4: ImageSearch over the same synthetic screen - the fixture needle
+  // fits only at (2, 3), two rectangles cannot hold it, a file that does not
+  // exist fails as the caller's contract, and the three argument shapes the
+  // module rejects synchronously.
+  check(runtime,
+        "import { screen } from 'rime:screen';\n"
+        "globalThis.syncErrors = [];\n"
+        "globalThis.imageHit = null;\n"
+        "globalThis.imageMiss = null;\n"
+        "globalThis.imageTooSmall = null;\n"
+        "globalThis.imageFileError = null;\n"
+        "globalThis.imageAreaError = null;\n"
+        "const needle = " + json_string(needle_path.path()) + ";\n"
+        "const area = { left: 0, top: 0, right: 7, bottom: 7 };\n"
+        "screen.imageSearch(area, needle)\n"
+        "  .then(r => { globalThis.imageHit = r; }, e => { globalThis.imageHit = String(e); });\n"
+        "screen.imageSearch({ left: 0, top: 0, right: 1, bottom: 7 }, needle)\n"
+        "  .then(r => { globalThis.imageMiss = r; }, e => { globalThis.imageMiss = String(e); });\n"
+        "screen.imageSearch({ left: 0, top: 0, right: 0, bottom: 7 }, needle)\n"
+        "  .then(r => { globalThis.imageTooSmall = r; },\n"
+        "        e => { globalThis.imageTooSmall = String(e); });\n"
+        "screen.imageSearch(area, needle + '.missing')\n"
+        "  .then(() => {}, e => { globalThis.imageFileError = e.code + ':' + e.message; });\n"
+        "screen.imageSearch({ left: 10000000, top: 10000000, right: 10000001,\n"
+        "                     bottom: 10000001 }, needle)\n"
+        "  .then(() => {}, e => { globalThis.imageAreaError = e.code + ':' + e.message; });\n"
+        "try { screen.imageSearch(area, 42); globalThis.syncErrors.push('path accepted'); }\n"
+        "catch (e) { globalThis.syncErrors.push(e.constructor.name); }\n"
+        "try { screen.imageSearch(area, needle, 'x'); globalThis.syncErrors.push('options'); }\n"
+        "catch (e) { globalThis.syncErrors.push(e.constructor.name); }\n"
+        "try { screen.imageSearch(area, needle, { variation: 300 });\n"
+        "      globalThis.syncErrors.push('variation'); }\n"
+        "catch (e) { globalThis.syncErrors.push(e.constructor.name); }",
+        "screen-image.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (typeof globalThis.imageHit === 'string') throw new Error(globalThis.imageHit);\n"
+        "if (!globalThis.imageHit.found || globalThis.imageHit.x !== 2 ||\n"
+        "    globalThis.imageHit.y !== 3)\n"
+        "  throw new Error('the needle must fit at (2, 3): ' +\n"
+        "                   JSON.stringify(globalThis.imageHit));\n"
+        "if (typeof globalThis.imageMiss === 'string') throw new Error(globalThis.imageMiss);\n"
+        "if (globalThis.imageMiss.found !== false)\n"
+        "  throw new Error('an area without the pixels must miss: ' +\n"
+        "                   JSON.stringify(globalThis.imageMiss));\n"
+        "if ('x' in globalThis.imageMiss)\n"
+        "  throw new Error('a miss must not carry coordinates: ' +\n"
+        "                   JSON.stringify(globalThis.imageMiss));\n"
+        "if (typeof globalThis.imageTooSmall === 'string')\n"
+        "  throw new Error(globalThis.imageTooSmall);\n"
+        "if (globalThis.imageTooSmall.found !== false)\n"
+        "  throw new Error('an area narrower than the needle must miss: ' +\n"
+        "                   JSON.stringify(globalThis.imageTooSmall));\n"
+        "if (!globalThis.imageFileError ||\n"
+        "    !globalThis.imageFileError.includes('could not be loaded'))\n"
+        "  throw new Error('a missing file must be invalid_contract: ' +\n"
+        "                   globalThis.imageFileError);\n"
+        "if (!globalThis.imageAreaError || !globalThis.imageAreaError.includes('intersect'))\n"
+        "  throw new Error('an area outside the screen must be invalid_contract: ' +\n"
+        "                   globalThis.imageAreaError);\n"
+        "const expected = ['TypeError', 'TypeError', 'RangeError'];\n"
+        "if (JSON.stringify(globalThis.syncErrors) !== JSON.stringify(expected))\n"
+        "  throw new Error('argument rejections must be TypeError, TypeError, RangeError: ' +\n"
+        "                   JSON.stringify(globalThis.syncErrors));",
+        "screen-image-check.mjs");
+
   // A query dispatches no Action, so the trace stays empty across every call
   // above.
   assert(trace->snapshot().empty());
@@ -262,11 +338,14 @@ int main() {
           "globalThis.monitorDenied = null;\n"
           "globalThis.pixelDenied = null;\n"
           "globalThis.searchDenied = null;\n"
+          "globalThis.imageDenied = null;\n"
           "screen.monitorCount().then(() => {}, e => { globalThis.countDenied = String(e); });\n"
           "screen.monitor().then(() => {}, e => { globalThis.monitorDenied = String(e); });\n"
           "screen.pixel(0, 0).then(() => {}, e => { globalThis.pixelDenied = String(e); });\n"
           "screen.pixelSearch({left: 0, top: 0, right: 1, bottom: 1}, 0)\n"
-          "  .then(() => {}, e => { globalThis.searchDenied = String(e); });",
+          "  .then(() => {}, e => { globalThis.searchDenied = String(e); });\n"
+          "screen.imageSearch({left: 0, top: 0, right: 1, bottom: 1}, 'x.bmp')\n"
+          "  .then(() => {}, e => { globalThis.imageDenied = String(e); });",
           "screen-deny.mjs");
     assert(denied_runtime.settle(5000ms).ok());
     check(denied_runtime,
@@ -282,7 +361,10 @@ int main() {
           "  throw new Error('pixel must name the capability: ' + globalThis.pixelDenied);\n"
           "if (!globalThis.searchDenied ||\n"
           "    !globalThis.searchDenied.includes('screen.capture'))\n"
-          "  throw new Error('pixelSearch must name the capability: ' + globalThis.searchDenied);",
+          "  throw new Error('pixelSearch must name the capability: ' + globalThis.searchDenied);\n"
+          "if (!globalThis.imageDenied ||\n"
+          "    !globalThis.imageDenied.includes('screen.capture'))\n"
+          "  throw new Error('imageSearch must name the capability: ' + globalThis.imageDenied);",
           "screen-deny-check.mjs");
     assert(denied_runtime.stop().ok());
   }

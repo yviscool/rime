@@ -62,4 +62,38 @@ bool search(const Framebuffer& frame, int left, int top, int right, int bottom,
   return false;
 }
 
+bool image_search(const Framebuffer& frame, const Framebuffer& needle, const int variation,
+                  int& out_x, int& out_y) {
+  if (!frame.bgra || !needle.bgra) return false;
+  if (needle.width <= 0 || needle.height <= 0) return false;
+  if (needle.width > frame.width || needle.height > frame.height) return false;
+  std::uint32_t first = 0;
+  if (!color_at(needle, 0, 0, first)) return false;
+  for (int y = 0; y <= frame.height - needle.height; ++y) {
+    for (int x = 0; x <= frame.width - needle.width; ++x) {
+      std::uint32_t corner = 0;
+      if (!color_at(frame, x, y, corner) || !color_matches(corner, first, variation)) continue;
+      bool matches = true;
+      for (int ny = 0; ny < needle.height && matches; ++ny) {
+        for (int nx = 0; nx < needle.width; ++nx) {
+          if (nx == 0 && ny == 0) continue;  // already checked by the prefilter
+          std::uint32_t wanted = 0;
+          std::uint32_t actual = 0;
+          if (!color_at(needle, nx, ny, wanted) || !color_at(frame, x + nx, y + ny, actual) ||
+              !color_matches(actual, wanted, variation)) {
+            matches = false;
+            break;
+          }
+        }
+      }
+      if (matches) {
+        out_x = x;
+        out_y = y;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 }  // namespace rime::win32::pixels

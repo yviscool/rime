@@ -35,7 +35,7 @@
 | [`process-shell.md`](./process-shell.md) | Run*、Process*、Shutdown、Shell |
 | [`storage.md`](./storage.md) | File*、Dir*、Drive*、Env*、Ini*、Download |
 | [`registry.md`](./registry.md) | RegRead/RegWrite/RegDelete/RegCreateKey/RegDeleteKey、SetRegView |
-| [`screen.md`](./screen.md) | Monitor*、PixelGetColor、PixelSearch（已实现）、SysGet*、ImageSearch、Caret |
+| [`screen.md`](./screen.md) | Monitor*、PixelGetColor、PixelSearch、ImageSearch（已实现）、SysGet*、Caret |
 | [`gui-menu.md`](./gui-menu.md) | Gui、Menu、Tray、ToolTip、MsgBox、InputBox、Sound、ImageList |
 | [`native-interop.md`](./native-interop.md) | DllCall、ComCall、Callback、Obj*DataPtr、注册表和隔离策略 |
 | [`runtime-language.md`](./runtime-language.md) | Runtime 生命周期、字符串、日期、正则和 TS 标准能力 |

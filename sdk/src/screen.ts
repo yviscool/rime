@@ -44,6 +44,23 @@ export interface ScreenBridge {
     color: number,
     options?: NativeActionOptions,
   ): Promise<ScreenPixelSearchResult>;
+  imageSearch(
+    area: ScreenRect,
+    imagePath: string,
+    options?: NativeActionOptions,
+  ): Promise<ScreenPixelSearchResult>;
+}
+
+// runAction's bridge options carry only action concerns (deadline, parent,
+// cancellation) and are rebuilt from scratch for every call, so a domain
+// option like `variation` has to be merged back in at the call site - letting
+// it ride along on ActionOptions would silently drop it.
+function withVariation(
+  bridgeOptions: NativeActionOptions | undefined,
+  variation: number | undefined,
+): (NativeActionOptions & { variation?: number }) | undefined {
+  if (variation === undefined) return bridgeOptions;
+  return { ...(bridgeOptions ?? {}), variation };
 }
 
 async function screenBridge(): Promise<ScreenBridge> {
@@ -111,7 +128,35 @@ export const screen = {
     options?: ScreenPixelSearchOptions,
   ): Promise<ScreenPixelSearchResult> {
     return runAction(options, (bridgeOptions) =>
-      screenBridge().then((bridge) => bridge.pixelSearch(area, color, bridgeOptions)),
+      screenBridge().then((bridge) =>
+        bridge.pixelSearch(area, color, withVariation(bridgeOptions, options?.variation)),
+      ),
+    );
+  },
+  /**
+   * First place in `area` where the image file fits (AHK `ImageSearch`),
+   * scanning like {@link screen.pixelSearch}. A miss resolves
+   * `{found:false}`. The file is decoded before the screen is read, so a bad
+   * path fails without touching the desktop.
+   *
+   * @param area rectangle in virtual-desktop pixels; reversed corners are
+   *   accepted and normalized.
+   * @param imagePath UTF-8 path to an image Windows can decode (BMP, PNG,
+   *   JPEG, GIF, TIFF, ...). Alpha is not part of the comparison: only the
+   *   RGB channels are matched, exactly like {@link screen.pixelSearch}.
+   * @throws ActionError with `invalid_contract` (area misses the screen,
+   *   undecodable file, bad variation range), `capability_denied`,
+   *   `cancelled`.
+   */
+  imageSearch(
+    area: ScreenRect,
+    imagePath: string,
+    options?: ScreenPixelSearchOptions,
+  ): Promise<ScreenPixelSearchResult> {
+    return runAction(options, (bridgeOptions) =>
+      screenBridge().then((bridge) =>
+        bridge.imageSearch(area, imagePath, withVariation(bridgeOptions, options?.variation)),
+      ),
     );
   },
 };

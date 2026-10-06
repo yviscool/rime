@@ -1,5 +1,6 @@
 #include "rime/win32/screen.hpp"
 
+#include "rime/win32/image_loader.hpp"
 #include "rime/win32/screen_pixels.hpp"
 #include "rime/win32/screen_seam.hpp"
 #include "utf.hpp"
@@ -102,6 +103,39 @@ RECT virtual_screen_rect() {
   return rect;
 }
 
+// Normalizes the caller's rectangle and clips it to the virtual screen. Every
+// screen read shares this so pixelSearch and ImageSearch cannot drift apart on
+// what "partly outside the desktop" means: reversed corners are accepted, the
+// visible remainder is searched, and a rectangle that misses the desktop
+// entirely is an invalid contract instead of a quiet capture of nothing.
+Error clip_area(const int left, const int top, const int right, const int bottom, RECT& out) {
+  int area_left = left;
+  int area_top = top;
+  int area_right = right;
+  int area_bottom = bottom;
+  if (area_left > area_right) std::swap(area_left, area_right);
+  if (area_top > area_bottom) std::swap(area_top, area_bottom);
+  const RECT screen_rect = virtual_screen_rect();
+  area_left = std::max(area_left, static_cast<int>(screen_rect.left));
+  area_top = std::max(area_top, static_cast<int>(screen_rect.top));
+  area_right = std::min(area_right, static_cast<int>(screen_rect.right) - 1);
+  area_bottom = std::min(area_bottom, static_cast<int>(screen_rect.bottom) - 1);
+  if (area_left > area_right || area_top > area_bottom) {
+    return {Code::InvalidContract, "search area does not intersect the virtual screen"};
+  }
+  out.left = area_left;
+  out.top = area_top;
+  out.right = area_right;
+  out.bottom = area_bottom;
+  return Error::none();
+}
+
+// The half-open capture rectangle for a clipped area: capture_rect takes
+// exclusive edges, the screen API reports inclusive ones.
+RECT capture_rect_of(const RECT& area) {
+  return RECT{area.left, area.top, area.right + 1, area.bottom + 1};
+}
+
 }  // namespace
 
 Error ScreenService::pixel_color(const int x, const int y, std::uint32_t& rgb) const {
@@ -133,26 +167,13 @@ Error ScreenService::pixel_search(const int left, const int top, const int right
   if (variation < 0 || variation > 255) {
     return {Code::InvalidContract, "variation must be in 0..255"};
   }
-  int area_left = left;
-  int area_top = top;
-  int area_right = right;
-  int area_bottom = bottom;
-  if (area_left > area_right) std::swap(area_left, area_right);
-  if (area_top > area_bottom) std::swap(area_top, area_bottom);
-  const RECT screen_rect = virtual_screen_rect();
-  area_left = std::max(area_left, static_cast<int>(screen_rect.left));
-  area_top = std::max(area_top, static_cast<int>(screen_rect.top));
-  area_right = std::min(area_right, static_cast<int>(screen_rect.right) - 1);
-  area_bottom = std::min(area_bottom, static_cast<int>(screen_rect.bottom) - 1);
-  if (area_left > area_right || area_top > area_bottom) {
-    return {Code::InvalidContract, "search area does not intersect the virtual screen"};
-  }
+  RECT area{};
+  if (const auto error = clip_area(left, top, right, bottom, area); !error.ok()) return error;
 
-  RECT area{area_left, area_top, area_right + 1, area_bottom + 1};
   std::vector<std::uint8_t> bgra;
   int width = 0;
   int height = 0;
-  if (!capture_rect(area, bgra, width, height)) {
+  if (!capture_rect(capture_rect_of(area), bgra, width, height)) {
     return {Code::ExecutionFailed, "cannot capture the screen area"};
   }
   const pixels::Framebuffer frame{width, height, bgra.data()};
@@ -160,8 +181,37 @@ Error ScreenService::pixel_search(const int left, const int top, const int right
   int local_y = 0;
   found = pixels::search(frame, 0, 0, width - 1, height - 1, color, variation, local_x, local_y);
   if (found) {
-    out_x = area_left + local_x;
-    out_y = area_top + local_y;
+    out_x = area.left + local_x;
+    out_y = area.top + local_y;
+  }
+  return Error::none();
+}
+
+Error ScreenService::image_search(const int left, const int top, const int right, const int bottom,
+                                  const std::string& image_path, const int variation, bool& found,
+                                  int& out_x, int& out_y) const {
+  if (variation < 0 || variation > 255) {
+    return {Code::InvalidContract, "variation must be in 0..255"};
+  }
+  RECT area{};
+  if (const auto error = clip_area(left, top, right, bottom, area); !error.ok()) return error;
+
+  ImageBuffer image;
+  if (const auto error = load_image_file(image_path, image); !error.ok()) return error;
+
+  std::vector<std::uint8_t> bgra;
+  int width = 0;
+  int height = 0;
+  if (!capture_rect(capture_rect_of(area), bgra, width, height)) {
+    return {Code::ExecutionFailed, "cannot capture the screen area"};
+  }
+  const pixels::Framebuffer frame{width, height, bgra.data()};
+  int local_x = 0;
+  int local_y = 0;
+  found = pixels::image_search(frame, image.view(), variation, local_x, local_y);
+  if (found) {
+    out_x = area.left + local_x;
+    out_y = area.top + local_y;
   }
   return Error::none();
 }
