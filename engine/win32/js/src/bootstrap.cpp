@@ -4,6 +4,7 @@
 #include "rime/core/json.hpp"
 #include "rime/js/runtime.hpp"
 #include "rime/win32/clipboard_executor.hpp"
+#include "rime/win32/control_executor.hpp"
 #include "rime/win32/input_executor.hpp"
 #include "rime/win32/process_executor.hpp"
 #include "rime/win32/registry_executor.hpp"
@@ -106,6 +107,7 @@ Bootstrap::Bootstrap(std::unordered_set<std::string> capabilities)
   process_binding_ = {&process_service_, &kernel_, &dispatcher_, &next_action_id_};
   clipboard_binding_ = {&clipboard_service_, &kernel_, &dispatcher_, &next_action_id_};
   window_binding_ = {&window_service_, &kernel_, &dispatcher_, &next_action_id_};
+  control_binding_ = {&window_service_, &kernel_, &dispatcher_, &next_action_id_};
   automation_binding_ = {&automation_service_, &kernel_, &dispatcher_, &next_action_id_};
   storage_binding_ = {&storage_service_, &kernel_, &dispatcher_, &next_action_id_};
   registry_binding_ = {&registry_service_, &kernel_, &dispatcher_, &next_action_id_};
@@ -126,6 +128,9 @@ rime::core::Error Bootstrap::register_modules(rime::js::Runtime& runtime) {
   }
   if (const auto error = register_window_module(runtime, &window_binding_); !error.ok()) {
     return module_error("rime:window", error);
+  }
+  if (const auto error = register_control_module(runtime, &control_binding_); !error.ok()) {
+    return module_error("rime:control", error);
   }
   if (const auto error = register_automation_module(runtime, &automation_binding_); !error.ok()) {
     return module_error("rime:automation", error);
@@ -153,6 +158,13 @@ rime::core::Error Bootstrap::register_executors() {
   const auto window_executor = std::make_shared<WindowExecutor>(window_service_);
   for (const std::string& type : window_action_types()) {
     if (const auto error = kernel_.register_executor(type, window_executor); !error.ok()) {
+      return error;
+    }
+  }
+  const auto control_executor = std::make_shared<ControlExecutor>(window_service_);
+  for (const char* type : {"control.click", "control.focus", "control.settext",
+                           "control.gettext", "control.sendtext"}) {
+    if (const auto error = kernel_.register_executor(type, control_executor); !error.ok()) {
       return error;
     }
   }
@@ -265,7 +277,7 @@ std::unordered_set<std::string> production_capabilities() {
   return {"windows.window.read", "windows.window.write", "windows.clipboard.read",
           "windows.clipboard.write", "windows.input.inject", "windows.input.read",
           "windows.hook.global", "windows.automation.find", "windows.automation.read",
-          "windows.automation.invoke", "process.inspect", "process.launch",
+          "windows.automation.invoke", "windows.automation.control", "process.inspect", "process.launch",
           "process.terminate", "process.manage", "process.runas", "process.shutdown",
           "filesystem.read", "filesystem.write", "registry.read", "registry.write",
           "screen.capture"};

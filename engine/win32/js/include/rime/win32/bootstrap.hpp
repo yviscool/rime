@@ -8,6 +8,7 @@
 #include "rime/win32/input.hpp"
 #include "rime/win32/js_automation.hpp"
 #include "rime/win32/js_clipboard.hpp"
+#include "rime/win32/js_control.hpp"
 #include "rime/win32/js_input.hpp"
 #include "rime/win32/js_process.hpp"
 #include "rime/win32/js_registry.hpp"
@@ -81,6 +82,7 @@ class Bootstrap final {
   ProcessModuleBinding process_binding_;
   ClipboardModuleBinding clipboard_binding_;
   WindowModuleBinding window_binding_;
+  ControlModuleBinding control_binding_;
   AutomationModuleBinding automation_binding_;
   StorageModuleBinding storage_binding_;
   RegistryModuleBinding registry_binding_;

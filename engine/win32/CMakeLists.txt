@@ -9,6 +9,8 @@ add_library(rime_win32 STATIC
   src/window_geometry.cpp
   src/window_match.cpp
   src/window_executor.cpp
+  src/window_control.cpp
+  src/control_executor.cpp
   src/input.cpp
   src/input_executor.cpp
   src/process.cpp

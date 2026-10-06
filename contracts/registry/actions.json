@@ -390,6 +390,66 @@
       "status": "implemented"
     },
     {
+      "type": "control.click",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:390",
+      "sdk": "sdk/src/control.ts:53",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.focus",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:470",
+      "sdk": "sdk/src/control.ts:59",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.settext",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:494",
+      "sdk": "sdk/src/control.ts:61",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.gettext",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:509",
+      "sdk": "sdk/src/control.ts:63",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.sendtext",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:501",
+      "sdk": "sdk/src/control.ts:65",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
       "type": "storage.write",
       "capability": "filesystem.write",
       "target": { "kind": "storage", "example": "fs" },
@@ -523,9 +583,10 @@
     },
     {
       "name": "windows.automation.control",
-      "status": "planned",
-      "plannedBy": "docs/api/control.md (Phase 1: resolve/click/focus/setText/getText/sendText/sendKeys/checked/visibility/geometry/message)",
-      "actions": []
+      "status": "implemented",
+      "declared": "engine/win32/js/src/control_module.cpp:351",
+      "checked": ["engine/action/src/kernel.cpp:97", "engine/win32/js/src/control_module.cpp:351"],
+      "actions": ["control.click", "control.focus", "control.settext", "control.gettext", "control.sendtext"]
     },
     {
       "name": "process.inspect",

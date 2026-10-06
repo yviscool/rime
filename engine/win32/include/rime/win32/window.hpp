@@ -297,6 +297,55 @@ class WindowService final {
   // controls are skipped unless DetectHiddenText is on.
   rime::core::Error text(std::uint64_t id, std::string& out,
                          std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Control verbs (@rime/control Phase 1): `id` names a control in the same
+  // stable id space as controls()/window_at() (a top-level window id is
+  // accepted wherever a control id is - it simply addresses the window
+  // itself). All run on the UI lane; message round-trips use
+  // SendMessageTimeout(SMTO_ABORTIFHUNG) like text() above.
+  struct ControlClick {
+    // Virtual-key button for the message (VK_LBUTTON/RBUTTON/MBUTTON/XBUTTON).
+    int vk{1};
+    int count{1};
+    // downUp: down+up per click; down: downs only; up: ups only (drag halves).
+    enum class Phase : std::uint8_t { DownUp, Down, Up } phase{Phase::DownUp};
+    bool activate{false};  // false = AHK NA mode (no focus steal)
+    int x{0};
+    int y{0};  // control-client coordinates (AHK message format)
+  };
+  // Posts the click message(s) (never Send); center of the control when the
+  // caller passes no position (AHK/AutoIt3 rule). No-op success for count 0.
+  rime::core::Error control_click(std::uint64_t id, const ControlClick& click,
+                                  std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // AttachThreadInput + SetFocus; never reports failure (focus can change on
+  // the next line - AHK rule), only lane/timeout errors.
+  rime::core::Error control_focus(std::uint64_t id,
+                                  std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // WM_SETTEXT via SendMessageTimeout (5s, AHK rule: Post is ignored by most apps).
+  rime::core::Error control_set_text(std::uint64_t id, const std::wstring& text,
+                                      std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // WM_GETTEXTLENGTH + WM_GETTEXT two-step (AHK GetWindowTextTimeout rule).
+  rime::core::Error control_get_text(std::uint64_t id, std::string& out,
+                                      std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // RAW_TEXT keystrokes: \r \n \b \t by VK, every other char by WM_CHAR
+  // (AHK ControlSendText rule); no modifier parsing, no global side effects.
+  rime::core::Error control_send_text(std::uint64_t id, const std::wstring& text,
+                                       std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Single-shot synchronous state reads (no blocking calls inside).
+  rime::core::Error control_is_visible(std::uint64_t id, bool& out,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  rime::core::Error control_is_enabled(std::uint64_t id, bool& out,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Screen-coordinates rect of the control (AHK GetWindowRect rule).
+  rime::core::Error control_rect(std::uint64_t id, Rect& out,
+                                 std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Liveness probe for dispose(): true when the id still resolves.
+  rime::core::Error control_alive(std::uint64_t id, bool& out,
+                                  std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Resolves a raw HWND (as seen by WinGetControlsHwnd-style callers) to the
+  // stable id, searching the given window's descendants. TargetGone when the
+  // handle is not a live descendant.
+  rime::core::Error control_id_for_hwnd(std::uint64_t window_id, void* hwnd, std::uint64_t& out,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // MouseGetPos point query: the window (and control) under the screen point
   // (x, y), resolved entirely on the UI lane. The control search replicates
   // AHK EnumChildFindPoint: visible children whose rect contains the point,

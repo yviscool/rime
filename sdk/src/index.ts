@@ -101,6 +101,7 @@ export * from "./process";
 export * from "./clipboard";
 export * from "./screen";
 export * from "./automation";
+export * from "./control";
 export * from "./storage";
 export * from "./registry";
 export * from "./contracts";

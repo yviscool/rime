@@ -1,5 +1,6 @@
 add_library(rime_win32_js STATIC
   src/window_module.cpp
+  src/control_module.cpp
   src/input_module.cpp
   src/events_module.cpp
   src/process_module.cpp

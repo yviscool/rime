@@ -30,18 +30,18 @@ Window（稳定 id，已有）── resolve ──► ControlHandle（稳定 id
 ## 2. TS 表达（`sdk/src/control.ts`，模块 `rime:control`）
 
 ```ts
-// 入口：从 Window 句柄 resolve，spec 显式区分（AHK 的"末字符数字"猜测不要）。
-const win = await Window.find({ title: "记事本" });
-const c = await win.control({ classNN: "Edit1" });
+// 入口：按窗口 id + 显式 spec resolve（AHK 的"末字符数字"猜测不要）。
+const [win] = await Window.list({ title: "记事本" });
+const c = await Window.control(win.id, { classNN: "Edit1" });
 //  | { text: "..." } | { hwnd: number } | { point: {x, y}, space: 'window-client' }
 //  | { auto: string }   // 兼容档：复刻 AHK 两遍回退（ClassNN -> 文本）
-// 句柄级选项（不是逐调用）：{ strategy: 'message' | 'uia' | 'auto' }，默认 'auto'。
+// 句柄级选项（不是逐调用）：Control.resolve(id, spec, { strategy })，默认 'auto'。
 
 // 高频单发快捷方式（Playwright 式 page.click 对应物）：resolve+动作一次往返，
  // 简单脚本不付两跳 ceremony 税。
-await win.clickControl({ classNN: "Button1" }, { button: "left" });
-await win.setControlText({ classNN: "Edit1" }, "...");
-await win.getControlText({ classNN: "Edit1" });  // -> string
+await Window.clickControl(win.id, { classNN: "Button1" }, { button: "left" });
+await Window.setControlText(win.id, { classNN: "Edit1" }, "...");
+await Window.getControlText(win.id, { classNN: "Edit1" });  // -> string
 
 // 点击：默认不抢焦点（AHK NA 语义为默认；AHK 兼容档默认 true）。
 // 注意这是与 AHK 唯一行为分歧的默认值：移植脚本必须显式传 activate:true，
@@ -146,8 +146,8 @@ c.dispose();  // -> boolean，同步
   注册为 `planned`，指向本文档；读/写分离沿 `windows.window.read/write`
   例， action 类型随 `ControlExecutor` 落地时一并注册——checker 要求
   每个注册类型都有 executor 字面量接受，空 registry 先行会红）。
-- **Registry**：action 类型（`control.resolve/click/focus/setText/getText/
-  sendText/sendKeys/...` + `matrix:check` executor 字面量）随
+- **Registry**：action 类型（`control.click/focus/settext/gettext/
+  sendtext/...`,全小写 dotted，checker 文法要求）随
   `ControlExecutor` 第一个可执行版本一起进 `actions.json`（仓库铁律
   在 checker 面前让步：无 executor 的类型不得先行）。
 

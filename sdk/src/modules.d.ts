@@ -35,6 +35,11 @@ declare module "rime:automation" {
   export { automation };
 }
 
+declare module "rime:control" {
+  const control: import("./control").ControlBridge;
+  export { control };
+}
+
 declare module "rime:storage" {
   const storage: import("./storage").StorageBridge;
   export { storage };

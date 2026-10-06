@@ -1,5 +1,6 @@
 import { runAction, type ActionOptions, type NativeActionOptions } from "./action";
 import type { ProcessId } from "./process";
+import { Control, type ControlClickOptions, type ControlSpec } from "./control";
 
 export type Brand<K, T> = K & { readonly __brand: T };
 
@@ -647,6 +648,50 @@ export const Window = {
     return runAction(options, (native) =>
       windowBridge().then((windows) => windows.controls(windowId, native)),
     );
+  },
+  /**
+   * Resolves a control spec against a window (@rime/control Phase 1).
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  control(windowId: WindowId, spec: ControlSpec, options?: ActionOptions): Promise<Control> {
+    return Control.resolve(windowId, spec, options);
+  },
+  /**
+   * One-shot control click: resolve + click in a single call.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  clickControl(
+    windowId: WindowId,
+    spec: ControlSpec,
+    opts?: ControlClickOptions,
+    options?: ActionOptions,
+  ): Promise<{ clicks: number }> {
+    return Control.resolve(windowId, spec, options).then((control) => control.click(opts, options));
+  },
+  /**
+   * One-shot control setText: resolve + WM_SETTEXT in a single call.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  setControlText(
+    windowId: WindowId,
+    spec: ControlSpec,
+    text: string,
+    options?: ActionOptions,
+  ): Promise<{ text: string }> {
+    return Control.resolve(windowId, spec, options).then((control) =>
+      control.setText(text, options),
+    );
+  },
+  /**
+   * One-shot control getText: resolve + WM_GETTEXT in a single call.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  getControlText(
+    windowId: WindowId,
+    spec: ControlSpec,
+    options?: ActionOptions,
+  ): Promise<{ text: string }> {
+    return Control.resolve(windowId, spec, options).then((control) => control.getText(options));
   },
   /**
    * WinGetText: concatenated control text ("\r\n"-separated); hidden controls
