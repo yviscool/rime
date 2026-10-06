@@ -124,6 +124,16 @@ Error ClipboardService::write_text(const std::string& utf8_text) const {
   return Error::none();
 }
 
+bool ClipboardService::has_wait_data(bool any_data) const {
+  if (any_data) return CountClipboardFormats() != 0;
+  // AHK's ClipWait predicate (wait.cpp:78 uses CF_NATIVETEXT, which is
+  // CF_UNICODETEXT on every platform we target - the Windows SDK does not
+  // define the alias): a file drop counts as content too, because the
+  // implicit CF_HDROP -> text conversion would make it usable as text.
+  return IsClipboardFormatAvailable(CF_UNICODETEXT) ||
+         IsClipboardFormatAvailable(CF_HDROP);
+}
+
 std::uint64_t ClipboardService::add_change_listener(ChangeListener listener) {
   if (!listener) return 0;
   std::lock_guard lock(listeners_mutex_);

@@ -79,6 +79,10 @@ int main() {
   const bool wrote_sample = service.write_text(sample).ok();
   std::string read_back;
   const bool read_sample = service.read_text(read_back).ok() && read_back == sample;
+  // ClipWait's two predicates against real clipboard state: text present
+  // means both "text" and "any" are satisfied.
+  const bool wait_text_when_full = service.has_wait_data(false);
+  const bool wait_any_when_full = service.has_wait_data(true);
 
   const std::string replacement = "rime-clip-replacement";
   const bool wrote_replacement = service.write_text(replacement).ok();
@@ -102,6 +106,9 @@ int main() {
   const bool clear_ok = kernel.execute(clear).succeeded;
   const bool clear_read = service.read_text(read_back).ok() && read_back.empty();
   const bool clear_format_gone = !IsClipboardFormatAvailable(CF_UNICODETEXT);
+  // An empty clipboard satisfies neither ClipWait predicate - otherwise
+  // ClipWait could never observe "not ready yet".
+  const bool wait_data_empty = !service.has_wait_data(false) && !service.has_wait_data(true);
 
   // Contract violations reject with InvalidContract (executed once, asserted
   // twice below).
@@ -161,6 +168,10 @@ int main() {
   assert(clear_read);
   // Captured before the restore: the empty write dropped the format itself.
   assert(clear_format_gone);
+
+  assert(wait_text_when_full);
+  assert(wait_any_when_full);
+  assert(wait_data_empty);
 
   assert(!missing_result.succeeded);
   assert(missing_result.error.code == rime::core::Error::Code::InvalidContract);

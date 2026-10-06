@@ -79,11 +79,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/wait.cpp"
       ],
       "tsModule": "@rime/clipboard",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.clipboard.read",
-      "contractTest": "missing",
-      "lane": "automation",
+      "contractTest": "tests/js/breadth_slice.cpp,tests/native/clipboard_tests.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {

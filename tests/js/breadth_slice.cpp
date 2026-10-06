@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <thread>
 #include <unordered_set>
 
 namespace {
@@ -273,13 +274,83 @@ int main(int argc, char** argv) {
             "if (!globalThis.badWrite) throw new Error('write(42) must throw TypeError');",
         "breadth-clip-read-check.mjs");
 
+  // Segment 4: ClipWait. It must reject on an empty clipboard, dispatch no
+  // Action (the trace stays frozen), and only resolve once content actually
+  // arrives - which needs clipboard.write("") to empty the clipboard for real.
+  check(runtime,
+        "import { clipboard } from 'rime:clipboard';\n"
+        "globalThis.cleared = null;\n"
+        "clipboard.write('').then(r => { globalThis.cleared = r; },\n"
+        "                         e => { globalThis.cleared = String(e); });",
+        "breadth-clip-clear.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (typeof globalThis.cleared === 'string') throw new Error(globalThis.cleared);\n"
+        "if (globalThis.cleared.text !== '')\n"
+        "  throw new Error('clear must echo the empty text');",
+        "breadth-clip-clear-check.mjs");
+  assert(!clipboard_service.has_wait_data(false));
+  assert(!clipboard_service.has_wait_data(true));
+
+  const std::size_t trace_before_wait = trace->snapshot().size();
+
+  check(runtime,
+        "import { clipboard } from 'rime:clipboard';\n"
+        "globalThis.timeoutCode = null;\n"
+        "clipboard.wait({ deadlineMs: 200 }).then(\n"
+        "  r => { globalThis.timeoutCode = 'resolved:' + JSON.stringify(r); },\n"
+        "  e => { globalThis.timeoutCode = e.code; });",
+        "breadth-clip-wait-timeout.mjs");
+  assert(runtime.settle(5000ms).ok());
+  check(runtime,
+        "if (globalThis.timeoutCode !== 'timeout')\n"
+        "  throw new Error('empty clipboard must reject with timeout, got ' +\n"
+        "                   globalThis.timeoutCode);",
+        "breadth-clip-wait-timeout-check.mjs");
+  assert(trace->snapshot().size() == trace_before_wait);
+
+  check(runtime,
+        "import { clipboard } from 'rime:clipboard';\n"
+        "globalThis.late = null;\n"
+        "clipboard.wait({ deadlineMs: 4000 }).then(\n"
+        "  r => { globalThis.late = JSON.stringify(r); },\n"
+        "  e => { globalThis.late = 'error:' + e.code; });",
+        "breadth-clip-wait-late.mjs");
+  // The clipboard is still empty at this instant, so the only way that
+  // promise can resolve is content arriving after it was armed.
+  assert(!clipboard_service.has_wait_data(false));
+  bool producer_ok = false;
+  std::thread producer([&] {
+    // A worker thread has no message queue until it asks USER32 for one,
+    // and OpenClipboard requires one.
+    MSG message;
+    (void)PeekMessageW(&message, nullptr, 0, 0, PM_NOREMOVE);
+    std::this_thread::sleep_for(250ms);
+    producer_ok = clipboard_service.write_text("clip-wait-late").ok();
+  });
+  assert(runtime.settle(5000ms).ok());
+  producer.join();
+  assert(producer_ok);
+  check(runtime,
+        "if (globalThis.late !== '{\"ready\":true}')\n"
+        "  throw new Error('wait must resolve ready:true, got ' + globalThis.late);",
+        "breadth-clip-wait-late-check.mjs");
+  std::string native_late;
+  assert(clipboard_service.read_text(native_late).ok());
+  assert(native_late == "clip-wait-late");
+  // The late content arrived natively, so no Action was dispatched by either
+  // wait: the trace is exactly where the two writes left it.
+  assert(trace->snapshot().size() == trace_before_wait);
+
   // Every mutation reached the kernel and produced a trace pair.
   assert(trace_count(trace, "process.launch", rime::core::TraceKind::ActionStarted) == 1);
   assert(trace_count(trace, "process.launch", rime::core::TraceKind::ActionFinished) == 1);
   assert(trace_count(trace, "process.terminate", rime::core::TraceKind::ActionStarted) == 1);
   assert(trace_count(trace, "process.terminate", rime::core::TraceKind::ActionFinished) == 1);
-  assert(trace_count(trace, "clipboard.write", rime::core::TraceKind::ActionStarted) == 1);
-  assert(trace_count(trace, "clipboard.write", rime::core::TraceKind::ActionFinished) == 1);
+  // Two writes reached the kernel: the segment-3 roundtrip and the empty
+  // write that armed ClipWait. The producer's write is native, not an Action.
+  assert(trace_count(trace, "clipboard.write", rime::core::TraceKind::ActionStarted) == 2);
+  assert(trace_count(trace, "clipboard.write", rime::core::TraceKind::ActionFinished) == 2);
 
   assert(runtime.stop().ok());
   assert(clipboard_service.write_text(original_clipboard).ok());

@@ -7,6 +7,9 @@
 #include "async_task.hpp"
 #include "quickjs.h"
 
+#include <cstdint>
+#include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -81,6 +84,91 @@ JSValue clipboard_write(JSContext* context, JSValueConst, int argc, JSValueConst
   return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
 }
 
+// ---- ClipWait: clipboard.wait -------------------------------------------
+//
+// The wait family pattern (see async_task.hpp): it dispatches no Action, so
+// there is no Action Trace, and it evaluates the condition on the worker lane
+// in kSliceWaitInterval slices instead of blocking a thread for the whole
+// deadline. The capability read-policy inside each evaluation is the audit
+// surface. Unlike the process family this loop owns no native resource, so
+// the cancellation id is bound to begin_async like windows.wait and
+// input.keyWait: CancelById settles the promise, and the next evaluation
+// drains the timer bookkeeping through complete_async.
+struct ClipWaitLoop {
+  bool any_data{false};
+  rime::js::Host* host;
+  ClipboardService* service;
+  rime::action::Kernel* kernel;
+  std::uint64_t token{0};
+  std::uint64_t cancellation_id{0};
+  std::int64_t deadline_unix_ms{0};  // absolute system ms since the epoch
+  std::int64_t budget_ms{0};         // the requested deadlineMs (error text)
+
+  std::optional<AsyncOutcome> evaluate() {
+    if (!kernel->allows(kClipboardReadCapability)) {
+      return capability_denied(kClipboardReadCapability);
+    }
+    if (cancellation_id != 0 && host->is_cancelled(cancellation_id)) {
+      return async_failure("cancelled", "wait cancelled");
+    }
+    if (service->has_wait_data(any_data)) {
+      json::Value value = json::Value::object();
+      value.set("ready", json::Value::boolean(true));
+      return async_success(json::stringify(value));
+    }
+    if (now_unix_ms() >= deadline_unix_ms) {
+      return async_failure("timeout",
+                           "wait timed out after " + std::to_string(budget_ms) + "ms");
+    }
+    return std::nullopt;
+  }
+};
+
+// clipboard.wait(options?): AHK ClipWait. Resolves {ready:true} once the
+// clipboard holds text/files (default) or any format (options.anyData);
+// rejects `timeout` after deadlineMs (default 5000 like every entry - AHK
+// waits forever, a bounded wait is the house rule), `cancelled` when the
+// bound cancellation id fires, or `capability_denied` on the first
+// evaluation. Capability: windows.clipboard.read.
+JSValue clipboard_wait(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                       void*) {
+  ClipboardModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:clipboard is not wired");
+  }
+  if (argc > 1) return JS_ThrowTypeError(context, "wait(options?)");
+  ActionOptions options;
+  bool any_data = false;
+  if (argc == 1) {
+    if (!parse_action_options(context, argv[0], options)) return JS_EXCEPTION;
+    if (!JS_IsUndefined(argv[0]) && !JS_IsNull(argv[0])) {
+      JSValue flag = JS_GetPropertyStr(context, argv[0], "anyData");
+      if (JS_IsException(flag)) return JS_EXCEPTION;
+      if (!JS_IsUndefined(flag) && !JS_IsNull(flag)) {
+        if (!JS_IsBool(flag)) {
+          JS_FreeValue(context, flag);
+          return JS_ThrowTypeError(context, "wait(options).anyData must be a boolean");
+        }
+        any_data = JS_ToBool(context, flag);
+      }
+      JS_FreeValue(context, flag);
+    }
+  }
+  auto* host = static_cast<rime::js::Host*>(JS_GetContextOpaque(context));
+  if (!host) return JS_ThrowInternalError(context, "runtime host is gone");
+  JSValue promise = JS_UNDEFINED;
+  std::uint64_t token = 0;
+  if (const auto error = host->begin_async(context, promise, token, options.cancellation_id);
+      !error.ok()) {
+    return JS_ThrowInternalError(context, "%s", error.message.c_str());
+  }
+  auto loop = std::make_shared<ClipWaitLoop>(ClipWaitLoop{
+      any_data, host, binding->service, binding->kernel, token, options.cancellation_id,
+      wait_deadline_unix_ms(options.deadline_ms), static_cast<std::int64_t>(options.deadline_ms)});
+  host->schedule_worker(token, [loop] { slice_wait_step(loop); });
+  return promise;
+}
+
 int clipboard_module_init(JSContext* context, JSModuleDef* module) {
   ClipboardModuleBinding* binding = binding_of(context);
   if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
@@ -102,7 +190,8 @@ int clipboard_module_init(JSContext* context, JSModuleDef* module) {
     }
     return true;
   };
-  if (!add("read", clipboard_read, 0) || !add("write", clipboard_write, 1)) {
+  if (!add("read", clipboard_read, 0) || !add("write", clipboard_write, 1) ||
+      !add("wait", clipboard_wait, 0)) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "clipboard", clipboard);

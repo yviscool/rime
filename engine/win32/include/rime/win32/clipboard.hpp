@@ -29,6 +29,12 @@ class ClipboardService final {
   rime::core::Error read_text(std::string& out) const;
   rime::core::Error write_text(const std::string& utf8_text) const;
 
+  // ClipWait's condition, mirroring AHK wait.cpp:78: `any_data` false waits
+  // for text or file data (CF_UNICODETEXT || CF_HDROP), true waits for any
+  // format at all. Read-only, needs no OpenClipboard, so a worker-lane poll
+  // can call it every slice without contending for the exchange.
+  bool has_wait_data(bool any_data) const;
+
   // Thread-safe listener registry. add returns a monotonic id; the caller
   // watches change_listener_count() to attach/detach the OS listener.
   // remove is idempotent.
