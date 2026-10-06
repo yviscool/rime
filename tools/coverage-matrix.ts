@@ -41,7 +41,7 @@ async function checkDrift(): Promise<void> {
   const functions_h = await readFile(ahk_functions_h_path, "utf8");
 
   const fail = (message: string): never => {
-    throw new Error(`denominator drift: ${message}`);
+    throw new Error(`matrix check failed: ${message}`);
   };
 
   const md_funcs = new Set(
@@ -178,14 +178,17 @@ async function computeAccounting(): Promise<Accounting> {
   };
 
   const count_status = (
-    list: Array<{ status: string }>,
+    list: Array<{ status?: string }>,
   ): { terminal: number; breakdown: Record<string, number> } => {
     const breakdown: Record<string, number> = {};
     for (const entry of list) {
       const key = entry.status || "unset";
       breakdown[key] = (breakdown[key] ?? 0) + 1;
     }
-    return { terminal: list.filter((entry) => TERMINAL.has(entry.status)).length, breakdown };
+    return {
+      terminal: list.filter((entry) => TERMINAL.has(entry.status ?? "")).length,
+      breakdown,
+    };
   };
 
   const cov = count_status(coverage.entries);
@@ -402,7 +405,13 @@ async function checkActionRegistry(
       payloadSchema: string;
       validation?: string;
     }>;
-    capabilities: Array<{ name: string; actions: string[] }>;
+    capabilities: Array<{
+      name: string;
+      status?: string;
+      declared?: string;
+      checked?: string[];
+      actions: string[];
+    }>;
   };
 
   const registry_types = new Set(registry.actions.map((a) => a.type));
@@ -456,6 +465,7 @@ async function checkActionRegistry(
     `Action registry checked: ${registry_types.size} types across ${executors.length} executor files`,
   );
   await checkProductionRegistration(root, registry, fail);
+  await checkCapabilityGrants(root, registry, fail);
 }
 
 // Production wiring drift: Bootstrap::register_executors must cover every
@@ -517,6 +527,84 @@ async function checkProductionRegistration(
   }
   console.log(
     `Production bootstrap registers all ${implemented.length} implemented action types`,
+  );
+}
+
+// Capability grant drift. `production_capabilities()` is the allow-list the
+// desktop host really runs with, and it is hand-written next to two hundred
+// other lines of bootstrap; the registry is the declaration of record. The two
+// are compared here because neither direction is safe on its own: a capability
+// the registry gains but the bootstrap forgets is denied only at run time
+// (the script sees `capability ... denied` on its first call), and one the
+// registry downgrades to `planned` or `test-only` would keep working for every
+// user of the shipped host. `demo_capabilities()` is the smaller allow-list of
+// the demo host and must stay a subset of the production one.
+async function checkCapabilityGrants(
+  root: string,
+  registry: {
+    capabilities: Array<{
+      name: string;
+      status?: string;
+      declared?: string;
+      checked?: string[];
+    }>;
+  },
+  fail: (message: string) => never,
+): Promise<void> {
+  const bootstrap = await readFile(resolve(root, "engine/win32/js/src/bootstrap.cpp"), "utf8");
+  const body_of = (name: string): string => {
+    const match = bootstrap.match(new RegExp(`${name}\\(\\)\\s*\\{([\\s\\S]*?)\\n\\}`));
+    if (!match) fail(`bootstrap.cpp no longer defines ${name}()`);
+    return match[1];
+  };
+  const literals = (text: string): Set<string> =>
+    new Set([...text.matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+
+  const granted = literals(body_of("production_capabilities"));
+  const demo = literals(body_of("demo_capabilities"));
+  const implemented = new Set(
+    registry.capabilities
+      .filter((c) => (c.status ?? "implemented") === "implemented")
+      .map((c) => c.name),
+  );
+
+  for (const name of implemented) {
+    if (!granted.has(name)) fail(`production_capabilities() misses implemented capability ${name}`);
+  }
+  for (const name of granted) {
+    if (!implemented.has(name)) {
+      fail(`production_capabilities() grants ${name}, which actions.json does not mark implemented`);
+    }
+  }
+  for (const name of demo) {
+    if (!granted.has(name)) fail(`demo_capabilities() grants ${name} production does not grant`);
+  }
+
+  // The `declared` and `checked` pointers are `file:line` references into
+  // module sources. Their content is not compared (the gate lines name
+  // capability constants rather than the capability string, and some entries
+  // deliberately point at the code that surrounds a gate), but a renamed or
+  // deleted file, or a line past the end of the file, must fail the check
+  // rather than sit in the ledger as a pointer nobody can follow.
+  for (const cap of registry.capabilities) {
+    for (const ref of [...(cap.declared ? [cap.declared] : []), ...(cap.checked ?? [])]) {
+      const cut = ref.lastIndexOf(":");
+      const file = cut > 0 ? ref.slice(0, cut) : "";
+      const line = Number(ref.slice(cut + 1));
+      let source: string;
+      try {
+        source = await readFile(resolve(root, file), "utf8");
+      } catch {
+        fail(`capability ${cap.name} references missing file: ${file}`);
+      }
+      const lines = source.split(/\r?\n/).length;
+      if (!Number.isInteger(line) || line < 1 || line > lines) {
+        fail(`capability ${cap.name} points at ${ref}, past the end of ${file} (${lines} lines)`);
+      }
+    }
+  }
+  console.log(
+    `Production grants all ${implemented.size} implemented capabilities and ${registry.capabilities.length} capability refs resolve`,
   );
 }
 
