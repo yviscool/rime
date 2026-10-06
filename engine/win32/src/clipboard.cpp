@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -48,6 +49,21 @@ struct ClipboardGuard {
 };
 
 constexpr int kOpenAttempts = 5;
+
+// Process-wide wire lock for the Win32 clipboard. Two threads in
+// read_text/write_text/save_all/restore_all concurrently is a use-after-free:
+// a handle from GetClipboardData (and its GlobalLock view) is freed by
+// another thread's OpenClipboard/EmptyClipboard transaction (ASan:
+// bad-malloc_usable_size in read_text's GlobalSize). Every method below
+// holds this across its whole open -> operate -> close sequence, so same-
+// process access is mutually exclusive. Foreign processes can still race
+// (inherent Win32 clipboard behavior, out of scope). Function-local static
+// avoids init-order issues; listeners use their own mutex and are invoked
+// outside it, and write paths only touch an atomic, so no self-deadlock.
+std::mutex& clipboard_wire_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
 
 // ClipboardAll blob layout: a header identifying the format, then the record
 // sequence Var::GetClipboardAll emits (rime-research .../var.cpp:312): for
@@ -131,6 +147,7 @@ bool open_clipboard() {
 
 Error ClipboardService::read_text(std::string& out) const {
   out.clear();
+  std::lock_guard wire_lock(clipboard_wire_mutex());
   if (!open_clipboard()) return {Code::ExecutionFailed, "clipboard is busy"};
   ClipboardGuard guard;
   if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) return Error::none();
@@ -144,6 +161,13 @@ Error ClipboardService::read_text(std::string& out) const {
   }
   const auto* text = static_cast<const wchar_t*>(GlobalLock(data));
   if (!text) return {Code::ExecutionFailed, "cannot lock clipboard text"};
+  // Unlock on all exits below: the wstring materialization and to_utf8 can
+  // throw (bad_alloc), which would otherwise skip GlobalUnlock.
+  struct GlobalUnlockGuard {
+    HANDLE handle;
+    ~GlobalUnlockGuard() { GlobalUnlock(handle); }
+  };
+  const GlobalUnlockGuard unlock_guard{data};
   std::wstring_view view(text, bytes / sizeof(wchar_t));
   // CF_UNICODETEXT is conventionally NUL-terminated; drop trailing NULs so an
   // "empty" clipboard reads back as an empty string.
@@ -151,12 +175,12 @@ Error ClipboardService::read_text(std::string& out) const {
   // utf.hpp only takes std::wstring, so the bounded view is materialized here
   // instead of changing its signature.
   out = to_utf8(std::wstring(view));
-  GlobalUnlock(data);
   return Error::none();
 }
 
 Error ClipboardService::write_text(const std::string& utf8_text) const {
   const std::wstring wide = from_utf8(utf8_text);
+  std::lock_guard wire_lock(clipboard_wire_mutex());
   if (!open_clipboard()) return {Code::ExecutionFailed, "clipboard is busy"};
   ClipboardGuard guard;
   if (!EmptyClipboard()) return {Code::ExecutionFailed, "cannot clear the clipboard"};
@@ -206,6 +230,7 @@ Error ClipboardService::save_all(std::vector<std::uint8_t>& out) const {
   out.insert(out.end(), kSnapshotMagic, kSnapshotMagic + sizeof(kSnapshotMagic));
   append_u32(out, kSnapshotVersion);
   append_u32(out, 0);  // reserved
+  std::lock_guard wire_lock(clipboard_wire_mutex());
   if (!open_clipboard()) return {Code::ExecutionFailed, "clipboard is busy"};
   ClipboardGuard guard;
   // AHK skips the formats whose handle is not safe to GlobalSize, the text
@@ -241,8 +266,12 @@ Error ClipboardService::save_all(std::vector<std::uint8_t>& out) const {
     append_u32(out, format);
     append_u32(out, static_cast<std::uint32_t>(bytes));
     if (bytes != 0) {
+      struct FormatUnlockGuard {
+        HANDLE handle;
+        ~FormatUnlockGuard() { GlobalUnlock(handle); }
+      };
+      const FormatUnlockGuard format_guard{data};
       out.insert(out.end(), locked, locked + bytes);
-      GlobalUnlock(data);
     }
   }
   append_u32(out, 0);  // terminator
@@ -259,6 +288,10 @@ Error ClipboardService::restore_all(const std::vector<std::uint8_t>& blob,
   const std::uint8_t* const end = begin + blob.size();
   std::string error;
   if (!snapshot_is_well_formed(begin, end, error)) return {Code::InvalidContract, error};
+  // Pure blob validation stays outside the wire lock; the clipboard
+  // transaction below (EmptyClipboard frees every live handle) is what must
+  // be mutually exclusive with other threads' reads/writes.
+  std::lock_guard wire_lock(clipboard_wire_mutex());
   if (!open_clipboard()) return {Code::ExecutionFailed, "clipboard is busy"};
   ClipboardGuard guard;
   if (!EmptyClipboard()) return {Code::ExecutionFailed, "cannot clear the clipboard"};
