@@ -55,6 +55,8 @@ export interface ScreenBridge {
     options?: NativeActionOptions,
   ): Promise<ScreenPixelSearchResult>;
   caret(options?: NativeActionOptions): Promise<ScreenCaretResult>;
+  sysGet(index: number, options?: NativeActionOptions): Promise<{ metric: number }>;
+  sysGetIPAddresses(options?: NativeActionOptions): Promise<{ addresses: string[] }>;
 }
 
 // runAction's bridge options carry only action concerns (deadline, parent,
@@ -176,6 +178,39 @@ export const screen = {
   caret(options?: ActionOptions): Promise<ScreenCaretResult> {
     return runAction(options, (bridgeOptions) =>
       screenBridge().then((bridge) => bridge.caret(bridgeOptions)),
+    );
+  },
+  /**
+   * One system metric by index (AHK `SysGet(Index)`), straight from
+   * `GetSystemMetrics`. Windows answers `0` for an index it does not know and
+   * passes that through, so `0` may mean either "zero" or "no such metric" -
+   * exactly the ambiguity AHK scripts live with, and a reason not to invent
+   * an error code for it.
+   *
+   * @param index Win32 system metric index (`SM_CXSCREEN` and friends).
+   * @throws ActionError with `invalid_contract` (index outside int32),
+   *   `capability_denied`, `cancelled`.
+   */
+  sysGet(index: number, options?: ActionOptions): Promise<number> {
+    return runAction(options, (bridgeOptions) =>
+      screenBridge().then((bridge) =>
+        bridge.sysGet(index, bridgeOptions).then((r) => r.metric),
+      ),
+    );
+  },
+  /**
+   * This machine's IPv4 addresses as dotted quads (AHK `SysGetIPAddresses`),
+   * loopback included, in adapter order. Reads the adapter list rather than
+   * resolving the host name, so no process-wide Winsock initialisation
+   * happens; an empty array is a result, not an error.
+   *
+   * @throws ActionError with `capability_denied`, `cancelled`.
+   */
+  sysGetIPAddresses(options?: ActionOptions): Promise<string[]> {
+    return runAction(options, (bridgeOptions) =>
+      screenBridge().then((bridge) =>
+        bridge.sysGetIPAddresses(bridgeOptions).then((r) => r.addresses),
+      ),
     );
   },
 };

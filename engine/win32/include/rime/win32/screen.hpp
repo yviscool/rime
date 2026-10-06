@@ -71,6 +71,23 @@ class ScreenService final {
   };
   Caret caret() const;
 
+  // AHK SysGet(Index) (rime-research .../lib/env.cpp:85): one system metric
+  // by index, the GetSystemMetrics reading AHK performs. Windows answers 0
+  // for an index it does not know and AHK passes that 0 to the script, so
+  // there is no error channel here either: a metric that legitimately is 0
+  // looks exactly like a bad index, same as in AHK.
+  int system_metric(int index) const;
+
+  // AHK SysGetIPAddresses (rime-research .../script_autoit.cpp:99): every
+  // IPv4 address this machine can actually use, loopback included, as dotted
+  // quads - addresses whose duplicate-address detection has finished, so a
+  // tentative or deprecated one never reaches the caller. AHK reaches the
+  // host name through Winsock and would need a process-wide WSAStartup for
+  // it; this reads the adapter list instead - the same class of answer
+  // without a global side effect a library must not take. Fails only when
+  // the adapter query itself fails, never with a partial list.
+  rime::core::Error ip_addresses(std::vector<std::string>& out) const;
+
  private:
   rime::core::Error collect(std::vector<Monitor>& out) const;
 };

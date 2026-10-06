@@ -5,9 +5,16 @@
 #include "rime/win32/screen_seam.hpp"
 #include "utf.hpp"
 
+// winsock2.h first: windows.h is compiled with WIN32_LEAN_AND_MEAN here and
+// therefore brings no socket types at all, while AF_INET and sockaddr_in
+// (the shape GetAdaptersAddresses hands back) come from the winsock headers.
+#include <winsock2.h>
 #include <windows.h>
 
+#include <iphlpapi.h>
+
 #include <algorithm>
+#include <cstdio>
 
 namespace rime::win32 {
 namespace {
@@ -235,6 +242,50 @@ ScreenService::Caret ScreenService::caret() const {
   out.x = point.x;
   out.y = point.y;
   return out;
+}
+
+int ScreenService::system_metric(const int index) const { return GetSystemMetrics(index); }
+
+Error ScreenService::ip_addresses(std::vector<std::string>& out) const {
+  out.clear();
+  // The query runs twice by design: the first call reports the size the
+  // second one needs, and a short buffer would otherwise truncate the list.
+  constexpr ULONG kFlags =
+      GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+  ULONG needed = 0;
+  if (GetAdaptersAddresses(AF_INET, kFlags, nullptr, nullptr, &needed) != ERROR_BUFFER_OVERFLOW) {
+    return {Code::ExecutionFailed, "cannot size the adapter address list"};
+  }
+  std::vector<unsigned char> buffer(needed);
+  const ULONG error = GetAdaptersAddresses(
+      AF_INET, kFlags, nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()), &needed);
+  if (error != NO_ERROR) {
+    return {Code::ExecutionFailed, "cannot read the adapter address list"};
+  }
+  // Loopback is an adapter of its own and its 127.0.0.1 comes back like any
+  // other address, which is what the script's own list contains as well.
+  for (auto* adapter = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()); adapter;
+       adapter = adapter->Next) {
+    for (auto* unicast = adapter->FirstUnicastAddress; unicast; unicast = unicast->Next) {
+      const sockaddr* address = unicast->Address.lpSockaddr;
+      if (!address || address->sa_family != AF_INET) continue;
+      // Duplicate-address detection is still running for a tentative address
+      // and a deprecated one is on its way out: neither can be reached, so
+      // neither belongs in a list a caller may bind to. This is also the set
+      // GetIpAddrTable (the routing table) reflects - and AHK's resolved
+      // host addresses never included a half-configured one either.
+      if (unicast->DadState != IpDadStatePreferred) continue;
+      const auto* v4 = reinterpret_cast<const sockaddr_in*>(address);
+      // in_addr holds the four octets in wire order, so reading them as bytes
+      // is the address itself - no byte swap, no Winsock conversion call.
+      const auto* octets = reinterpret_cast<const std::uint8_t*>(&v4->sin_addr);
+      char text[16];
+      std::snprintf(text, sizeof(text), "%u.%u.%u.%u", octets[0], octets[1], octets[2],
+                    octets[3]);
+      out.emplace_back(text);
+    }
+  }
+  return Error::none();
 }
 
 }  // namespace rime::win32

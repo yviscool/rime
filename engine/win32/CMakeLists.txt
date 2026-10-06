@@ -38,6 +38,9 @@ target_link_libraries(rime_win32 PRIVATE user32 gdi32 gdiplus)
 # link line to every consumer (tests included), so the test's own raw Win32
 # reads resolve too.
 target_link_libraries(rime_win32 PRIVATE advapi32)
+# Adapter addresses for SysGetIPAddresses (GetAdaptersAddresses), read by the
+# service and cross-checked by the screen test against GetIpAddrTable.
+target_link_libraries(rime_win32 PRIVATE iphlpapi)
 # Storage service: WinHTTP download, shell recycle/shortcut/eject and the
 # dialog/shortcut GUIDs (CLSID_FileOpenDialog, CLSID_ShellLink, ...).
 target_link_libraries(rime_win32 PRIVATE winhttp shell32 ole32 uuid)

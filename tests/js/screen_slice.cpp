@@ -237,6 +237,84 @@ int main() {
   assert(destroyed_window);
   assert(windows.stop().ok());
 
+  // ---- SysGet / SysGetIPAddresses ------------------------------------------
+  // Both answers are pinned by a native read taken before the JS layer runs,
+  // which is what this slice verifies: the JS -> native wiring. The address
+  // format is spelled out here instead of being borrowed from the service,
+  // so a decoder that accepted anything would not satisfy these checks.
+  const int native_metric = screen_service.system_metric(SM_CXSCREEN);
+  assert(native_metric > 0);
+  std::vector<std::string> native_addresses;
+  assert(screen_service.ip_addresses(native_addresses).ok());
+  assert(!native_addresses.empty());
+  rime::core::json::Value expected_addresses = rime::core::json::Value::array();
+  for (const std::string& address : native_addresses) {
+    expected_addresses.push(rime::core::json::Value::string(address));
+  }
+
+  check(runtime,
+        "import { screen } from 'rime:screen';\n"
+        "globalThis.sysMetric = null;\n"
+        "globalThis.sysBad = null;\n"
+        "globalThis.ip = null;\n"
+        "globalThis.sysTypeError = null;\n"
+        "try { screen.sysGet('not a number'); } catch (e) { globalThis.sysTypeError = e.constructor.name; }\n"
+        "screen.sysGet(0)\n"
+        "  .then(r => { globalThis.sysMetric = r; }, e => { globalThis.sysMetric = String(e); });\n"
+        "screen.sysGet(-1)\n"
+        "  .then(r => { globalThis.sysBad = r; }, e => { globalThis.sysBad = String(e); });\n"
+        "screen.sysGetIPAddresses()\n"
+        "  .then(r => { globalThis.ip = r; }, e => { globalThis.ip = String(e); });",
+        "screen-sysget.mjs");
+  assert(runtime.settle(5000ms).ok());
+  // The module answers with its own record shapes - `{metric}` and
+  // `{addresses}` - because this slice exercises `rime:screen` itself; the
+  // facade that unwraps them is pinned separately in tests/sdk/screen.test.ts.
+  check(runtime,
+        "if (globalThis.sysTypeError !== 'TypeError')\n"
+        "  throw new Error('a non-numeric index must be a TypeError: ' +\n"
+        "                   JSON.stringify(globalThis.sysTypeError));\n"
+        "if (typeof globalThis.sysMetric === 'string') throw new Error(globalThis.sysMetric);\n"
+        "const m = globalThis.sysMetric;\n"
+        "if (JSON.stringify(Object.keys(m)) !== JSON.stringify(['metric']))\n"
+        "  throw new Error('sysGet must resolve {metric}: ' + JSON.stringify(m));\n"
+        "if (typeof m.metric !== 'number')\n"
+        "  throw new Error('the metric must be a number: ' + JSON.stringify(m));\n"
+        "if (m.metric !== " + number(native_metric) + ")\n"
+        "  throw new Error('sysGet must report the metric the native read saw: ' +\n"
+        "                   JSON.stringify(m));\n"
+        "if (typeof globalThis.sysBad === 'string') throw new Error(globalThis.sysBad);\n"
+        "if (JSON.stringify(globalThis.sysBad) !== JSON.stringify({metric: 0}))\n"
+        "  throw new Error('an unknown index must resolve {metric:0}: ' +\n"
+        "                   JSON.stringify(globalThis.sysBad));\n"
+        "if (typeof globalThis.ip === 'string') throw new Error(globalThis.ip);\n"
+        "const ip = globalThis.ip;\n"
+        "if (JSON.stringify(Object.keys(ip)) !== JSON.stringify(['addresses']))\n"
+        "  throw new Error('sysGetIPAddresses must resolve {addresses}: ' + JSON.stringify(ip));\n"
+        "const list = ip.addresses;\n"
+        "if (!Array.isArray(list))\n"
+        "  throw new Error('addresses must be an array: ' + JSON.stringify(ip));\n"
+        "const expected = " +
+        rime::core::json::stringify(expected_addresses) + ";\n"
+        "if (list.length !== expected.length)\n"
+        "  throw new Error('the JS list must match the native read: ' + JSON.stringify(list));\n"
+        "if (JSON.stringify([...list].sort()) !== JSON.stringify([...expected].sort()))\n"
+        "  throw new Error('the JS list must hold the native addresses: ' + JSON.stringify(list));\n"
+        "for (const entry of list) {\n"
+        "  const groups = entry.split('.');\n"
+        "  if (groups.length !== 4) throw new Error('four groups expected: ' + entry);\n"
+        "  for (const group of groups) {\n"
+        "    if (group.length === 0 || group.length > 3)\n"
+        "      throw new Error('bad group in: ' + entry);\n"
+        "    for (const symbol of group)\n"
+        "      if (symbol < '0' || symbol > '9') throw new Error('bad digit in: ' + entry);\n"
+        "    if (Number(group) > 255) throw new Error('octet out of range in: ' + entry);\n"
+        "  }\n"
+        "}\n"
+        "if (list.indexOf('127.0.0.1') === -1)\n"
+        "  throw new Error('the loopback address must be reported: ' + JSON.stringify(list));",
+        "screen-sysget-check.mjs");
+
   // Segment 1: the count and the primary record both match the native read.
   check(runtime,
         "import { screen } from 'rime:screen';\n"
@@ -464,6 +542,8 @@ int main() {
           "globalThis.searchDenied = null;\n"
           "globalThis.imageDenied = null;\n"
           "globalThis.caretDenied = null;\n"
+          "globalThis.sysDenied = null;\n"
+          "globalThis.ipDenied = null;\n"
           "screen.monitorCount().then(() => {}, e => { globalThis.countDenied = String(e); });\n"
           "screen.monitor().then(() => {}, e => { globalThis.monitorDenied = String(e); });\n"
           "screen.pixel(0, 0).then(() => {}, e => { globalThis.pixelDenied = String(e); });\n"
@@ -471,7 +551,10 @@ int main() {
           "  .then(() => {}, e => { globalThis.searchDenied = String(e); });\n"
           "screen.imageSearch({left: 0, top: 0, right: 1, bottom: 1}, 'x.bmp')\n"
           "  .then(() => {}, e => { globalThis.imageDenied = String(e); });\n"
-          "screen.caret().then(() => {}, e => { globalThis.caretDenied = String(e); });",
+          "screen.caret().then(() => {}, e => { globalThis.caretDenied = String(e); });\n"
+          "screen.sysGet(0).then(() => {}, e => { globalThis.sysDenied = String(e); });\n"
+          "screen.sysGetIPAddresses()\n"
+          "  .then(() => {}, e => { globalThis.ipDenied = String(e); });",
           "screen-deny.mjs");
     assert(denied_runtime.settle(5000ms).ok());
     check(denied_runtime,
@@ -493,7 +576,14 @@ int main() {
           "  throw new Error('imageSearch must name the capability: ' + globalThis.imageDenied);\n"
           "if (!globalThis.caretDenied ||\n"
           "    !globalThis.caretDenied.includes('screen.capture'))\n"
-          "  throw new Error('caret must name the capability: ' + globalThis.caretDenied);",
+          "  throw new Error('caret must name the capability: ' + globalThis.caretDenied);\n"
+          "if (!globalThis.sysDenied ||\n"
+          "    !globalThis.sysDenied.includes('screen.capture'))\n"
+          "  throw new Error('sysGet must name the capability: ' + globalThis.sysDenied);\n"
+          "if (!globalThis.ipDenied ||\n"
+          "    !globalThis.ipDenied.includes('screen.capture'))\n"
+          "  throw new Error('sysGetIPAddresses must name the capability: ' +\n"
+          "                   globalThis.ipDenied);",
           "screen-deny-check.mjs");
     assert(denied_runtime.stop().ok());
   }

@@ -20,11 +20,15 @@ let pixelCalls: Array<[number, number, NativeActionOptions | undefined]> = [];
 let pixelSearchCalls: Array<[Area, number, ScreenOptions | undefined]> = [];
 let imageSearchCalls: Array<[Area, string, ScreenOptions | undefined]> = [];
 let caretCalls: Array<NativeActionOptions | undefined> = [];
+let sysGetCalls: Array<[number, NativeActionOptions | undefined]> = [];
+let ipCalls: Array<NativeActionOptions | undefined> = [];
 
 let pixelResult: { color: number } = { color: 0x00030540 };
 let pixelSearchResult: PixelResult = { found: true, x: 2, y: 3 };
 let imageSearchResult: PixelResult = { found: false };
 let caretResult: PixelResult = { found: true, x: 45, y: 67 };
+let sysGetResult: { metric: number } = { metric: 2560 };
+let ipResult: { addresses: string[] } = { addresses: ["192.168.1.7", "127.0.0.1"] };
 let pixelRejection: CodedRejection | null = null;
 
 function reset(): void {
@@ -34,10 +38,14 @@ function reset(): void {
   pixelSearchCalls = [];
   imageSearchCalls = [];
   caretCalls = [];
+  sysGetCalls = [];
+  ipCalls = [];
   pixelResult = { color: 0x00030540 };
   pixelSearchResult = { found: true, x: 2, y: 3 };
   imageSearchResult = { found: false };
   caretResult = { found: true, x: 45, y: 67 };
+  sysGetResult = { metric: 2560 };
+  ipResult = { addresses: ["192.168.1.7", "127.0.0.1"] };
   pixelRejection = null;
 }
 
@@ -72,6 +80,14 @@ const bridge = {
   async caret(options?: NativeActionOptions) {
     caretCalls.push(options);
     return caretResult;
+  },
+  async sysGet(index: number, options?: NativeActionOptions) {
+    sysGetCalls.push([index, options]);
+    return sysGetResult;
+  },
+  async sysGetIPAddresses(options?: NativeActionOptions) {
+    ipCalls.push(options);
+    return ipResult;
   },
 };
 
@@ -167,4 +183,27 @@ test("caret resolves a miss without coordinates", async () => {
   expect(caretCalls).toEqual([undefined]);
   expect(result).toEqual({ found: false });
   expect("x" in result).toBe(false);
+});
+
+test("sysGet forwards the index and unwraps the metric", async () => {
+  await expect(screen.sysGet(0)).resolves.toBe(2560);
+  expect(sysGetCalls).toEqual([[0, undefined]]);
+
+  // Windows answers 0 for an index it does not know, and the facade must
+  // hand that 0 through instead of treating it as a failure.
+  sysGetResult = { metric: 0 };
+  await expect(screen.sysGet(-1, { deadlineMs: 10 })).resolves.toBe(0);
+  expect(sysGetCalls.at(-1)).toEqual([-1, { deadlineMs: 10 }]);
+});
+
+test("sysGetIPAddresses forwards the options and unwraps the address list", async () => {
+  await expect(screen.sysGetIPAddresses({ deadlineMs: 40 })).resolves.toEqual([
+    "192.168.1.7",
+    "127.0.0.1",
+  ]);
+  expect(ipCalls).toEqual([{ deadlineMs: 40 }]);
+
+  ipResult = { addresses: ["127.0.0.1"] };
+  await expect(screen.sysGetIPAddresses()).resolves.toEqual(["127.0.0.1"]);
+  expect(ipCalls.at(-1)).toBe(undefined);
 });

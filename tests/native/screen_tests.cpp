@@ -22,6 +22,13 @@
 // uses the production focus ladder to activate it. The expected point is the
 // window's own position plus the offset the test chose - never a second read
 // through the query under test.
+//
+// SysGet and SysGetIPAddresses read machine state no fixture can arrange, so
+// each expectation comes from a second Windows API rather than from the call
+// under test: the metrics against the monitor enumeration above (and against
+// the four virtual-screen metrics Windows states for the same union), the
+// address list against GetIpAddrTable, the IPv4 routing table - a different
+// data source from the adapter list the service reads.
 
 #include "rime/win32/screen.hpp"
 #include "rime/win32/screen_pixels.hpp"
@@ -31,11 +38,15 @@
 
 #include <windows.h>
 
+#include <iphlpapi.h>
+
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -53,6 +64,29 @@ void set_pixel(std::vector<std::uint8_t>& bytes, int width, int x, int y, std::u
   bytes[offset + 1] = static_cast<std::uint8_t>((rgb >> 8) & 0xFFu);  // G
   bytes[offset + 2] = static_cast<std::uint8_t>((rgb >> 16) & 0xFFu); // R
   bytes[offset + 3] = 0xFFu;
+}
+
+// Written out here so the address format is this test's expectation rather
+// than a property of the code under test: exactly four decimal groups, each
+// 1..3 digits and 0..255, with no empty group and no trailing dot.
+bool is_dotted_quad(const std::string& text) {
+  if (text.empty() || text.size() > 15) return false;
+  int groups = 0;
+  int digits = 0;
+  int value = 0;
+  for (const char symbol : text) {
+    if (symbol >= '0' && symbol <= '9') {
+      if (++digits > 3) return false;
+      value = value * 10 + (symbol - '0');
+      if (value > 255) return false;
+      continue;
+    }
+    if (symbol != '.' || digits == 0) return false;
+    ++groups;
+    digits = 0;
+    value = 0;
+  }
+  return digits > 0 && groups == 3;
 }
 
 // Synthetic screen: a pixel's red channel carries its absolute x, its green
@@ -484,6 +518,95 @@ int main() {
              .ok());
   assert(destroyed_window);
   assert(windows.stop().ok());
+
+  // ---- SysGet --------------------------------------------------------------
+  // GetSystemMetrics is the call AHK's SysGet wraps. Its expectations come
+  // from the monitor enumeration this file asserted earlier - that path goes
+  // through EnumDisplayMonitors, a different API standing in for the same
+  // display, so neither side can be right for the wrong reason.
+  assert(service.system_metric(SM_CXSCREEN) > 0);
+  assert(service.system_metric(SM_CYSCREEN) > 0);
+  assert(service.system_metric(SM_CXSCREEN) == primary.right - primary.left);
+  assert(service.system_metric(SM_CYSCREEN) == primary.bottom - primary.top);
+
+  // Windows states the same union a second way: the four virtual-screen
+  // metrics are its own answer for "where all monitors are", and the union
+  // below is built out of monitor records this test already validated.
+  int union_left = primary.left;
+  int union_top = primary.top;
+  int union_right = primary.right;
+  int union_bottom = primary.bottom;
+  for (int index = 1; index <= count; ++index) {
+    ScreenService::Monitor monitor;
+    assert(service.monitor_at(index, monitor).ok());
+    union_left = std::min(union_left, monitor.left);
+    union_top = std::min(union_top, monitor.top);
+    union_right = std::max(union_right, monitor.right);
+    union_bottom = std::max(union_bottom, monitor.bottom);
+  }
+  assert(service.system_metric(SM_XVIRTUALSCREEN) == union_left);
+  assert(service.system_metric(SM_YVIRTUALSCREEN) == union_top);
+  assert(service.system_metric(SM_CXVIRTUALSCREEN) == union_right - union_left);
+  assert(service.system_metric(SM_CYVIRTUALSCREEN) == union_bottom - union_top);
+
+  // An index Windows does not know answers 0 - the same blank AHK passes to
+  // its script, so a missing metric is a result rather than an error.
+  assert(service.system_metric(-1) == 0);
+
+  // ---- SysGetIPAddresses ---------------------------------------------------
+  std::vector<std::string> addresses;
+  assert(service.ip_addresses(addresses).ok());
+  // Every machine carries the loopback address, so an empty answer means the
+  // query broke, not that the machine has no network.
+  assert(!addresses.empty());
+  std::set<std::string> reported;
+  for (const std::string& address : addresses) {
+    assert(is_dotted_quad(address));
+    reported.insert(address);
+  }
+  assert(reported.count("127.0.0.1") == 1);
+
+  // The same set as the IPv4 address table sees it. GetIpAddrTable is the
+  // routing table's view of local addresses while the service enumerates
+  // adapters: two different Windows data sources, so agreement observes the
+  // machine instead of asking the code under test what it thinks.
+  ULONG table_bytes = 0;
+  const ULONG probe = GetIpAddrTable(nullptr, &table_bytes, FALSE);
+  if (probe != NO_ERROR && probe != ERROR_INSUFFICIENT_BUFFER) {
+    std::fprintf(stderr, "GetIpAddrTable size probe failed: %lu (bytes=%lu)\n",
+                 static_cast<unsigned long>(probe), static_cast<unsigned long>(table_bytes));
+    std::fflush(stderr);
+  }
+  assert(probe == NO_ERROR || probe == ERROR_INSUFFICIENT_BUFFER);
+  assert(table_bytes > 0);
+  std::vector<unsigned char> table_buffer(table_bytes);
+  assert(GetIpAddrTable(reinterpret_cast<PMIB_IPADDRTABLE>(table_buffer.data()), &table_bytes,
+                        FALSE) == NO_ERROR);
+  const auto* table = reinterpret_cast<const MIB_IPADDRTABLE*>(table_buffer.data());
+  std::set<std::string> table_addresses;
+  for (DWORD row = 0; row < table->dwNumEntries; ++row) {
+    const MIB_IPADDRROW& entry = table->table[row];
+    if (entry.wType & MIB_IPADDR_DELETED) continue;  // not on the machine anymore
+    const std::uint32_t raw = entry.dwAddr;
+    const auto* octets = reinterpret_cast<const std::uint8_t*>(&raw);
+    char text[16];
+    std::snprintf(text, sizeof(text), "%u.%u.%u.%u", octets[0], octets[1], octets[2], octets[3]);
+    table_addresses.insert(text);
+  }
+  assert(!table_addresses.empty());
+  if (reported != table_addresses) {
+    std::fprintf(stderr, "adapter list vs IPv4 address table differ:\n  only adapter:");
+    for (const std::string& address : reported) {
+      if (table_addresses.count(address) == 0) std::fprintf(stderr, " %s", address.c_str());
+    }
+    std::fprintf(stderr, "\n  only address table:");
+    for (const std::string& address : table_addresses) {
+      if (reported.count(address) == 0) std::fprintf(stderr, " %s", address.c_str());
+    }
+    std::fprintf(stderr, "\n");
+    std::fflush(stderr);
+  }
+  assert(reported == table_addresses);
 
   return 0;
 }
