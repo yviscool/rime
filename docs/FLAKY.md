@@ -29,7 +29,7 @@
 | `quickjs_events_slice` | `tests/js/events_slice.cpp:396-414`（`bring_to_front` 20 次 × 20ms 重试）、`:377-381`（IME 分离） | 注入键未落入 edit / 中文 IME 把键串掉 | 桌面存在前台抢夺者（微信、游戏、弹窗）；桌面处于中文输入法布局 | 测试内 deadline 重试；仍失败则隔离复跑 ≤3 次 | `061ef1e`、`05382be`（基线同样失败）、`317e5b1`、`61f9430`、`20e03a7` |
 | `rime_automation_service` | `tests/native/automation_tests.cpp:178`、`:184-185`（find → 销毁 → 再 find） | `found.size() == 1` / `found.empty()` 与 UIA 元素登记节奏不符 | UIA 元素树与目标窗口线程的处理节奏（负载敏感），根因未定论 | 隔离复跑 ≤3 次 | `add88cc`（原文 "rime_automation_service known flaky, isolated rerun 2/2 green"） |
 | `rime_win32_window_service` | `tests/native/win32_tests.cpp:771-775`（hung 目标 kill，3s 超时；`:774` 错误码断言） | hung 目标枚举/kill 错误码与预期不符 | 机器负载 | 隔离复跑 ≤3 次 | `61f9430`（原文 "window_service:774（负载抖动，隔离复跑 2/2 过）"） |
-| `quickjs_vertical_slice` | `tests/js/vertical_slice.cpp:269-273`（入口 focus deadline）、`:321-336`（归属重读 + focus deadline）、`:378-383`（显式失败） | active-move 段拿不到前台 | 桌面存在前台抢夺者；后台进程的 `SetForegroundWindow` 被拒绝 | 批1 已整改：单次 focus → 3s deadline 重试（只传己方 id）；仍拿不到则 `std::abort()` 显式失败，不再静默 SKIP。整改后仍失败 → 隔离复跑 ≤3 次 | `20e03a7`（同类"桌面前台被占用"证据）；本批整改 |
+| `quickjs_vertical_slice` | `tests/js/vertical_slice.cpp:269-273`（入口 focus deadline）、`:321-336`（归属重读 + focus deadline）、`:378-383`（显式失败） | active-move 段拿不到前台 | 桌面存在前台抢夺者；后台进程的 `SetForegroundWindow` 被拒绝 | **已根治，撤出复跑名单**：批1 整改为 deadline 重试 + 拿不到即 `std::abort()`；批2 追出产品根因——`WindowService::focus()` 只调一次裸 `SetForegroundWindow`，缺设计文档要求的 `AttachThreadInput`/Alt-up 阶梯，由 `32fc070` 在产品层补齐（`window_foreground.cpp`）。整改后本方 WindowsTerminal 持前台、Clash Verge 抢过前台的桌面上 `--repeat until-fail:10` 10/10 通过（单次 0.92s，失败时曾为 10.6s），整套与 ASan 连续全绿。**此后再失败先判缺陷，不得复跑** | `20e03a7`（同类"桌面前台被占用"证据）；`32fc070`（根因整改） |
 | `quickjs_input_slice` | `tests/js/input_slice.cpp:1`（`Needs an interactive desktop, exclusive run`） | 桌面前台被占用时全局 InputHook 抢走前台应用按键 | 桌面被前台应用占用 | 独占空闲桌面后隔离复跑 ≤3 次 | `20e03a7` |
 | `rime_win32_input_service` | `tests/native/input_tests.cpp:266-286`（相对鼠标 ≤3 探针） | 单次相对移动增量读数被物理光标移动带偏 | 用户或后台程序移动光标 | 批1 已收敛为 ≤3 探针 + 每探针 2s deadline，每次重试 stderr 公告，耗尽则显式失败 | 本批（批1 防假绿） |
 
@@ -52,6 +52,9 @@
 | 2026-10-06 | `quickjs_vertical_slice` | 整套内 `FAIL: slice active-move could not take the foreground (a foreign window owns it after the focus retry budget; focus requested ok=0)` | 第 1 次（复跑前 `fg-check` 确认本方 WindowsTerminal 持前台；仅 `AutoHotkey64 StatsBall` 悬浮窗并存） | 环境抖动（登记触发条件"前台抢夺者/`SetForegroundWindow` 被拒"命中；同一整套里 `quickjs_events_slice` 同批失败，随后 `fg-check` 显示 Chrome 已切到前台——桌面被并用，非测试顺序问题） | 本批（待提交） |
 | 2026-10-06 | `quickjs_events_slice` | 整套内**双签名同时**：`observer never fired: hsLog=0 waitedFor=false`（hotstring 交换未收敛，layout 0804）+ `inputhook-capture-check.mjs: buffer must collect a,a: "aaaa"`（2 个 unicode 包与 2 个实键混入） | 第 1 次（隔离复跑 21.85s 通过） | 环境抖动（登记触发条件"中文输入法布局 / 前台抢夺者"命中；`buffer must collect a,a` 为该签名**第 3 次**——上一行曾自注"第 3 次按协议判定为缺陷并停复跑"，本次判为抖动而非缺陷的依据是同套 `quickjs_vertical_slice` 已独立证明该窗口期存在前台抢夺者，且 `layout 0804` 中文输入法属登记触发条件；此条如实记录该自定阈值的处置，不作静默覆盖） | 本批（待提交） |
 | 2026-10-06 | `rime_win32_input_service` | `relative-move probe 1 saw an externally moved cursor; retrying` ×2，3 探针预算耗尽后在 `tests/native/input_tests.cpp:306` 断言失败（登记触发条件"用户或后台程序移动光标"命中） | 第 1 次（复跑前 `fg-check` 确认本方 WindowsTerminal 持前台、无抢夺者；4.28s 通过） | 环境抖动 | 本批；同时了结上一条"1..32 段失败尚未复跑"的挂账（同签名、同触发条件） |
+| 2026-10-06 | `quickjs_vertical_slice` | 整套内 `FAIL: slice active-move could not take the foreground (a foreign window owns it after the focus retry budget; focus requested ok=0)` | 第 1 次（复跑前 `fg-check` 显示本方 WindowsTerminal 持前台；隔离复跑 1.80s 通过） | 环境抖动（该签名当时仍按已登记触发条件处置；随后追出底层产品缺陷，见下一行） | 本批；根因见下一行 |
+| 2026-10-06 | `quickjs_vertical_slice` | 追查前 5 条同签名"环境抖动"后的判定：产品缺陷——后台进程的 `WindowService::focus()` 只调一次裸 `SetForegroundWindow`，缺 `docs/AHK-TS-WINDOWS-API-DESIGN.md:96` 要求的 `AttachThreadInput`/Alt-up 阶梯，有前台抢夺者时必然拿不到前台 | 不适用（按协议第 3 条，逻辑性失败不靠复跑收场，直接修） | **缺陷（已修复）** | `32fc070`；整改后 `--repeat until-fail:10` 10/10，`bun run test` 与 `test:asan` 连续全绿 |
+| 2026-10-06 | `quickjs_events_slice` | 整套内 `inputhook-match-wait-check.mjs: condition never became true: globalThis.ih2End !== null`（`ih2` 的 phrase `xy` 未在 `wait_js` 预算内触发 Match，`tests/js/events_slice.cpp:1467`） | 第 1 次（复跑前 `fg-check` 确认本方 WindowsTerminal 持前台；隔离复跑 21.33s 通过） | 环境抖动（登记触发条件"前台抢夺者"命中；**新签名**，与既有的 `observer never fired` / `buffer must collect a,a` 不同，如实单列而不是并入旧签名） | 本批 |
 | 年-月-日 | `<测试名>` | `<一行输出摘要>` | 第 n 次（≤3） | 环境抖动 / 缺陷 | `<commit 或缺陷号>` |
 
 ## 批1（防假绿）整改后的语义变化
@@ -60,3 +63,9 @@
 - `quickjs_input_slice`：blockInput 的 250ms 固定 sleep → physical 快照轮询 + 300ms 有界反证；numlock/scrolllock 的 400ms 固定 sleep → 新建 control 订阅（正向活性证据）+ 有界 `waitFor` 反证 + 显式 `throw`。
 - `rime_win32_input_service`：相对鼠标 retry×5 → ≤3 探针（AGENTS 复跑预算）+ 每探针 2s deadline；`unsubscribe` 负向断言改用 fresh control 订阅对照。
 - `rime_timer_determinism`（`tests/native/timer_tests.cpp`）：三处 wall-clock sleep → 0ms / 同 deadline canary 做活性证明，或 `stop()` 之后的确定性断言；时间判定全部由注入的 `ManualClock` 推进（`AGENTS.md` 时间策略）。
+
+## 批2（根因整改）后的语义变化
+
+- `quickjs_vertical_slice` 的 focus 失败不再登记为环境抖动：产品 `WindowService::focus()` 已补齐三档取前台阶梯（`32fc070`），**该测试撤出复跑名单**。台账里它此前 5 条"环境抖动"结论的底层原因就是产品缺阶梯，这一点在表内如实改判，不覆盖原记录。
+- `tests/native/win32_tests.cpp` 删除了测试侧手补的裸 Alt 轻点（原来替 `service.focus()` 打补丁，会掩盖产品缺口），只保留 deadline 条件轮询。
+- `quickjs_events_slice` 的前台依赖没有变：它的 `bring_to_front` 仍是测试自有的 `AttachThreadInput` 重试，产品阶梯不覆盖它，因此它仍留在复跑名单里（本轮新增签名已单列登记）。
