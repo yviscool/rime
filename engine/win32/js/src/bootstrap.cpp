@@ -279,15 +279,14 @@ std::unordered_set<std::string> demo_capabilities() {
 
 std::unordered_set<std::string> production_capabilities() {
   // Every capability whose status is `implemented` in
-  // contracts/registry/actions.json; planned capabilities (media.sound)
-  // stay ungranted until their executors land.
+  // contracts/registry/actions.json; `test-only` probes stay ungranted.
   return {"windows.window.read", "windows.window.write", "windows.clipboard.read",
           "windows.clipboard.write", "windows.input.inject", "windows.input.read",
           "windows.hook.global", "windows.automation.find", "windows.automation.read",
           "windows.automation.invoke", "windows.automation.control", "process.inspect", "process.launch",
           "process.terminate", "process.manage", "process.runas", "process.shutdown",
           "filesystem.read", "filesystem.write", "registry.read", "registry.write",
-          "screen.capture"};
+          "screen.capture", "media.sound"};
 }
 
 // Reload ceiling (AHK Reload itself has none): a script that asks for a
