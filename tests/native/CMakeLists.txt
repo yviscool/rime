@@ -155,7 +155,7 @@ if (WIN32)
   # gate so it cannot rot, but deliberately NOT registered with add_test -
   # timing runs are manual and would be flaky by design.
   add_executable(rime_bench bench.cpp)
-  target_link_libraries(rime_bench PRIVATE rime_win32 rime_action rime_core)
+  target_link_libraries(rime_bench PRIVATE rime_win32 rime_automation rime_action rime_core)
   target_compile_features(rime_bench PRIVATE cxx_std_20)
   if (MINGW)
     target_link_options(rime_bench PRIVATE -static-libstdc++ -static-libgcc)
