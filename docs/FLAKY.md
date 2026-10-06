@@ -51,6 +51,7 @@
 | 2026-10-06 | `quickjs_vertical_slice` | `a foreign window owns it after the focus retry budget; focus requested ok=0` | 第 3 次（前 2 次 `fg-check` 均显示本方 WindowsTerminal 持前台、仅 `AutoHotkey64 StatsBall` 悬浮窗并存仍失败；第 3 次同条件下通过） | 环境抖动（登记条件命中：后台进程 `SetForegroundWindow` 被拒；悬浮窗为疑似抢夺者，如实记录） | 本批（待提交） |
 | 2026-10-06 | `quickjs_vertical_slice` | 整套内 `FAIL: slice active-move could not take the foreground (a foreign window owns it after the focus retry budget; focus requested ok=0)` | 第 1 次（复跑前 `fg-check` 确认本方 WindowsTerminal 持前台；仅 `AutoHotkey64 StatsBall` 悬浮窗并存） | 环境抖动（登记触发条件"前台抢夺者/`SetForegroundWindow` 被拒"命中；同一整套里 `quickjs_events_slice` 同批失败，随后 `fg-check` 显示 Chrome 已切到前台——桌面被并用，非测试顺序问题） | 本批（待提交） |
 | 2026-10-06 | `quickjs_events_slice` | 整套内**双签名同时**：`observer never fired: hsLog=0 waitedFor=false`（hotstring 交换未收敛，layout 0804）+ `inputhook-capture-check.mjs: buffer must collect a,a: "aaaa"`（2 个 unicode 包与 2 个实键混入） | 第 1 次（隔离复跑 21.85s 通过） | 环境抖动（登记触发条件"中文输入法布局 / 前台抢夺者"命中；`buffer must collect a,a` 为该签名**第 3 次**——上一行曾自注"第 3 次按协议判定为缺陷并停复跑"，本次判为抖动而非缺陷的依据是同套 `quickjs_vertical_slice` 已独立证明该窗口期存在前台抢夺者，且 `layout 0804` 中文输入法属登记触发条件；此条如实记录该自定阈值的处置，不作静默覆盖） | 本批（待提交） |
+| 2026-10-06 | `rime_win32_input_service` | `relative-move probe 1 saw an externally moved cursor; retrying` ×2，3 探针预算耗尽后在 `tests/native/input_tests.cpp:306` 断言失败（登记触发条件"用户或后台程序移动光标"命中） | 第 1 次（复跑前 `fg-check` 确认本方 WindowsTerminal 持前台、无抢夺者；4.28s 通过） | 环境抖动 | 本批；同时了结上一条"1..32 段失败尚未复跑"的挂账（同签名、同触发条件） |
 | 年-月-日 | `<测试名>` | `<一行输出摘要>` | 第 n 次（≤3） | 环境抖动 / 缺陷 | `<commit 或缺陷号>` |
 
 ## 批1（防假绿）整改后的语义变化

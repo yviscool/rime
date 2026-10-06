@@ -117,6 +117,25 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 - **registry service**：`RegRead/RegWrite/RegDelete/RegCreateKey/RegDeleteKey + SetRegView`（Reg* 5 为 M0 追踪项）；
 - **process 补齐**：`ProcessWait/ProcessWaitClose/RunWait/RunAs/Shutdown/ProcessSetPriority/ProcessGetParent/ProcessGetPath`——可等待句柄 + 取消令牌（禁 JS 线程轮询）；`RunAs/Shutdown` 独立高权限 capability。
 
+#### M4 执行记录（已实施，2026-10-05）
+
+- **架构决策（DP）**：
+  - DP-1 模块面：`rime:storage` 导出 `storage`（读/句柄/写/编码/下载/选择器；`storage.write` 走 Action，其余直调 service + worker body 内 capability 检查）、`rime:registry` 导出 `registry`（`read`/`view`/`setView` 直调，`write` 走 Action）。SDK 门面 `sdk/src/storage.ts`（含 `File` 类）与 `sdk/src/registry.ts`。
+  - DP-2 新 action：`storage.write`（24 op，payload 除 `op` 外**拒绝多余字段**；target `{"storage","fs"}`）、`registry.write`（set/createKey/delete/deleteKey；target id 即键）、`process.set.priority`、`process.runas`（password 只进 payload：kernel 的 trace 不记 payload，`kernel.cpp:221`）、`process.shutdown`。新 capability：`filesystem.read`、`filesystem.write`、`process.manage`、`process.runas`、`process.shutdown`，`registry.read/write` 由 planned 翻 implemented，全部进 `production_capabilities()`。
+  - 判定口径：`ListLines`→`js-native`（`console.trace`）；`SendMessage/PostMessage`→`unsupported-by-policy`（future-runtime §10，入档 `docs/api/window.md` 偏差节）；`SetRegView`→implemented（`registry.setView`）；coverage `FileGetShortcut`/`FileGetVersion` 保持 `contract-only`（service 未提供读取路径）。
+  - `File` 类 31 成员全在 SDK TS 实现（native 只暴露 `open/fileRead/fileSeek/fileStat/fileClose` 字节原语）；`Handle` 成员抛错（策略：不暴露裸 OS 句柄）；`RawRead/RawWrite` 接 `Uint8Array`（不实现 AHK `Buffer`）；显式 close 优先、`StorageService::stop()` 清扫兜底、GC 不保证。
+  - 测试政策：`Download` 测试用进程内 loopback HTTP；选择器只测「无 UI 线程 → invalid_state」路径，**绝不真开对话框**；`RunAs`/`Shutdown` 成功路径按策略不执行（只测校验/拒绝）。
+  - wait 族（`wait/waitClose/runWait`）：单线程 wait loop 以 `kProcessWaitSlice` 25ms 分片跑 worker lane，无 Action Trace（capability 读策略为审计面）；RunWait 能力用 `process.launch`，其余用 `process.inspect`。
+- **工作包与归属**：WP0 尾巴（W）：`input.sendLevel`（相减式自注入标记编码 `k_self_injected_marker - level`，`k_send_level_max=100`，level 0 逐位兼容）+ ListLines/SendMessage/PostMessage 三文档条目 + roundtrip 测试；WP1 storage native（S1）；WP2 storage JS 模块 + SDK + slice（S2）；WP3 registry 垂直（R，含 `advapi32`、7 文件、双层测试）；WP4 process 三新 action + wait 族 + `docs/api/process-shell.md` 扩写（P）；WP5 接线（集成：actions.json 5 action + 7 capability + readSurfaces、Bootstrap 注册两 executor 两模块 + storage `set_ui_thread` 接入 window pump + stop 链清扫 `storage_service_/process_service_`、sdk index/modules.d/ts-build）；WP6 台账（coverage 49 翻（43 storage + 6 process-shell）、core-builtins 6（FileOpen + Reg* 5）、objects `File` 31 成员 `compatibilityTest` → `tests/sdk/storage.test.ts`）+ `matrix:gen`。
+- **提交切分（8 主题，实际落地）**：① `feat(win32): storage service, executor, module and SDK`（S1+S2 合并：同一批文件共享 4 个 CMake 登记块与 `modules.d.ts`/`index.ts`/`ts-build.ts`，按主题切分会让每条登记行跨提交，故 storage native 与 JS/SDK 同提交）② `feat(win32): registry service, executor, module and SDK` ③ `feat(win32): process waitable handles, runas, shutdown and setPriority` ④ `feat(input): input.sendLevel with window-bounded self marker decode`（WP0）⑤ `feat(host): wire M4 services, executors, modules and capabilities`（`actions.json` 与 `Bootstrap` 必须同落，否则 `matrix:check` 在中间态必红）⑥ `docs(api): M4 ledger transitions and matrix regeneration` ⑦ `docs(tests): flaky ledger rows for the M4 interactive reruns` ⑧ `chore(plan): record M4 execution notes`。
+- **DoD 实测（2026-10-06）**：
+  - **已全绿的检查**：`contract:smoke`、`contract:check`、`matrix:check`（`Action registry checked: 38 types across 7 executor files` / `Production bootstrap registers all 38 implemented action types` / `Compatibility matrix is up to date`）、`typecheck`、`sdk:test`（169 pass / 9 files / 801 expect）、`native:test`（preset `msvc`）、`ts:quickjs` 的 `ts-build` 与 bundle runner（`rime_js_bundle.exe` 对 `build/ts/rim.js` 返回 0，负向对照 missing=2、`throw` 脚本=1 均生效）。
+  - **ctest 口径（已记录的排除，不算通过）**：`quickjs_vertical_slice` 与 `quickjs_events_slice` 在桌面并用期间的三次整套运行中均失败（`a foreign window owns it after the focus retry budget; focus requested ok=0`；hotstring/inputhook 收敛失败，均命中 `docs/FLAKY.md` 登记触发条件），经指示本轮排除、不复跑，**属未闭合缺口**，需要一次稳定空闲桌面的稳定绿来收口。按 `-E "quickjs_vertical_slice|quickjs_events_slice"` 口径：`build/quickjs` 37 项 36 项直接通过 + `rime_win32_input_service` 第 1 次隔离复跑通过；`build/msvc-asan`（即 `bun run test:asan` 的 configure/build/ctest 三步）37/37 全绿、build 0 error。
+  - **ASCII 自查**：新增 C++ 文件全 ASCII，改动的 C++ 行 0 处非 ASCII。
+  - **台账**：216 → 310（coverage +54、core-builtins +6；`objects.json` 的 `File` 31 成员 `compatibilityTest` 指向 `tests/sdk/storage.test.ts`）。
+  - 因此阶段通用 DoD 的「`bun run test` + `bun run test:asan` 全绿」**未严格满足**：两道命令本身会连同上述两个交互切片一起跑，本轮以显式排除口径替代，缺口如实登记在此而非记为通过。
+
+
 ### M5 clipboard + screen（≈16，M）
 
 - clipboard：`ClipWait`（变化订阅 + 可取消等待）、`ClipboardAll`（不透明二进制快照）、交换临界区 + Trace；与 M2 的 `OnClipboardChange` 共用监听器；
