@@ -132,30 +132,21 @@ int main() {
   assert(service.info(id, partial_resized).ok());
   assert(partial_resized.rect == (Rect{75, 60, 475, 360}));
 
-  // focus: SetForegroundWindow needs foreground permission, which Windows
-  // refuses while another process owns the foreground, so the call is
-  // retried against a deadline. Each failed attempt first unlocks the input
-  // queue with the bare Alt tap the production path uses (window_set.cpp,
-  // set_always_on_top), which is what makes the retry a condition poll
-  // instead of a blind sleep. Only a success is accepted: when the deadline
-  // expires the code and message are printed and the test fails outright -
-  // no silent downgrade to a weak assertion.
+  // focus: production focus() runs the whole activation ladder itself
+  // (window_foreground.cpp: SetForegroundWindow, then AttachThreadInput to
+  // the foreground thread, then the bare Alt tap), so this loop only has to
+  // re-ask against a deadline while the desktop keeps stealing the
+  // foreground back - a condition poll, not a blind sleep, and no workaround
+  // the test has to duplicate from the service. Only a success is accepted:
+  // when the deadline expires the code and message are printed and the test
+  // fails outright - no silent downgrade to a weak assertion.
   rime::core::Error focus_result = rime::core::Error::none();
   bool focused = false;
   const auto focus_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
   do {
     focus_result = service.focus(id);
     focused = focus_result.ok();
-    if (!focused) {
-      INPUT tap[2] = {};
-      tap[0].type = INPUT_KEYBOARD;
-      tap[0].ki.wVk = VK_MENU;
-      tap[1].type = INPUT_KEYBOARD;
-      tap[1].ki.wVk = VK_MENU;
-      tap[1].ki.dwFlags = KEYEVENTF_KEYUP;
-      SendInput(2, tap, sizeof(INPUT));
-      std::this_thread::sleep_for(50ms);
-    }
+    if (!focused) std::this_thread::sleep_for(50ms);
   } while (!focused && std::chrono::steady_clock::now() < focus_deadline);
   if (!focused) {
     std::fprintf(stderr, "focus was never granted: %s - %s\n",

@@ -317,10 +317,10 @@ int main() {
   // Re-check ownership right before deciding: the JS focus attempt above may
   // have succeeded after the first native request was refused. Deciding on a
   // stale read could move a foreign window. While another window owns the
-  // foreground the native focus is retried against a deadline (the pattern
-  // events_slice.cpp bring_to_front uses), because one refused
-  // SetForegroundWindow is exactly the condition that used to skip this
-  // segment silently. Only our own window id is ever passed to focus(), so
+  // foreground the native focus is retried against a deadline; focus()
+  // itself now runs the shared acquisition ladder (window_foreground.cpp),
+  // so the loop only has to re-ask while the desktop keeps stealing the
+  // foreground back. Only our own window id is ever passed to focus(), so
   // the retry can never touch the foreign owner.
   std::optional<WindowInfo> foreground;
   const auto foreground_error = service.active(foreground);

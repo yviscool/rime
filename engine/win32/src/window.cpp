@@ -4,6 +4,7 @@
 
 #include "handle_guard.hpp"
 #include "utf.hpp"
+#include "window_foreground.hpp"
 #include "window_geometry.hpp"
 #include "window_match.hpp"
 
@@ -586,7 +587,13 @@ rime::core::Error WindowService::focus(const std::uint64_t id,
           return;
         }
         if (IsIconic(window)) ShowWindow(window, SW_RESTORE);
-        if (!SetForegroundWindow(window)) {
+        // The ladder is shared with set_always_on_top: SetForegroundWindow
+        // alone is refused for a background process, which is why a plain
+        // call reported "denied by the foreground lock" while the very same
+        // window came forward for a process that tapped Alt or attached to
+        // the foreground queue. The verdict is read back from
+        // GetForegroundWindow(), not from SetForegroundWindow's return.
+        if (acquire_foreground(window) == ForegroundRun::Denied) {
           result = {rime::core::Error::Code::ExecutionFailed,
                     "SetForegroundWindow was denied by the foreground lock"};
         }

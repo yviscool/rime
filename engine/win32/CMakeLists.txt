@@ -4,6 +4,7 @@ add_library(rime_win32 STATIC
   src/window_groups.cpp
   src/window_set.cpp
   src/window_at.cpp
+  src/window_foreground.cpp
   src/window_parse.cpp
   src/window_geometry.cpp
   src/window_match.cpp

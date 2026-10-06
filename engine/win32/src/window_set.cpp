@@ -3,6 +3,7 @@
 #include "rime/core/lane.hpp"
 
 #include "utf.hpp"
+#include "window_foreground.hpp"
 #include "window_match.hpp"
 
 #include <windows.h>
@@ -113,8 +114,9 @@ rime::core::Error WindowService::set_always_on_top(const std::uint64_t id, const
         // Windows silently ignores the z-order change unless the calling
         // process holds SetForegroundWindow permission (MSDN SetWindowPos),
         // so the result is read back and, when it did not take, the
-        // foreground is acquired (bare Alt tap first, like AHK's
-        // WinActivate) and restored before one final attempt.
+        // foreground is acquired through the shared ladder (bare Alt tap
+        // last, like AHK's WinActivate) and restored before one final
+        // attempt.
         const bool topmost =
             value == -1 ? (GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOPMOST) == 0
                         : value != 0;
@@ -129,19 +131,10 @@ rime::core::Error WindowService::set_always_on_top(const std::uint64_t id, const
         bool took = apply();
         if (!took) {
           const HWND previous_foreground = GetForegroundWindow();
-          if (!SetForegroundWindow(window)) {
-            INPUT tap[2] = {};
-            tap[0].type = INPUT_KEYBOARD;
-            tap[0].ki.wVk = VK_MENU;
-            tap[1].type = INPUT_KEYBOARD;
-            tap[1].ki.wVk = VK_MENU;
-            tap[1].ki.dwFlags = KEYEVENTF_KEYUP;
-            SendInput(2, tap, sizeof(INPUT));
-            SetForegroundWindow(window);
-          }
+          static_cast<void>(acquire_foreground(window));
           took = apply();
           if (previous_foreground && previous_foreground != window) {
-            SetForegroundWindow(previous_foreground);
+            static_cast<void>(SetForegroundWindow(previous_foreground));
           }
         }
         if (!took) {
