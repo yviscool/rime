@@ -400,10 +400,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
       "tsModule": "@rime/control",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.automation.control",
-      "contractTest": "missing",
+      "contractTest": "tests/native/control_tests.cpp,tests/js/control_slice.cpp",
       "lane": "automation",
       "cancellation": "deadline+AbortSignal"
     },
@@ -432,10 +432,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
       "tsModule": "@rime/control",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.automation.control",
-      "contractTest": "missing",
+      "contractTest": "tests/native/control_tests.cpp,tests/js/control_slice.cpp",
       "lane": "automation",
       "cancellation": "deadline+AbortSignal"
     },
@@ -495,10 +495,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
       "tsModule": "@rime/control",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.automation.control",
-      "contractTest": "missing",
+      "contractTest": "tests/native/control_tests.cpp,tests/js/control_slice.cpp",
       "lane": "automation",
       "cancellation": "deadline+AbortSignal"
     },
@@ -556,10 +556,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/win.cpp"
       ],
       "tsModule": "@rime/control",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "windows.automation.control",
-      "contractTest": "missing",
+      "contractTest": "tests/native/control_tests.cpp,tests/js/control_slice.cpp",
       "lane": "automation",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3155,34 +3155,34 @@
     },
     {
       "ahkName": "SoundBeep",
-      "domain": "gui-menu",
+      "domain": "sound",
       "sourceFiles": [
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/sound.cpp"
       ],
-      "tsModule": "@rime/gui-menu",
-      "status": "contract-only",
+      "tsModule": "@rime/sound",
+      "status": "implemented",
       "async": "async",
       "capability": "media.sound",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/native/sound_tests.cpp,tests/js/sound_slice.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {
       "ahkName": "SoundPlay",
-      "domain": "gui-menu",
+      "domain": "sound",
       "sourceFiles": [
         "rime-research/AutoHotkey-alpha/source/script.cpp",
         "rime-research/AutoHotkey-alpha/source/script.h",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/sound.cpp"
       ],
-      "tsModule": "@rime/gui-menu",
-      "status": "contract-only",
+      "tsModule": "@rime/sound",
+      "status": "implemented",
       "async": "async",
       "capability": "media.sound",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/native/sound_tests.cpp,tests/js/sound_slice.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {

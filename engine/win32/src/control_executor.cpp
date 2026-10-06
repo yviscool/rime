@@ -31,7 +31,9 @@ const std::unordered_set<std::string>& control_action_types() {
       "control.sendtext", "control.list.add", "control.list.delete", "control.list.choose",
       "control.list.find", "control.list.index", "control.list.choice", "control.list.items",
       "control.tab.select", "control.edit.count", "control.edit.caret", "control.edit.line",
-      "control.edit.selected", "control.edit.paste", "control.setchecked", "control.ischecked"};
+      "control.edit.selected", "control.edit.paste", "control.setchecked", "control.ischecked",
+      "control.show", "control.hide", "control.move", "control.setenabled",
+      "control.tab.index"};
   return types;
 }
 
@@ -592,15 +594,98 @@ rime::action::Result ControlExecutor::execute(const rime::action::Action& action
     return {action.id, true, false, "control check read", {}, std::move(result_value)};
   }
 
-  // control.getText: no payload fields.
-  std::string out;
-  if (const auto read_error = service_.control_get_text(id, out, timeout); !read_error.ok()) {
-    return fail(action, read_error.code, read_error.message);
+  // ---- Visibility / geometry -------------------------------------------------
+  if (action.type == "control.show" || action.type == "control.hide") {
+    const bool visible = action.type == "control.show";
+    if (const auto op = service_.control_set_visible(id, visible, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("visible", rime::core::json::Value::boolean(visible));
+    return {action.id, true, false,
+            visible ? "control shown without activation" : "control hidden", {},
+            std::move(result_value)};
   }
-  if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
-  rime::core::json::Value result_value = rime::core::json::Value::object();
-  result_value.set("text", rime::core::json::Value::string(out));
-  return {action.id, true, false, "control text read", {}, std::move(result_value)};
+  if (action.type == "control.move") {
+    WindowService::ControlMoveRect rect;
+    bool any = false;
+    for (const char* key : {"x", "y", "w", "h"}) {
+      if (const rime::core::json::Value* field = payload.value->find(key)) {
+        if (!field->is_number()) {
+          return fail(action, Code::InvalidContract,
+                      std::string("control.move ") + key + " must be a number");
+        }
+        const double raw = field->as_number();
+        const double low = (key[0] == 'w' || key[0] == 'h') ? 1.0 : -2147483648.0;
+        if (!std::isfinite(raw) || raw != std::trunc(raw) || raw < low ||
+            raw > 2147483647.0) {
+          return fail(action, Code::InvalidContract,
+                      std::string("control.move ") + key + " is out of range");
+        }
+        const std::int64_t value = static_cast<std::int64_t>(raw);
+        if (key[0] == 'x') {
+          rect.x = value;
+        } else if (key[0] == 'y') {
+          rect.y = value;
+        } else if (key[0] == 'w') {
+          rect.w = value;
+        } else {
+          rect.h = value;
+        }
+        any = true;
+      }
+    }
+    if (!any) {
+      return fail(action, Code::InvalidContract,
+                  "control.move payload needs at least one of x, y, w, h");
+    }
+    if (const auto op = service_.control_move(id, rect, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("moved", rime::core::json::Value::boolean(true));
+    return {action.id, true, false, "control moved", {}, std::move(result_value)};
+  }
+  if (action.type == "control.setenabled") {
+    const rime::core::json::Value* field = payload.value->find("enabled");
+    if (!field || !field->is_bool()) {
+      return fail(action, Code::InvalidContract,
+                  "control.setenabled payload requires a boolean enabled");
+    }
+    if (const auto op = service_.control_set_enabled(id, field->as_bool(), timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("enabled", rime::core::json::Value::boolean(field->as_bool()));
+    return {action.id, true, false, "control enabled state set", {}, std::move(result_value)};
+  }
+  if (action.type == "control.tab.index") {
+    int index1 = 0;
+    if (const auto op = service_.control_tab_index(id, index1, timeout); !op.ok()) {
+      return fail(action, op.code, op.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("index", rime::core::json::Value::number(static_cast<double>(index1)));
+    return {action.id, true, false, "control tab index read", {}, std::move(result_value)};
+  }
+
+  // control.gettext: no payload fields.
+  if (action.type == "control.gettext") {
+    std::string out;
+    if (const auto read_error = service_.control_get_text(id, out, timeout);
+        !read_error.ok()) {
+      return fail(action, read_error.code, read_error.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value result_value = rime::core::json::Value::object();
+    result_value.set("text", rime::core::json::Value::string(out));
+    return {action.id, true, false, "control text read", {}, std::move(result_value)};
+  }
+  return contract::unsupported(action);
 }
 
 }  // namespace rime::win32

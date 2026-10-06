@@ -376,6 +376,33 @@ int main() {
         "control-check.mjs");
   assert(runtime.settle(15000ms).ok());
 
+  // ---- Visibility / geometry -------------------------------------------------
+  check(runtime,
+        "await globalThis.control.hide(globalThis.button.id);\n"
+        "if (globalThis.control.isVisible(globalThis.button.id) !== false)\n"
+        "  throw new Error('hide must clear visibility');\n"
+        "await globalThis.control.show(globalThis.button.id);\n"
+        "if (globalThis.control.isVisible(globalThis.button.id) !== true)\n"
+        "  throw new Error('show must restore visibility');\n"
+        "await globalThis.control.move(globalThis.button.id, { w: 111, h: 33 });\n"
+        "const sized = globalThis.control.rect(globalThis.button.id);\n"
+        "if (sized.width !== 111 || sized.height !== 33)\n"
+        "  throw new Error('move w/h must apply exactly: ' + JSON.stringify(sized));\n"
+        "await globalThis.control.move(globalThis.button.id, { x: 200, y: 200 });\n"
+        "const ra = globalThis.control.rect(globalThis.button.id);\n"
+        "await globalThis.control.move(globalThis.button.id, { x: 217, y: 229 });\n"
+        "const rb = globalThis.control.rect(globalThis.button.id);\n"
+        "if (rb.x - ra.x !== 17 || rb.y - ra.y !== 29)\n"
+        "  throw new Error('move displacement must map 1:1');\n"
+        "await globalThis.control.setEnabled(globalThis.button.id, false);\n"
+        "if (globalThis.control.isEnabled(globalThis.button.id) !== false)\n"
+        "  throw new Error('disable must clear enabled');\n"
+        "await globalThis.control.setEnabled(globalThis.button.id, true);\n"
+        "if (globalThis.control.isEnabled(globalThis.button.id) !== true)\n"
+        "  throw new Error('enable must restore enabled');\n",
+        "control-visibility.mjs");
+  assert(runtime.settle(5000ms).ok());
+
   assert(runtime.stop().ok());
   assert(windows.stop().ok());
   target.stop();

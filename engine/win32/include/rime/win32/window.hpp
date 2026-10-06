@@ -373,9 +373,10 @@ class WindowService final {
   rime::core::Error control_list_items(std::uint64_t id, std::size_t limit,
                                         std::vector<std::string>& out,
                                         std::chrono::milliseconds timeout = std::chrono::seconds(5));
-  // Tab select (AHK ControlSetTab): TCM_SETCURFOCUS, plus a synthetic space
-  // key for TCS_BUTTONS style (TCM_SETCURSEL never notifies the parent and
-  // WM_NOTIFY cannot cross processes).
+  // Tab select (AHK ControlSetTab): TCM_SETCURFOCUS; for TCS_BUTTONS style
+  // a synthetic center click instead (the space key needs live keyboard
+  // focus that background automation cannot guarantee; WM_NOTIFY cannot
+  // cross processes either way).
   rime::core::Error control_tab_select(std::uint64_t id, int index1,
                                         std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // Edit family (AHK Edit* rules): lines/columns 1-based; selected text via
@@ -396,6 +397,29 @@ class WindowService final {
                                         std::chrono::milliseconds timeout = std::chrono::seconds(5));
   rime::core::Error control_is_checked(std::uint64_t id, bool& out,
                                         std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Visibility and geometry changes (@rime/control Phase 2b): Show uses
+  // SW_SHOWNOACTIVATE (AHK rule: showing must not steal focus); move takes
+  // top-level-client-relative coordinates with omitted fields keeping current
+  // values, mapped to the immediate parent like AHK (nested controls need
+  // the double MapWindowPoints, see window.cpp move).
+  rime::core::Error control_set_visible(std::uint64_t id, bool visible,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  struct ControlMoveRect {
+    std::optional<std::int64_t> x;
+    std::optional<std::int64_t> y;
+    std::optional<std::int64_t> w;
+    std::optional<std::int64_t> h;
+  };
+  rime::core::Error control_move(std::uint64_t id, const ControlMoveRect& rect,
+                                 std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // EnableWindow plus IsWindowEnabled verification (AHK rule: report failure
+  // instead of assuming it worked).
+  rime::core::Error control_set_enabled(std::uint64_t id, bool enabled,
+                                        std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Current tab page, 1-based (makes the TCS_BUTTONS space-key branch
+  // observable; AHK has no getter, this one exists for testability).
+  rime::core::Error control_tab_index(std::uint64_t id, int& index1,
+                                      std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // MouseGetPos point query: the window (and control) under the screen point
   // (x, y), resolved entirely on the UI lane. The control search replicates
   // AHK EnumChildFindPoint: visible children whose rect contains the point,

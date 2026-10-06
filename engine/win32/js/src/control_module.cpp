@@ -877,6 +877,86 @@ JSValue control_is_checked(JSContext* context, JSValueConst, int argc, JSValueCo
                           "isChecked(id)", "control.ischecked", json::Value::object(), binding);
 }
 
+// control.show(id[, options]) / control.hide(id[, options])
+JSValue control_show_hide(JSContext* context, int argc, JSValueConst* argv, bool show,
+                          ControlModuleBinding* binding) {
+  const char* signature = show ? "show(id[, options])" : "hide(id[, options])";
+  const char* type = show ? "control.show" : "control.hide";
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "%s", signature);
+  return dispatch_control(context, argv[0], argc == 2 ? argv[1] : JS_UNDEFINED, argc == 2,
+                          signature, type, json::Value::object(), binding);
+}
+
+JSValue control_show(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  return control_show_hide(context, argc, argv, true, binding);
+}
+
+JSValue control_hide(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  return control_show_hide(context, argc, argv, false, binding);
+}
+
+// control.move(id, {x?, y?, w?, h?}[, options]) - top-level-client coords.
+JSValue control_move(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 2 || argc > 3) return JS_ThrowTypeError(context, "move(id, rect[, options])");
+  if (!is_plain_object(argv[1])) {
+    return JS_ThrowTypeError(context, "move: rect must be an object with x, y, w, h");
+  }
+  json::Value payload = json::Value::object();
+  bool any = false;
+  for (const char* key : {"x", "y", "w", "h"}) {
+    JSValue field = JS_GetPropertyStr(context, argv[1], key);
+    if (JS_IsException(field)) return JS_EXCEPTION;
+    if (!JS_IsUndefined(field) && !JS_IsNull(field)) {
+      double number = 0;
+      const double low = (key[0] == 'w' || key[0] == 'h') ? 1.0 : -2147483648.0;
+      if (!JS_IsNumber(field) || JS_ToFloat64(context, &number, field) ||
+          !std::isfinite(number) || std::trunc(number) != number || number < low ||
+          number > 2147483647.0) {
+        JS_FreeValue(context, field);
+        return JS_ThrowTypeError(context, "move: rect.%s is out of range", key);
+      }
+      payload.set(key, json::Value::number(number));
+      any = true;
+    }
+    JS_FreeValue(context, field);
+  }
+  if (!any) {
+    return JS_ThrowTypeError(context, "move: rect needs at least one of x, y, w, h");
+  }
+  return dispatch_control(context, argv[0], argc == 3 ? argv[2] : JS_UNDEFINED, argc == 3,
+                          "move(id, rect)", "control.move", std::move(payload), binding);
+}
+
+// control.setEnabled(id, enabled[, options])
+JSValue control_set_enabled(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                            void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 2 || argc > 3) return JS_ThrowTypeError(context, "setEnabled(id, enabled[, options])");
+  if (!JS_IsBool(argv[1])) {
+    return JS_ThrowTypeError(context, "setEnabled: enabled must be a boolean");
+  }
+  json::Value payload = json::Value::object();
+  payload.set("enabled", json::Value::boolean(JS_ToBool(context, argv[1]) != 0));
+  return dispatch_control(context, argv[0], argc == 3 ? argv[2] : JS_UNDEFINED, argc == 3,
+                          "setEnabled(id, enabled)", "control.setenabled", std::move(payload),
+                          binding);
+}
+
+// control.tabIndex(id[, options]) -> { index }
+JSValue control_tab_index(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                          void* opaque) {
+  auto* binding = static_cast<ControlModuleBinding*>(opaque);
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "tabIndex(id[, options])");
+  return dispatch_control(context, argv[0], argc == 2 ? argv[1] : JS_UNDEFINED, argc == 2,
+                          "tabIndex(id)", "control.tab.index", json::Value::object(), binding);
+}
+
 // Synchronous queries: single Win32 reads, no Action, capability
 // windows.window.read (same gate as windows.controls).
 JSValue control_query_bool(JSContext* context, int argc, JSValueConst* argv, const char* signature,
@@ -1004,8 +1084,10 @@ int control_module_init(JSContext* context, JSModuleDef* module) {
       !add("listItems", control_list_items, 1) || !add("tabSelect", control_tab_select, 2) ||
       !add("editCount", control_edit_count, 1) || !add("editCaret", control_edit_caret, 1) ||
       !add("editLine", control_edit_line, 2) || !add("editSelected", control_edit_selected, 1) ||
-      !add("editPaste", control_edit_paste, 2) || !add("setChecked", control_set_checked, 2) ||
-      !add("isChecked", control_is_checked, 1)) {
+      !add("editPaste", control_edit_paste, 2) ||       !add("setChecked", control_set_checked, 2) ||
+      !add("isChecked", control_is_checked, 1) || !add("show", control_show, 1) ||
+      !add("hide", control_hide, 1) || !add("move", control_move, 2) ||
+      !add("setEnabled", control_set_enabled, 2) || !add("tabIndex", control_tab_index, 1)) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "control", control);

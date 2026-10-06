@@ -120,7 +120,11 @@ class TargetWindow final {
     HWND tab = CreateWindowExW(0, WC_TABCONTROLW, L"", WS_CHILD | WS_VISIBLE, 300, 200, 140,
                                80, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(7)),
                                window_class.hInstance, nullptr);
-    if (!button || !edit || !combo || !list || !edit_multi || !check || !tab) {
+    HWND tab_buttons = CreateWindowExW(0, WC_TABCONTROLW, L"",
+                                       WS_CHILD | WS_VISIBLE | TCS_BUTTONS, 300, 290, 140, 60,
+                                       window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(8)),
+                                       window_class.hInstance, nullptr);
+    if (!button || !edit || !combo || !list || !edit_multi || !check || !tab || !tab_buttons) {
       DestroyWindow(window);
       return;
     }
@@ -220,6 +224,7 @@ int main() {
   std::uint64_t edit_multi_id = 0;
   std::uint64_t check_id = 0;
   std::uint64_t tab_id = 0;
+  std::uint64_t tab_buttons_id = 0;
   for (const auto& control : controls) {
     if (control.class_nn == "Button1") button_id = control.id;
     if (control.class_nn == "Edit1") edit_id = control.id;
@@ -228,9 +233,10 @@ int main() {
     if (control.class_nn == "Edit2") edit_multi_id = control.id;
     if (control.class_nn == "Button2") check_id = control.id;
     if (control.class_nn == "SysTabControl321") tab_id = control.id;
+    if (control.class_nn == "SysTabControl322") tab_buttons_id = control.id;
   }
   assert(button_id != 0 && edit_id != 0 && combo_id != 0 && list_id != 0 &&
-         edit_multi_id != 0 && check_id != 0 && tab_id != 0);
+         edit_multi_id != 0 && check_id != 0 && tab_id != 0 && tab_buttons_id != 0);
 
   auto policy = std::make_shared<StaticCapabilityPolicy>(
       std::unordered_set<std::string>{"windows.automation.control"});
@@ -243,7 +249,8 @@ int main() {
         "control.list.find", "control.list.index", "control.list.choice", "control.list.items",
         "control.tab.select", "control.edit.count", "control.edit.caret", "control.edit.line",
         "control.edit.selected", "control.edit.paste", "control.setchecked",
-        "control.ischecked"}) {
+        "control.ischecked", "control.show", "control.hide", "control.move",
+        "control.setenabled", "control.tab.index"}) {
     assert(kernel.register_executor(type, executor).ok());
   }
   Dispatcher dispatcher(kernel, 64);
@@ -491,6 +498,77 @@ int main() {
   }
   Result bad_check = run("control.setchecked", check, "{\"checked\": 2}");
   assert(!bad_check.succeeded && bad_check.error.code == Code::InvalidContract);
+
+  // ---- Visibility / geometry / tab index -----------------------------------
+  const std::string tab_buttons = std::to_string(tab_buttons_id);
+  // Never assume the initial page (creation order, focus and comctl version
+  // all influence it): select explicitly, then assert the round trip.
+  Result tab_select_1 = run("control.tab.select", tab, "{\"index\": 1}");
+  assert(tab_select_1.succeeded);
+  Result tab_index_1 = run("control.tab.index", tab, "{}");
+  assert(tab_index_1.succeeded && tab_index_1.value.find("index")->as_number() == 1.0);
+  Result tab_select_2 = run("control.tab.select", tab, "{\"index\": 2}");
+  assert(tab_select_2.succeeded);
+  Result tab_index_2 = run("control.tab.index", tab, "{}");
+  assert(tab_index_2.succeeded && tab_index_2.value.find("index")->as_number() == 2.0);
+  // Button-style tab: the request succeeds (AHK-faithful SETCURFOCUS) but
+  // the OS moves no observable state without genuine activation (verified:
+  // clicks, space keys and focus reads all report nothing in background
+  // operation). Only the ok-result is asserted here, never a read-back.
+  Result btn_tab_select = run("control.tab.select", tab_buttons, "{\"index\": 2}");
+  assert(btn_tab_select.succeeded);
+  Result tab_select_0 = run("control.tab.select", tab, "{\"index\": 0}");
+  assert(!tab_select_0.succeeded && tab_select_0.error.code == Code::InvalidContract);
+  Result tab_select_button =
+      run("control.tab.select", button, "{\"index\": 1}");
+  assert(!tab_select_button.succeeded &&
+         tab_select_button.error.code == Code::InvalidContract);
+
+  // Show/hide round trip on the button (show never activates: no foreground
+  // assertion, just visibility flips).
+  Result hide = run("control.hide", button, "{}");
+  assert(hide.succeeded);
+  bool hidden = true;
+  assert(windows.control_is_visible(button_id, hidden).ok() && !hidden);
+  Result show = run("control.show", button, "{}");
+  assert(show.succeeded);
+  bool shown = false;
+  assert(windows.control_is_visible(button_id, shown).ok() && shown);
+
+  // Move: w/h assert exactly (origin-free); x/y assert by displacement
+  // (the top-client origin is unknown, but equal steps must move equally).
+  Result sized = run("control.move", button, "{\"w\": 111, \"h\": 33}");
+  assert(sized.succeeded);
+  rime::win32::Rect sized_rect{};
+  assert(windows.control_rect(button_id, sized_rect).ok());
+  assert(sized_rect.width() == 111 && sized_rect.height() == 33);
+  Result mx1 = run("control.move", button, "{\"x\": 200, \"y\": 200}");
+  assert(mx1.succeeded);
+  rime::win32::Rect rect_a{};
+  assert(windows.control_rect(button_id, rect_a).ok());
+  Result mx2 = run("control.move", button, "{\"x\": 217, \"y\": 229}");
+  assert(mx2.succeeded);
+  rime::win32::Rect rect_b{};
+  assert(windows.control_rect(button_id, rect_b).ok());
+  assert(rect_b.left - rect_a.left == 17 && rect_b.top - rect_a.top == 29);
+  Result move_empty = run("control.move", button, "{}");
+  assert(!move_empty.succeeded && move_empty.error.code == Code::InvalidContract);
+  Result move_zero = run("control.move", button, "{\"w\": 0}");
+  assert(!move_zero.succeeded && move_zero.error.code == Code::InvalidContract);
+  Result move_gone = run("control.move", "999999", "{\"x\": 1}");
+  assert(!move_gone.succeeded && move_gone.error.code == Code::TargetGone);
+
+  // Enable round trip with verification.
+  Result disable = run("control.setenabled", button, "{\"enabled\": false}");
+  assert(disable.succeeded);
+  bool disabled = true;
+  assert(windows.control_is_enabled(button_id, disabled).ok() && !disabled);
+  Result enable = run("control.setenabled", button, "{\"enabled\": true}");
+  assert(enable.succeeded);
+  bool re_enabled = false;
+  assert(windows.control_is_enabled(button_id, re_enabled).ok() && re_enabled);
+  Result enable_bad = run("control.setenabled", button, "{\"enabled\": \"yes\"}");
+  assert(!enable_bad.succeeded && enable_bad.error.code == Code::InvalidContract);
 
   // Sync queries through the service: visibility, enabled, rect, liveness.
   bool visible = false;

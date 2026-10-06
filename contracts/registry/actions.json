@@ -630,6 +630,66 @@
       "status": "implemented"
     },
     {
+      "type": "control.show",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:880",
+      "sdk": "sdk/src/control.ts:124",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.hide",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:880",
+      "sdk": "sdk/src/control.ts:126",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.move",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:895",
+      "sdk": "sdk/src/control.ts:128",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.setenabled",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:925",
+      "sdk": "sdk/src/control.ts:136",
+      "tests": ["tests/native/control_tests.cpp", "tests/js/control_slice.cpp"],
+      "status": "implemented"
+    },
+    {
+      "type": "control.tab.index",
+      "capability": "windows.automation.control",
+      "target": { "kind": "control", "example": "<id>" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/control_executor.cpp:117",
+      "executor": "engine/win32/src/control_executor.cpp:117",
+      "module": "engine/win32/js/src/control_module.cpp:940",
+      "sdk": "sdk/src/control.ts:138",
+      "tests": ["tests/native/control_tests.cpp"],
+      "status": "implemented"
+    },
+    {
       "type": "storage.write",
       "capability": "filesystem.write",
       "target": { "kind": "storage", "example": "fs" },
@@ -766,7 +826,7 @@
       "status": "implemented",
       "declared": "engine/win32/js/src/control_module.cpp:351",
       "checked": ["engine/action/src/kernel.cpp:97", "engine/win32/js/src/control_module.cpp:351"],
-      "actions": ["control.click", "control.focus", "control.settext", "control.gettext", "control.sendtext", "control.list.add", "control.list.delete", "control.list.choose", "control.list.find", "control.list.index", "control.list.choice", "control.list.items", "control.tab.select", "control.edit.count", "control.edit.caret", "control.edit.line", "control.edit.selected", "control.edit.paste", "control.setchecked", "control.ischecked"]
+      "actions": ["control.click", "control.focus", "control.settext", "control.gettext", "control.sendtext", "control.list.add", "control.list.delete", "control.list.choose", "control.list.find", "control.list.index", "control.list.choice", "control.list.items", "control.tab.select", "control.edit.count", "control.edit.caret", "control.edit.line", "control.edit.selected", "control.edit.paste", "control.setchecked", "control.ischecked", "control.show", "control.hide", "control.move", "control.setenabled", "control.tab.index"]
     },
     {
       "name": "process.inspect",
@@ -856,8 +916,14 @@
     },
     {
       "name": "media.sound",
-      "status": "planned",
-      "plannedBy": "docs/api/core-builtins.json (SoundGet/Set*)",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/sound_module.cpp:27",
+      "checked": [
+        "engine/win32/js/src/sound_module.cpp:73",
+        "engine/win32/js/src/sound_module.cpp:117",
+        "engine/win32/js/src/sound_module.cpp:190",
+        "engine/win32/js/src/sound_module.cpp:206"
+      ],
       "actions": []
     },
     {

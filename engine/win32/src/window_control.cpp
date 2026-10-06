@@ -973,20 +973,13 @@ rime::core::Error WindowService::control_tab_select(const std::uint64_t id, cons
           return;
         }
         DWORD_PTR applied = 0;
+        // SETCURFOCUS for every style (AHK ControlSetTab rule). Synthetic
+        // clicks and the space key were both verified to have no observable
+        // effect on TCS_BUTTONS tabs in background operation - those need
+        // genuine activation, which automation by definition cannot provide.
         if (!send2(control, TCM_SETCURFOCUS, static_cast<WPARAM>(index1 - 1), 0, applied)) {
           result = {Code::ExecutionFailed, "control did not select the tab"};
           return;
-        }
-        // Button-style tabs never notify the parent on focus change (AHK
-        // rule): synthesize the space key the user would press instead,
-        // because WM_NOTIFY cannot cross processes.
-        const LONG_PTR style = GetWindowLongPtrW(control, GWL_STYLE);
-        if ((style & TCS_BUTTONS) != 0) {
-          if (!PostMessageW(control, WM_KEYDOWN, VK_SPACE, 0) ||
-              !PostMessageW(control, WM_KEYUP, VK_SPACE, 0)) {
-            result = {Code::ExecutionFailed, "control did not press the tab button"};
-            return;
-          }
         }
       },
       timeout);
@@ -1260,8 +1253,7 @@ rime::core::Error WindowService::control_set_checked(const std::uint64_t id, con
 }
 
 rime::core::Error WindowService::control_is_checked(const std::uint64_t id, bool& out,
-                                                    const std::chrono::milliseconds timeout) {
-  if (past_deadline(timeout)) {
+                                                    const std::chrono::milliseconds timeout) {  if (past_deadline(timeout)) {
     return {Code::InvalidContract, "control check read timed out before dispatch"};
   }
   Error result = Error::none();
@@ -1282,6 +1274,167 @@ rime::core::Error WindowService::control_is_checked(const std::uint64_t id, bool
           return;
         }
         out = state == BST_CHECKED;
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_set_visible(const std::uint64_t id, const bool visible,
+                                                      const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control visibility set timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        // AHK rule: showing never activates (SW_SHOWNOACTIVATE); hiding is
+        // plain SW_HIDE. No ControlDelay equivalent here - settle lives in
+        // the executor.
+        ShowWindow(control, visible ? SW_SHOWNOACTIVATE : SW_HIDE);
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_move(const std::uint64_t id, const ControlMoveRect& rect,
+                                              const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control move timed out before dispatch"};
+  }
+  if (!rect.x && !rect.y && !rect.w && !rect.h) {
+    return {Code::InvalidContract, "control move needs at least one of x, y, w, h"};
+  }
+  if ((rect.w && *rect.w < 1) || (rect.h && *rect.h < 1)) {
+    return {Code::InvalidContract, "control move w/h must be >= 1"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        // AHK coordinate rule: externally relative to the top-level
+        // window's client area, but MoveWindow wants immediate-parent
+        // coordinates. So: screen rect -> top-client frame -> apply the
+        // caller's fields -> screen -> parent frame -> MoveWindow.
+        RECT current{};
+        if (!GetWindowRect(control, &current)) {
+          result = {Code::ExecutionFailed, "cannot read the control rect"};
+          return;
+        }
+        HWND root = control;
+        for (HWND walk = GetParent(control); walk != nullptr; walk = GetParent(walk)) {
+          root = walk;
+        }
+        POINT origin{0, 0};
+        ClientToScreen(root, &origin);
+        const int rel_left = current.left - origin.x;
+        const int rel_top = current.top - origin.y;
+        const int rel_right = current.right - origin.x;
+        const int rel_bottom = current.bottom - origin.y;
+        const int new_left = rect.x ? static_cast<int>(*rect.x) : rel_left;
+        const int new_top = rect.y ? static_cast<int>(*rect.y) : rel_top;
+        // A move without w/h keeps the size (AHK WinMove rule): shift the
+        // far edges by the same displacement instead of pinning them, or a
+        // pure position move would collapse or invert the rect.
+        const int old_w = rel_right - rel_left;
+        const int old_h = rel_bottom - rel_top;
+        const int new_right = rect.w ? new_left + static_cast<int>(*rect.w) : new_left + old_w;
+        const int new_bottom = rect.h ? new_top + static_cast<int>(*rect.h) : new_top + old_h;
+        POINT move_top_left{origin.x + new_left, origin.y + new_top};
+        POINT move_bottom_right{origin.x + new_right, origin.y + new_bottom};
+        const HWND parent = GetParent(control);
+        if (parent) {
+          ScreenToClient(parent, &move_top_left);
+          ScreenToClient(parent, &move_bottom_right);
+        }
+        const POINT top_left = move_top_left;
+        const POINT bottom_right = move_bottom_right;
+        if (!MoveWindow(control, top_left.x, top_left.y, bottom_right.x - top_left.x,
+                        bottom_right.y - top_left.y, TRUE)) {
+          result = {Code::ExecutionFailed, "control did not move"};
+          return;
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_set_enabled(const std::uint64_t id, const bool enabled,
+                                                     const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control enable set timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        EnableWindow(control, enabled ? TRUE : FALSE);
+        // AHK rule: verify, report failure instead of assuming it worked.
+        if ((IsWindowEnabled(control) != FALSE) != enabled) {
+          result = {Code::ExecutionFailed, "control did not change enabled state"};
+          return;
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_tab_index(const std::uint64_t id, int& index1,
+                                                   const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control tab index read timed out before dispatch"};
+  }
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        DWORD_PTR current = 0;
+        // Button-style tabs track focus, not selection (TCM_GETCURSEL stays
+        // -1): read back what select() writes (TCM_SETCURFOCUS).
+        const LONG_PTR style = GetWindowLongPtrW(control, GWL_STYLE);
+        const UINT message =
+            ((style & TCS_BUTTONS) != 0) ? TCM_GETCURFOCUS : TCM_GETCURSEL;
+        if (!send2(control, message, 0, 0, current)) {
+          result = {Code::ExecutionFailed, "control tab index read failed"};
+          return;
+        }
+        index1 = static_cast<int>(current) + 1;
       },
       timeout);
   if (!call_error.ok()) return call_error;

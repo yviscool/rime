@@ -119,6 +119,20 @@ export interface ControlBridge {
   ): Promise<{ checked: boolean }>;
   /** Checkbox state. */
   isChecked(id: ControlId, options?: NativeActionOptions): Promise<{ checked: boolean }>;
+  /** Show without activating (SW_SHOWNOACTIVATE). */
+  show(id: ControlId, options?: NativeActionOptions): Promise<{ visible: true }>;
+  /** Hide. */
+  hide(id: ControlId, options?: NativeActionOptions): Promise<{ visible: false }>;
+  /** Move/resize in top-level-client coordinates; omitted fields keep values. */
+  move(
+    id: ControlId,
+    rect: { x?: number; y?: number; w?: number; h?: number },
+    options?: NativeActionOptions,
+  ): Promise<{ moved: true }>;
+  /** Enable/disable (verified, reports failure). */
+  setEnabled(id: ControlId, enabled: boolean, options?: NativeActionOptions): Promise<{ enabled: boolean }>;
+  /** Current tab page, 1-based. */
+  tabIndex(id: ControlId, options?: NativeActionOptions): Promise<{ index: number }>;
 }
 
 async function controlBridge(): Promise<ControlBridge> {
@@ -329,6 +343,49 @@ export class Control {
     const id = this.id;
     return runAction(options, (native) =>
       controlBridge().then((bridge) => bridge.isChecked(id, native)),
+    );
+  }
+
+  /** Show without activating (SW_SHOWNOACTIVATE). */
+  show(options?: ActionOptions): Promise<{ visible: true }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.show(id, native)),
+    );
+  }
+
+  /** Hide. */
+  hide(options?: ActionOptions): Promise<{ visible: false }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.hide(id, native)),
+    );
+  }
+
+  /** Move/resize in top-level-client coordinates; omitted fields keep values. */
+  move(
+    rect: { x?: number; y?: number; w?: number; h?: number },
+    options?: ActionOptions,
+  ): Promise<{ moved: true }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.move(id, rect, native)),
+    );
+  }
+
+  /** Enable/disable (verified, reports failure). */
+  setEnabled(enabled: boolean, options?: ActionOptions): Promise<{ enabled: boolean }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.setEnabled(id, enabled, native)),
+    );
+  }
+
+  /** Current tab page, 1-based. */
+  tabIndex(options?: ActionOptions): Promise<{ index: number }> {
+    const id = this.id;
+    return runAction(options, (native) =>
+      controlBridge().then((bridge) => bridge.tabIndex(id, native)),
     );
   }
 
