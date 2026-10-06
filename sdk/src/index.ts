@@ -100,6 +100,7 @@ export * from "./input";
 export * from "./process";
 export * from "./clipboard";
 export * from "./screen";
+export * from "./sound";
 export * from "./automation";
 export * from "./control";
 export * from "./storage";

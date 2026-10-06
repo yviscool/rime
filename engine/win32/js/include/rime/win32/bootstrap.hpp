@@ -13,11 +13,13 @@
 #include "rime/win32/js_process.hpp"
 #include "rime/win32/js_registry.hpp"
 #include "rime/win32/js_screen.hpp"
+#include "rime/win32/js_sound.hpp"
 #include "rime/win32/js_storage.hpp"
 #include "rime/win32/js_window.hpp"
 #include "rime/win32/process.hpp"
 #include "rime/win32/registry.hpp"
 #include "rime/win32/screen.hpp"
+#include "rime/win32/sound.hpp"
 #include "rime/win32/storage.hpp"
 #include "rime/win32/window.hpp"
 
@@ -32,10 +34,11 @@ class Runtime;
 
 namespace rime::win32 {
 
-// The one production wiring shape: the eight Win32 services (input, process,
-// clipboard, window, UIA, storage, registry, screen), the capability policy the
-// Kernel enforces, the shared Dispatcher queue, every implemented action
-// executor from contracts/registry/actions.json and the eight JS modules.
+// The one production wiring shape: the nine Win32 services (input, process,
+// clipboard, window, UIA, storage, registry, screen, sound), the capability
+// policy the Kernel enforces, the shared Dispatcher queue, every implemented
+// action executor from contracts/registry/actions.json and the nine JS
+// modules.
 // The bundle harness and the desktop host both run through this class, so
 // what the tests exercise is exactly what production runs.
 class Bootstrap final {
@@ -47,9 +50,9 @@ class Bootstrap final {
   Bootstrap& operator=(const Bootstrap&) = delete;
 
   // Registers `rime:input`, `rime:process`, `rime:clipboard`, `rime:window`,
-  // `rime:automation`, `rime:storage`, `rime:registry` and `rime:screen` on
-  // the runtime. Must be called before the runtime starts; the bindings stay
-  // owned by this object for the whole lifetime.
+  // `rime:automation`, `rime:storage`, `rime:registry`, `rime:screen` and
+  // `rime:sound` on the runtime. Must be called before the runtime starts;
+  // the bindings stay owned by this object for the whole lifetime.
   rime::core::Error register_modules(rime::js::Runtime& runtime);
 
   // Registers every implemented action executor on the kernel, then starts
@@ -73,6 +76,7 @@ class Bootstrap final {
   StorageService storage_service_;
   RegistryService registry_service_;
   ScreenService screen_service_;
+  SoundService sound_service_;
 
   rime::action::Kernel kernel_;
   rime::action::Dispatcher dispatcher_;
@@ -87,6 +91,7 @@ class Bootstrap final {
   StorageModuleBinding storage_binding_;
   RegistryModuleBinding registry_binding_;
   ScreenModuleBinding screen_binding_;
+  SoundModuleBinding sound_binding_;
 
   bool started_{false};
 };
@@ -94,8 +99,8 @@ class Bootstrap final {
 // The grant the Rim demo bundle documents: reads plus the input hook;
 // mutations still fail the policy with a clear reason.
 std::unordered_set<std::string> demo_capabilities();
-// The production grant: every implemented action capability in
-// contracts/registry/actions.json; planned capabilities stay out.
+// The production grant: every implemented capability in
+// contracts/registry/actions.json; `test-only` probes stay out.
 std::unordered_set<std::string> production_capabilities();
 
 // Reads the file at `path` and drives it through the full production

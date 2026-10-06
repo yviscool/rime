@@ -22,6 +22,7 @@ add_library(rime_win32 STATIC
   src/registry_executor.cpp
   src/screen.cpp
   src/screen_pixels.cpp
+  src/sound.cpp
   src/screen_seam.cpp
   src/image_loader.cpp
   src/storage.cpp
@@ -41,6 +42,9 @@ target_link_libraries(rime_win32 PRIVATE advapi32)
 # Adapter addresses for SysGetIPAddresses (GetAdaptersAddresses), read by the
 # service and cross-checked by the screen test against GetIpAddrTable.
 target_link_libraries(rime_win32 PRIVATE iphlpapi)
+# winmm: SoundBeep (Beep) and SoundPlay (mciSendString/mciGetErrorString) go
+# through the multimedia API; MessageBeep resolves in user32, already linked.
+target_link_libraries(rime_win32 PRIVATE winmm)
 # Storage service: WinHTTP download, shell recycle/shortcut/eject and the
 # dialog/shortcut GUIDs (CLSID_FileOpenDialog, CLSID_ShellLink, ...).
 target_link_libraries(rime_win32 PRIVATE winhttp shell32 ole32 uuid)

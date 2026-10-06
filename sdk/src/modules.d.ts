@@ -40,6 +40,11 @@ declare module "rime:control" {
   export { control };
 }
 
+declare module "rime:sound" {
+  const sound: import("./sound").SoundBridge;
+  export { sound };
+}
+
 declare module "rime:storage" {
   const storage: import("./storage").StorageBridge;
   export { storage };

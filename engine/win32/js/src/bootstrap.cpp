@@ -112,6 +112,7 @@ Bootstrap::Bootstrap(std::unordered_set<std::string> capabilities)
   storage_binding_ = {&storage_service_, &kernel_, &dispatcher_, &next_action_id_};
   registry_binding_ = {&registry_service_, &kernel_, &dispatcher_, &next_action_id_};
   screen_binding_ = {&screen_service_, &kernel_};
+  sound_binding_ = {&sound_service_, &kernel_};
 }
 
 Bootstrap::~Bootstrap() { (void)stop(); }
@@ -143,6 +144,9 @@ rime::core::Error Bootstrap::register_modules(rime::js::Runtime& runtime) {
   }
   if (const auto error = register_screen_module(runtime, &screen_binding_); !error.ok()) {
     return module_error("rime:screen", error);
+  }
+  if (const auto error = register_sound_module(runtime, &sound_binding_); !error.ok()) {
+    return module_error("rime:sound", error);
   }
   return rime::core::Error::none();
 }
