@@ -2,6 +2,7 @@
 
 #include "rime/core/json.hpp"
 #include "rime/core/lane.hpp"
+#include "rime/win32/action_contract.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -15,33 +16,19 @@ using Result = rime::action::Result;
 using Error = rime::core::Error;
 using Code = rime::core::Error::Code;
 namespace json = rime::core::json;
+namespace contract = rime::win32::contract;
+using contract::fail;
 
 // Fixed English payload texts. The Action result is what the trace, the JS
 // promise and docs/api/registry.md all read, so nothing here interpolates
 // localised Win32 text; only Win32 failures carry a status number.
 constexpr const char* kPayloadPrefix = "registry.write payload ";
 
-Result fail(const rime::action::Action& action, const Code code, std::string message) {
-  return {action.id, false, false, message, {code, message}, {}};
-}
-
-Result cancelled(const rime::action::Action& action, const char* message) {
-  return {action.id, false, true, message, {Code::Cancelled, message}, {}};
-}
-
-// JSON carries integers as doubles, so the contract's 0..2^63-1 range is
-// exactly the doubles that are integral and below 2^63. Values above 2^53
-// are accepted but already rounded by JSON parsing (documented in
-// docs/api/registry.md).
+// JSON carries integers as doubles, so the contract's 0..2^63-1 range is the
+// half-open double range [0, 2^63). Values above 2^53 are accepted but
+// already rounded by JSON parsing (documented in docs/api/registry.md).
 bool json_uint64(const json::Value& value, std::uint64_t& out) {
-  if (!value.is_number()) return false;
-  const double number = value.as_number();
-  if (!std::isfinite(number) || std::trunc(number) != number) return false;
-  // 9223372036854775808.0 is 2^63, exactly representable as a double; at or
-  // above it the value no longer fits the payload contract's range.
-  if (!(number >= 0.0) || number >= 9223372036854775808.0) return false;
-  out = static_cast<std::uint64_t>(number);
-  return true;
+  return contract::json_u64_range(value, 0.0, 9223372036854775808.0, out);
 }
 
 // Validates `value` against `type` and fills `out` without touching the OS.
@@ -108,25 +95,13 @@ Error parse_value(const std::string& type, const json::Value& value, RegValue& o
 
 rime::action::Result RegistryExecutor::execute(const rime::action::Action& action,
                                                 rime::core::CancellationToken cancellation) {
-  if (const auto lane_error = rime::core::require_lane(rime::core::Lane::Worker);
-      !lane_error.ok()) {
-    return fail(action, lane_error.code, lane_error.message);
-  }
-  if (action.type != "registry.write") {
-    return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
-  }
-  if (action.target.kind != "registry") {
-    return fail(action, Code::InvalidContract,
-                "registry.write requires target kind 'registry', got: " + action.target.kind);
-  }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled before execution");
-  }
+  if (const auto bad = contract::lane(action, rime::core::Lane::Worker)) return *bad;
+  if (const auto bad = contract::action_type(action, "registry.write")) return *bad;
+  if (const auto bad = contract::target_kind(action, "registry.write", "registry")) return *bad;
+  if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
 
   const auto payload = json::parse(action.payload);
-  if (!payload.ok() || !payload.value->is_object()) {
-    return fail(action, Code::InvalidContract, std::string(kPayloadPrefix) + "must be a JSON object");
-  }
+  if (const auto bad = contract::object_payload(action, payload, kPayloadPrefix)) return *bad;
   const json::Value* op_value = payload.value->find("op");
   if (!op_value || !op_value->is_string()) {
     return fail(action, Code::InvalidContract, std::string(kPayloadPrefix) + "requires a string op");
@@ -193,9 +168,7 @@ rime::action::Result RegistryExecutor::execute(const rime::action::Action& actio
   }
 
   if (!service_error.ok()) return fail(action, service_error.code, service_error.message);
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled after execution");
-  }
+  if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
 
   json::Value result = json::Value::object();
   result.set("key", json::Value::string(key));

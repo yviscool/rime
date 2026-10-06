@@ -2,6 +2,7 @@
 
 #include "rime/core/json.hpp"
 #include "rime/core/lane.hpp"
+#include "rime/win32/action_contract.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -17,6 +18,8 @@ using Result = rime::action::Result;
 using Error = rime::core::Error;
 using Code = rime::core::Error::Code;
 namespace json = rime::core::json;
+namespace contract = rime::win32::contract;
+using contract::fail;
 
 // Fixed English payload texts. The Action result is what the trace, the JS
 // promise and docs/api/storage.md all read, so nothing here interpolates
@@ -27,14 +30,6 @@ constexpr const char* kPayloadPrefix = "storage.write payload ";
 // milliseconds from 0 (1970-01-01) through 9999-12-31 23:59:59.999.
 constexpr double kMaxUnixMs = 253402300799999.0;
 
-Result fail(const rime::action::Action& action, const Code code, std::string message) {
-  return {action.id, false, false, message, {code, message}, {}};
-}
-
-Result cancelled(const rime::action::Action& action, const char* message) {
-  return {action.id, false, true, message, {Code::Cancelled, message}, {}};
-}
-
 Error payload_error(std::string detail) {
   return {Code::InvalidContract, std::string(kPayloadPrefix) + std::move(detail)};
 }
@@ -42,20 +37,14 @@ Error payload_error(std::string detail) {
 // JSON carries integers as doubles, so a handle id is exactly the doubles
 // that are integral and in 1..2^63-1 (the service's id space).
 bool json_handle(const json::Value& value, std::uint64_t& out) {
-  if (!value.is_number()) return false;
-  const double number = value.as_number();
-  if (!std::isfinite(number) || std::trunc(number) != number) return false;
-  if (!(number >= 1.0) || number >= 9223372036854775808.0) return false;
-  out = static_cast<std::uint64_t>(number);
-  return true;
+  return contract::json_u64_range(value, 1.0, 9223372036854775808.0, out);
 }
 
 // One element of handleWrite's `data` byte array: integral and 0..255.
 bool json_byte(const json::Value& value, std::uint8_t& out) {
   if (!value.is_number()) return false;
   const double number = value.as_number();
-  if (!std::isfinite(number) || std::trunc(number) != number) return false;
-  if (!(number >= 0.0) || number > 255.0) return false;
+  if (!contract::in_integral_range(number, 0.0, 255.0)) return false;
   out = static_cast<std::uint8_t>(number);
   return true;
 }
@@ -64,12 +53,7 @@ bool json_byte(const json::Value& value, std::uint8_t& out) {
 // 9999 ceiling the service enforces, all inside the exactly representable
 // double range so no rounding can move the value across the boundary.
 bool json_unix_ms(const json::Value& value, std::int64_t& out) {
-  if (!value.is_number()) return false;
-  const double number = value.as_number();
-  if (!std::isfinite(number) || std::trunc(number) != number) return false;
-  if (!(number >= 0.0) || number > kMaxUnixMs) return false;
-  out = static_cast<std::int64_t>(number);
-  return true;
+  return contract::json_i64_range(value, 0.0, kMaxUnixMs, out);
 }
 
 // Every op declares the complete field list it accepts; an extra key is a
@@ -420,29 +404,16 @@ Error run_op(const std::string& op, const json::Value& payload, StorageService& 
 
 rime::action::Result StorageExecutor::execute(const rime::action::Action& action,
                                               rime::core::CancellationToken cancellation) {
-  if (const auto lane_error = rime::core::require_lane(rime::core::Lane::Worker);
-      !lane_error.ok()) {
-    return fail(action, lane_error.code, lane_error.message);
-  }
-  if (action.type != "storage.write") {
-    return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
-  }
-  if (action.target.kind != "storage") {
-    return fail(action, Code::InvalidContract,
-                "storage.write requires target kind 'storage', got: " + action.target.kind);
-  }
+  if (const auto bad = contract::lane(action, rime::core::Lane::Worker)) return *bad;
+  if (const auto bad = contract::action_type(action, "storage.write")) return *bad;
+  if (const auto bad = contract::target_kind(action, "storage.write", "storage")) return *bad;
   if (action.target.id != "fs") {
     return fail(action, Code::InvalidContract, "storage.write target id must be 'fs'");
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled before execution");
-  }
+  if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
 
   const auto payload = json::parse(action.payload);
-  if (!payload.ok() || !payload.value->is_object()) {
-    return fail(action, Code::InvalidContract,
-                std::string(kPayloadPrefix) + "must be a JSON object");
-  }
+  if (const auto bad = contract::object_payload(action, payload, kPayloadPrefix)) return *bad;
   const json::Value* op_value = payload.value->find("op");
   if (!op_value || !op_value->is_string() || op_value->as_string().empty()) {
     return fail(action, Code::InvalidContract,
@@ -458,9 +429,7 @@ rime::action::Result StorageExecutor::execute(const rime::action::Action& action
   if (const Error op_error = run_op(op, *payload.value, service_); !op_error.ok()) {
     return fail(action, op_error.code, op_error.message);
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled after execution");
-  }
+  if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
 
   json::Value result = json::Value::object();
   result.set("op", json::Value::string(op));

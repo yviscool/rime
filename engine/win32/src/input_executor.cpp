@@ -2,6 +2,7 @@
 
 #include "rime/core/json.hpp"
 #include "rime/core/lane.hpp"
+#include "rime/win32/action_contract.hpp"
 
 #include <cmath>
 #include <string>
@@ -13,30 +14,19 @@ namespace {
 
 using Result = rime::action::Result;
 using Code = rime::core::Error::Code;
-
-Result fail(const rime::action::Action& action, const Code code, std::string message) {
-  return {action.id, false, false, message, {code, message}, {}};
-}
-
-Result cancelled(const rime::action::Action& action, const std::string& message) {
-  return {action.id, false, true, message, {Code::Cancelled, message}, {}};
-}
+namespace contract = rime::win32::contract;
+using contract::fail;
 
 // Integer check shared by both payload contracts: JSON numbers are doubles,
 // so exactness against trunc plus an int32 bound keeps the cast defined.
 bool is_int32(const double value) {
-  return value == std::trunc(value) && value >= -2147483648.0 && value <= 2147483647.0;
+  return contract::in_integral_range(value, -2147483648.0, 2147483647.0);
 }
 
 Result execute_send(InputService& service, const rime::action::Action& action,
                     rime::core::CancellationToken cancellation) {
-  if (action.target.kind != "input") {
-    return fail(action, Code::InvalidContract,
-                "input.send requires target kind 'input', got: " + action.target.kind);
-  }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled before execution");
-  }
+  if (const auto bad = contract::target_kind(action, "input.send", "input")) return *bad;
+  if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
 
   const auto payload = rime::core::json::parse(action.payload);
   if (!payload.ok() || !payload.value->is_array()) {
@@ -76,9 +66,7 @@ Result execute_send(InputService& service, const rime::action::Action& action,
     }
     keys.push_back({static_cast<std::uint32_t>(vk_number), down->as_bool(), is_unicode});
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled before execution");
-  }
+  if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
 
   const auto sent = service.send(keys);
   if (!sent.ok()) return fail(action, sent.code, sent.message);
@@ -90,13 +78,8 @@ Result execute_send(InputService& service, const rime::action::Action& action,
 
 Result execute_mouse(InputService& service, const rime::action::Action& action,
                      rime::core::CancellationToken cancellation) {
-  if (action.target.kind != "input") {
-    return fail(action, Code::InvalidContract,
-                "input.mouse requires target kind 'input', got: " + action.target.kind);
-  }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled before execution");
-  }
+  if (const auto bad = contract::target_kind(action, "input.mouse", "input")) return *bad;
+  if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
 
   const auto payload = rime::core::json::parse(action.payload);
   if (!payload.ok() || !payload.value->is_object()) {
@@ -172,9 +155,7 @@ Result execute_mouse(InputService& service, const rime::action::Action& action,
     }
     mouse_steps.push_back(parsed);
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled before execution");
-  }
+  if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
 
   const auto sent = service.send_mouse(mouse_steps);
   if (!sent.ok()) return fail(action, sent.code, sent.message);
@@ -188,17 +169,14 @@ Result execute_mouse(InputService& service, const rime::action::Action& action,
 
 rime::action::Result InputExecutor::execute(const rime::action::Action& action,
                                             rime::core::CancellationToken cancellation) {
-  if (const auto lane_error = rime::core::require_lane(rime::core::Lane::Worker);
-      !lane_error.ok()) {
-    return fail(action, lane_error.code, lane_error.message);
-  }
+  if (const auto bad = contract::lane(action, rime::core::Lane::Worker)) return *bad;
   if (action.type == "input.send") {
     return execute_send(service_, action, cancellation);
   }
   if (action.type == "input.mouse") {
     return execute_mouse(service_, action, cancellation);
   }
-  return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
+  return contract::unsupported(action);
 }
 
 }  // namespace rime::win32

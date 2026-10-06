@@ -2,6 +2,7 @@
 
 #include "rime/core/json.hpp"
 #include "rime/core/lane.hpp"
+#include "rime/win32/action_contract.hpp"
 
 #include "utf.hpp"
 
@@ -15,14 +16,8 @@ namespace {
 using Result = rime::action::Result;
 using Code = rime::core::Error::Code;
 namespace json = rime::core::json;
-
-Result fail(const rime::action::Action& action, const Code code, std::string message) {
-  return {action.id, false, false, message, {code, message}, {}};
-}
-
-Result cancelled(const rime::action::Action& action, const std::string& message) {
-  return {action.id, false, true, message, {Code::Cancelled, message}, {}};
-}
+namespace contract = rime::win32::contract;
+using contract::fail;
 
 bool parse_pid(const std::string& text, std::uint32_t& out) {
   if (text.empty()) return false;
@@ -35,7 +30,7 @@ bool parse_pid(const std::string& text, std::uint32_t& out) {
 // JSON numbers are doubles, so exactness against trunc plus a uint32 bound
 // keeps the cast to a pid defined.
 bool is_pid_number(const double value) {
-  return value == std::trunc(value) && value >= 1.0 && value <= 4294967295.0;
+  return contract::in_integral_range(value, 1.0, 4294967295.0);
 }
 
 Result run_launch(const rime::action::Action& action, ProcessService& service,
@@ -44,8 +39,8 @@ Result run_launch(const rime::action::Action& action, ProcessService& service,
     return fail(action, Code::InvalidContract, "process.launch target id must be 'new'");
   }
   const auto payload = rime::core::json::parse(action.payload);
-  if (!payload.ok() || !payload.value->is_object()) {
-    return fail(action, Code::InvalidContract, "process.launch payload must be a JSON object");
+  if (const auto bad = contract::object_payload(action, payload, "process.launch payload ")) {
+    return *bad;
   }
   const rime::core::json::Value* command = payload.value->find("command");
   if (!command || !command->is_string() || command->as_string().empty()) {
@@ -71,9 +66,7 @@ Result run_launch(const rime::action::Action& action, ProcessService& service,
   if (const auto launch_error = service.launch(spec, pid); !launch_error.ok()) {
     return fail(action, launch_error.code, launch_error.message);
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled after execution");
-  }
+  if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
   rime::core::json::Value value = rime::core::json::Value::object();
   value.set("pid", rime::core::json::Value::number(static_cast<double>(pid)));
   return {action.id, true, false, "launched process " + std::to_string(pid), {}, std::move(value)};
@@ -89,9 +82,7 @@ Result run_terminate(const rime::action::Action& action, ProcessService& service
   if (const auto terminate_error = service.terminate(pid, 1); !terminate_error.ok()) {
     return fail(action, terminate_error.code, terminate_error.message);
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled after execution");
-  }
+  if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
   rime::core::json::Value value = rime::core::json::Value::object();
   value.set("pid", rime::core::json::Value::number(static_cast<double>(pid)));
   return {action.id, true, false, "terminated process " + std::to_string(pid), {}, std::move(value)};
@@ -108,9 +99,8 @@ Result run_set_priority(const rime::action::Action& action, ProcessService& serv
                 "process.set.priority target id must be a positive integer");
   }
   const auto payload = json::parse(action.payload);
-  if (!payload.ok() || !payload.value->is_object()) {
-    return fail(action, Code::InvalidContract,
-                "process.set.priority payload must be a JSON object");
+  if (const auto bad = contract::object_payload(action, payload, "process.set.priority payload ")) {
+    return *bad;
   }
   const json::Value* payload_pid = payload.value->find("pid");
   if (!payload_pid || !payload_pid->is_number() || !is_pid_number(payload_pid->as_number())) {
@@ -133,16 +123,12 @@ Result run_set_priority(const rime::action::Action& action, ProcessService& serv
                 "process.set.priority payload priority must be one of idle, belowNormal, normal, "
                 "aboveNormal, high, realtime");
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled before execution");
-  }
+  if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
   if (const auto priority_error = service.set_priority(pid, priority->as_string());
       !priority_error.ok()) {
     return fail(action, priority_error.code, priority_error.message);
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled after execution");
-  }
+  if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
   json::Value value = json::Value::object();
   value.set("pid", json::Value::number(static_cast<double>(pid)));
   return {action.id, true, false, "priority updated", {}, std::move(value)};
@@ -158,8 +144,8 @@ Result run_run_as(const rime::action::Action& action, ProcessService& service,
     return fail(action, Code::InvalidContract, "process.runas target id must be 'new'");
   }
   const auto payload = json::parse(action.payload);
-  if (!payload.ok() || !payload.value->is_object()) {
-    return fail(action, Code::InvalidContract, "process.runas payload must be a JSON object");
+  if (const auto bad = contract::object_payload(action, payload, "process.runas payload ")) {
+    return *bad;
   }
   const json::Value* user = payload.value->find("user");
   if (!user || !user->is_string() || user->as_string().empty()) {
@@ -188,9 +174,7 @@ Result run_run_as(const rime::action::Action& action, ProcessService& service,
     return fail(action, Code::InvalidContract,
                 "process.runas payload workingDir must be a string");
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled before execution");
-  }
+  if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
 
   RunAsSpec spec;
   spec.user = from_utf8(user->as_string());
@@ -204,9 +188,7 @@ Result run_run_as(const rime::action::Action& action, ProcessService& service,
   if (const auto run_error = service.run_as(spec, pid); !run_error.ok()) {
     return fail(action, run_error.code, run_error.message);
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled after execution");
-  }
+  if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
   json::Value value = json::Value::object();
   value.set("pid", json::Value::number(static_cast<double>(pid)));
   return {action.id, true, false, "process created", {}, std::move(value)};
@@ -221,8 +203,8 @@ Result run_shutdown(const rime::action::Action& action, ProcessService& service,
     return fail(action, Code::InvalidContract, "process.shutdown target id must be 'system'");
   }
   const auto payload = json::parse(action.payload);
-  if (!payload.ok() || !payload.value->is_object()) {
-    return fail(action, Code::InvalidContract, "process.shutdown payload must be a JSON object");
+  if (const auto bad = contract::object_payload(action, payload, "process.shutdown payload ")) {
+    return *bad;
   }
   const json::Value* mode = payload.value->find("mode");
   if (!mode || !mode->is_string()) {
@@ -251,9 +233,7 @@ Result run_shutdown(const rime::action::Action& action, ProcessService& service,
                   "process.shutdown payload timeoutSec must be an integer between 0 and 600");
     }
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled before execution");
-  }
+  if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
 
   ShutdownSpec spec;
   spec.mode = mode_text;
@@ -264,9 +244,7 @@ Result run_shutdown(const rime::action::Action& action, ProcessService& service,
   if (const auto shutdown_error = service.shutdown_system(spec); !shutdown_error.ok()) {
     return fail(action, shutdown_error.code, shutdown_error.message);
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled after execution");
-  }
+  if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
   json::Value value = json::Value::object();
   value.set("mode", json::Value::string(mode_text));
   return {action.id, true, false, "shutdown requested", {}, std::move(value)};
@@ -276,17 +254,12 @@ Result run_shutdown(const rime::action::Action& action, ProcessService& service,
 
 rime::action::Result ProcessExecutor::execute(const rime::action::Action& action,
                                               rime::core::CancellationToken cancellation) {
-  if (const auto lane_error = rime::core::require_lane(rime::core::Lane::Worker);
-      !lane_error.ok()) {
-    return fail(action, lane_error.code, lane_error.message);
-  }
+  if (const auto bad = contract::lane(action, rime::core::Lane::Worker)) return *bad;
   if (action.target.kind != "process") {
     return fail(action, Code::InvalidContract,
                 "process actions require target kind 'process', got: " + action.target.kind);
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled before execution");
-  }
+  if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
   // No per-call timeout here by design: ProcessService calls are synchronous
   // and short (no UI queue wait), so the kernel's pre-dispatch and
   // post-commit deadline checks are the timeout enforcement for these actions.
@@ -307,7 +280,7 @@ rime::action::Result ProcessExecutor::execute(const rime::action::Action& action
   if (action.type == "process.shutdown") {
     return run_shutdown(action, service_, cancellation);
   }
-  return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
+  return contract::unsupported(action);
 }
 
 }  // namespace rime::win32

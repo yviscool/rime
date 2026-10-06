@@ -2,6 +2,7 @@
 
 #include "rime/core/json.hpp"
 #include "rime/core/lane.hpp"
+#include "rime/win32/action_contract.hpp"
 
 #include <charconv>
 #include <chrono>
@@ -54,13 +55,8 @@ bool is_desktop_action(const std::string& type) {
   return types.contains(type);
 }
 
-Result fail(const rime::action::Action& action, const Code code, std::string message) {
-  return {action.id, false, false, message, {code, message}, {}};
-}
-
-Result cancelled(const rime::action::Action& action, const std::string& message) {
-  return {action.id, false, true, message, {Code::Cancelled, message}, {}};
-}
+namespace contract = rime::win32::contract;
+using contract::fail;
 
 bool parse_window_id(const std::string& text, std::uint64_t& out) {
   if (text.empty()) return false;
@@ -188,12 +184,9 @@ rime::core::Error parse_group_query(const rime::core::json::Value& value, Window
 
 rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
                                              rime::core::CancellationToken cancellation) {
-  if (const auto lane_error = rime::core::require_lane(rime::core::Lane::Worker);
-      !lane_error.ok()) {
-    return fail(action, lane_error.code, lane_error.message);
-  }
+  if (const auto bad = contract::lane(action, rime::core::Lane::Worker)) return *bad;
   if (!window_action_types().contains(action.type)) {
-    return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
+    return contract::unsupported(action);
   }
   const bool group_action = is_group_action(action.type);
   const bool desktop_action = !group_action && is_desktop_action(action.type);
@@ -212,9 +205,7 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
     return fail(action, Code::InvalidContract,
                 "window actions require target kind 'window', got: " + action.target.kind);
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled before execution");
-  }
+  if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
 
   // Entry check; the remaining time is recomputed before every UI
   // round-trip below (resolve/info/op/info) so a late queue wait fails fast.
@@ -224,9 +215,8 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
   }
 
   const auto payload = rime::core::json::parse(action.payload);
-  if (!payload.ok() || !payload.value->is_object()) {
-    return fail(action, Code::InvalidContract,
-                action.type + " payload must be a JSON object");
+  if (const auto bad = contract::object_payload(action, payload, action.type + " payload ")) {
+    return *bad;
   }
 
   if (desktop_action) {
@@ -236,9 +226,7 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
     if (action.target.id != "all") {
       return fail(action, Code::InvalidContract, "desktop target id must be 'all'");
     }
-    if (cancellation.cancelled()) {
-      return cancelled(action, "action was cancelled before execution");
-    }
+    if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
     if (!remaining_timeout(action, timeout)) {
       return fail(action, Code::Timeout, "action deadline exceeded");
     }
@@ -246,9 +234,7 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
     if (const auto op_error = service_.minimize_all(undo, timeout); !op_error.ok()) {
       return fail(action, op_error.code, op_error.message);
     }
-    if (cancellation.cancelled()) {
-      return cancelled(action, "action was cancelled after execution");
-    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
     // Fire-and-forget: the shell applies the change asynchronously, so the
     // value stays empty and the caller observes the effect through info().
     rime::core::json::Value value = rime::core::json::Value::object();
@@ -272,9 +258,7 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
       std::size_t spec_count = 0;
       const auto op_error = service_.group_add(name, spec, spec_count, timeout);
       if (!op_error.ok()) return fail(action, op_error.code, op_error.message);
-      if (cancellation.cancelled()) {
-        return cancelled(action, "action was cancelled after execution");
-      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
       rime::core::json::Value value = rime::core::json::Value::object();
       value.set("count", rime::core::json::Value::number(static_cast<double>(spec_count)));
       return {action.id, true, false, "group spec added", {}, std::move(value)};
@@ -296,9 +280,7 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
         op_error = service_.group_deactivate(name, reverse, out, timeout);
       }
       if (!op_error.ok()) return fail(action, op_error.code, op_error.message);
-      if (cancellation.cancelled()) {
-        return cancelled(action, "action was cancelled after execution");
-      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
       const char* detail =
           action.type == "window.group.activate" ? "group window activated"
                                                   : "non-member activated";
@@ -319,9 +301,7 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
     std::optional<WindowInfo> activated;
     const auto op_error = service_.group_close(name, mode, closed, activated, timeout);
     if (!op_error.ok()) return fail(action, op_error.code, op_error.message);
-    if (cancellation.cancelled()) {
-      return cancelled(action, "action was cancelled after execution");
-    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
     rime::core::json::Value value = rime::core::json::Value::object();
     value.set("closed", rime::core::json::Value::number(static_cast<double>(closed)));
     value.set("activated", activated ? window_info_json(*activated)
@@ -517,9 +497,7 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
   if (!resolve_target(service_, action, window_id, target_error, timeout)) {
     return fail(action, target_error.code, target_error.message);
   }
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled before execution");
-  }
+  if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
 
   rime::core::Error op_error = rime::core::Error::none();
   // `window.close` and `window.kill` destroy the window, so the result value
@@ -578,12 +556,10 @@ rime::action::Result WindowExecutor::execute(const rime::action::Action& action,
   } else if (action.type == "window.set.region") {
     op_error = service_.set_region(window_id, set_string_value, timeout);
   } else {
-    return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
+    return contract::unsupported(action);
   }
   if (!op_error.ok()) return fail(action, op_error.code, op_error.message);
-  if (cancellation.cancelled()) {
-    return cancelled(action, "action was cancelled after execution");
-  }
+  if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
 
   // Every other action re-reads the window so the value reflects the
   // committed state.

@@ -2,45 +2,32 @@
 
 #include "rime/core/json.hpp"
 #include "rime/core/lane.hpp"
+#include "rime/win32/action_contract.hpp"
 
 #include <string>
 
 namespace rime::win32 {
 namespace {
 
-using Result = rime::action::Result;
 using Code = rime::core::Error::Code;
-
-Result fail(const rime::action::Action& action, const Code code, std::string message) {
-  return {action.id, false, false, message, {code, message}, {}};
-}
+namespace contract = rime::win32::contract;
+using contract::fail;
 
 }  // namespace
 
 rime::action::Result ClipboardExecutor::execute(const rime::action::Action& action,
                                                 rime::core::CancellationToken cancellation) {
-  if (const auto lane_error = rime::core::require_lane(rime::core::Lane::Worker);
-      !lane_error.ok()) {
-    return fail(action, lane_error.code, lane_error.message);
-  }
-  if (action.type != "clipboard.write") {
-    return fail(action, Code::InvalidContract, "unsupported action type: " + action.type);
-  }
-  if (action.target.kind != "clipboard") {
-    return fail(action, Code::InvalidContract,
-                "clipboard.write requires target kind 'clipboard', got: " + action.target.kind);
-  }
+  if (const auto bad = contract::lane(action, rime::core::Lane::Worker)) return *bad;
+  if (const auto bad = contract::action_type(action, "clipboard.write")) return *bad;
+  if (const auto bad = contract::target_kind(action, "clipboard.write", "clipboard")) return *bad;
   if (action.target.id != "default") {
     return fail(action, Code::InvalidContract, "clipboard.write target id must be 'default'");
   }
-  if (cancellation.cancelled()) {
-    return {action.id, false, true, "action was cancelled before execution",
-            {Code::Cancelled, "action was cancelled before execution"}, {}};
-  }
+  if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
 
   const auto payload = rime::core::json::parse(action.payload);
-  if (!payload.ok() || !payload.value->is_object()) {
-    return fail(action, Code::InvalidContract, "clipboard.write payload must be a JSON object");
+  if (const auto bad = contract::object_payload(action, payload, "clipboard.write payload ")) {
+    return *bad;
   }
   const rime::core::json::Value* text = payload.value->find("text");
   if (!text || !text->is_string()) {
@@ -54,10 +41,7 @@ rime::action::Result ClipboardExecutor::execute(const rime::action::Action& acti
   if (const auto write_error = service_.write_text(value); !write_error.ok()) {
     return fail(action, write_error.code, write_error.message);
   }
-  if (cancellation.cancelled()) {
-    return {action.id, false, true, "action was cancelled after execution",
-            {Code::Cancelled, "action was cancelled after execution"}, {}};
-  }
+  if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
 
   rime::core::json::Value result_value = rime::core::json::Value::object();
   result_value.set("text", rime::core::json::Value::string(value));
