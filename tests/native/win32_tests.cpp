@@ -1005,7 +1005,7 @@ int main() {
   // ellipse and rounded shapes report their box through info().region,
   // a blank value restores (NULLREGION + empty box), and malformed
   // options refuse before any Win32 call.
-  const auto region_box = [&](const HWND window) {
+  const auto read_region_box = [&](const HWND window) {
     RECT box{};
     const HRGN probe = CreateRectRgn(0, 0, 0, 0);
     assert(probe != nullptr);
@@ -1014,9 +1014,24 @@ int main() {
     DeleteObject(probe);
     return std::pair<int, RECT>{state, box};
   };
+  // The UI thread applied SetWindowRgn and returned, but a single read back
+  // from the test thread flaked once under ASan (NULLREGION/ERROR at the
+  // first region assert, 2026-10-06). Poll with a deadline instead of
+  // sampling once: `want_region` selects which read ends the wait, and the
+  // deadline still fails the assertion below, so nothing is masked.
+  const auto poll_region_box = [&](const HWND window, bool want_region) {
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    for (;;) {
+      const auto sample = read_region_box(window);
+      const bool has_region = sample.first != ERROR && sample.first != NULLREGION;
+      if (has_region == want_region) return sample;
+      if (std::chrono::steady_clock::now() >= deadline) return sample;
+      Sleep(10);
+    }
+  };
   assert(service.set_region(set_id, "10-10 W100 H50").ok());
   {
-    const auto [state, box] = region_box(set_victim);
+    const auto [state, box] = poll_region_box(set_victim, true);
     assert(state != ERROR && state != NULLREGION);
     assert(box.left == 10 && box.top == 10 && box.right == 110 && box.bottom == 60);
   }
@@ -1024,7 +1039,7 @@ int main() {
   assert(set_snapshot.region == "10,10,110,60");
   assert(service.set_region(set_id, "0-0 50-0 50-50").ok());
   {
-    const auto [state, box] = region_box(set_victim);
+    const auto [state, box] = poll_region_box(set_victim, true);
     assert(state != ERROR && state != NULLREGION);
     assert(box.left == 0 && box.top == 0 && box.right == 50 && box.bottom == 50);
   }
@@ -1032,7 +1047,7 @@ int main() {
   assert(set_snapshot.region == "0,0,50,50");
   assert(service.set_region(set_id, "E 5-5 W40 H30").ok());
   {
-    const auto [state, box] = region_box(set_victim);
+    const auto [state, box] = poll_region_box(set_victim, true);
     assert(state != ERROR && state != NULLREGION);
     // GDI's GetRgnBox rounds the ellipse's far edge inward by a pixel
     // (5,5,44,34 for a 5,5,45,35 ellipse) - observed behavior, not ours.
@@ -1040,7 +1055,7 @@ int main() {
   }
   assert(service.set_region(set_id, "5-5 W40 H30 R10-10").ok());
   {
-    const auto [state, box] = region_box(set_victim);
+    const auto [state, box] = poll_region_box(set_victim, true);
     assert(state != ERROR && state != NULLREGION);
     assert(box.left == 5 && box.top == 5 && box.right == 44 && box.bottom == 34);
   }
@@ -1049,7 +1064,7 @@ int main() {
   {
     // A window without a region: GetWindowRgn reports ERROR on this
     // platform (NULLREGION would mean the same thing), box stays zero.
-    const auto [state, box] = region_box(set_victim);
+    const auto [state, box] = poll_region_box(set_victim, false);
     assert(state == ERROR || state == NULLREGION);
     assert(box.left == 0 && box.top == 0 && box.right == 0 && box.bottom == 0);
   }
