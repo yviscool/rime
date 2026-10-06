@@ -13,11 +13,56 @@ enum class InputEventKind : std::uint8_t { Key, Mouse };
 
 enum class MouseAction : std::uint8_t { Move, Down, Up, Wheel };
 
-// dwExtraInfo marker written for input this process injects via send(). The
-// hook compares it verbatim: a match means "self", while other injectors'
-// LLKHF_INJECTED events stay foreign. 64-bit ASCII "RimeInpt" keeps accidental
-// collisions with other tools negligible.
+// dwExtraInfo tag written for input this process injects via send(). The
+// hook compares it through self_injected_marker_for/is_self_injected_marker:
+// a match means "self", while other injectors' LLKHF_INJECTED events stay
+// foreign. 64-bit ASCII "RimeInpt" keeps accidental collisions with other
+// tools negligible.
 inline constexpr std::uint64_t k_self_injected_marker = 0x52696D65'496E7074ull;
+
+// Send level behind input.sendLevel (AHK SendLevel: defines.h:880-887 -
+// SendLevelType is UCHAR, SendLevelMax is 100, SendLevelIsValid is 0..100).
+inline constexpr std::uint32_t k_send_level_max = 100;
+
+// The level rides in the tag's low 32 bits as `marker - level`, the same
+// shape AHK uses for its own dwExtraInfo tags (keyboard_mouse.h:267:
+// KEY_IGNORE_LEVEL(L) == KEY_IGNORE_ALL_EXCEPT_MODIFIER - L). Subtraction,
+// not bit packing, because WH_MOUSE_LL reports dwExtraInfo zero-extended
+// from 32 bits (probed: 0xDEADBEEF00000042 arrives as 0x42) while the
+// keyboard hook keeps all 64 - the level must therefore live below bit 32 -
+// and because the marker has no run of 7 unused bits. Level 0 stays
+// bit-identical to the untagged marker: 0x496E7074 - 100 never borrows into
+// the "Rime" high word. Levels above k_send_level_max clamp to it (the JS
+// layer rejects them outright; this is the defensive native side).
+inline constexpr std::uint64_t self_injected_marker_for(const std::uint32_t level) {
+  return k_self_injected_marker - (level > k_send_level_max ? k_send_level_max : level);
+}
+
+// Mouse hook path: only the low 32 bits are ever visible, so the tag is
+// recognised as the 0..100-wide window ending at the marker. Unsigned wrap
+// makes "anything above the base" and every far-below value fall outside
+// the window on its own.
+inline constexpr bool is_self_injected_marker32(const std::uint32_t extra_info_low) {
+  const auto base = static_cast<std::uint32_t>(k_self_injected_marker);
+  return base - extra_info_low <= k_send_level_max;
+}
+
+// Keyboard hook path: dwExtraInfo survives in full, so the high half must
+// still read "Rime" before the low-half window applies.
+inline constexpr bool is_self_injected_marker(const std::uint64_t extra_info) {
+  if ((extra_info >> 32) != (k_self_injected_marker >> 32)) return false;
+  return is_self_injected_marker32(static_cast<std::uint32_t>(extra_info));
+}
+
+// Level carried by an observed low 32-bit tag: the exact injected level for
+// self input, 0 for anything outside the window - foreign input therefore
+// reads 0, a documented deviation from AHK, which reports SendLevelMax + 1
+// (101) for input it did not inject (hotkey.h:76-81 InputLevelFromInfo).
+inline constexpr std::uint32_t decode_send_level(const std::uint32_t extra_info_low) {
+  const auto base = static_cast<std::uint32_t>(k_self_injected_marker);
+  const std::uint32_t level = base - extra_info_low;
+  return level <= k_send_level_max ? level : 0;
+}
 
 // Immutable snapshot of one low-level input event. Produced on the hook
 // thread, consumed wherever the subscriber delivers it.
@@ -27,9 +72,14 @@ struct InputEvent {
   // GetMessageTime-style milliseconds (32-bit system clock).
   std::uint64_t timestamp_ms{0};
   bool injected{false};
-  // True only when `injected` and dwExtraInfo carries k_self_injected_marker:
-  // input this process sent through send(), not other injectors' input.
+  // True only when `injected` and dwExtraInfo carries this process's tag
+  // (self_injected_marker_for(level)): input sent through send(), not other
+  // injectors' input.
   bool self_injected{false};
+  // Send level the batch was injected at, decoded from dwExtraInfo - see
+  // decode_send_level. Native-only: event_json() does not serialize it, so
+  // the JS-visible event shape is unchanged.
+  std::uint32_t send_level{0};
 
   // Key events.
   bool key_down{false};
@@ -160,7 +210,8 @@ class InputService final {
   [[nodiscard]] std::uint64_t dropped_events() const;
 
   // Injects one ordered key batch through SendInput, tagged with
-  // k_self_injected_marker so the hook reports it as self input. Refuses with
+  // self_injected_marker_for(send_level()) so the hook reports it as self
+  // input carrying that level. Refuses with
   // InvalidState while the service is not running (the hooks would never
   // observe the batch) and with InvalidContract for an empty or out-of-range
   // step list: non-unicode steps require vk 1..254, unicode steps a UTF-16
@@ -206,6 +257,16 @@ class InputService final {
   [[nodiscard]] std::vector<KeyHistoryEntry> key_history() const;
   void set_key_history_capacity(std::size_t capacity);
   [[nodiscard]] std::size_t key_history_capacity() const;
+
+  // Send level behind input.sendLevel (AHK SendLevel): every batch
+  // send()/send_mouse() injects stamps this level into dwExtraInfo, and the
+  // hook decodes it back into InputEvent::send_level. Defaults to 0; the
+  // setter clamps to 0..k_send_level_max exactly like
+  // set_key_history_capacity (the JS layer is the strict validator). Not
+  // touched by stop(): it is a script-level setting like the history
+  // capacity, not a desktop hazard like blocked/force_toggle. Any thread.
+  [[nodiscard]] std::uint32_t send_level() const;
+  void set_send_level(std::uint32_t level);
 
  private:
   struct Impl;

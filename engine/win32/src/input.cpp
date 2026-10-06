@@ -134,6 +134,13 @@ struct InputService::Impl {
   std::deque<KeyHistoryEntry> history;
   std::size_t history_capacity{40};  // AHK g_MaxHistoryKeys default
 
+  // Send level stamped into every injected batch (AHK g.SendLevel, 0..100):
+  // written from the JS thread, read while send()/send_mouse() compile a
+  // batch, decoded back off dwExtraInfo on the hook path. Left alone by
+  // stop() - it shapes this process's own tags, it cannot leave the desktop
+  // in a bad state the way blocked/force_toggle can.
+  std::atomic<std::uint32_t> send_level{0};
+
   // Serializes send() batches against each other; stop() joins an in-flight
   // batch before unhooking so a refused-later send can never inject into a
   // desktop the hooks no longer observe.
@@ -380,9 +387,13 @@ LRESULT CALLBACK InputService::Impl::keyboard_proc(const int code, const WPARAM 
         event.kind = InputEventKind::Key;
         event.timestamp_ms = data->time;
         event.injected = (data->flags & LLKHF_INJECTED) != 0;
-        event.self_injected =
-            event.injected &&
-            data->dwExtraInfo == static_cast<ULONG_PTR>(k_self_injected_marker);
+        // The keyboard hook preserves all 64 bits, so the tag is matched in
+        // full - with the level folded in as marker - level (the high "Rime"
+        // half never changes for level 0..100).
+        const auto extra = static_cast<std::uint64_t>(data->dwExtraInfo);
+        event.self_injected = event.injected && is_self_injected_marker(extra);
+        event.send_level =
+            event.self_injected ? decode_send_level(static_cast<std::uint32_t>(extra)) : 0;
         event.key_down = down;
         event.vk = data->vkCode;
         event.scan = data->scanCode;
@@ -427,12 +438,13 @@ LRESULT CALLBACK InputService::Impl::mouse_proc(const int code, const WPARAM wpa
       event.injected = (data->flags & LLMHF_INJECTED) != 0;
       // WH_MOUSE_LL reports dwExtraInfo zero-extended from 32 bits on this
       // Windows (probed: 0xDEADBEEF00000042 arrives as 0x42) while the
-      // keyboard hook preserves all 64 bits, so the marker is matched on its
-      // low half here and in full on the keyboard path.
-      event.self_injected =
-          event.injected &&
-          static_cast<std::uint32_t>(data->dwExtraInfo) ==
-              static_cast<std::uint32_t>(k_self_injected_marker);
+      // keyboard hook preserves all 64 bits, so the tag is matched on its
+      // low half here and in full on the keyboard path. The send level rides
+      // inside that low half (marker - level), so it decodes identically on
+      // both paths.
+      const auto extra_low = static_cast<std::uint32_t>(data->dwExtraInfo);
+      event.self_injected = event.injected && is_self_injected_marker32(extra_low);
+      event.send_level = event.self_injected ? decode_send_level(extra_low) : 0;
       event.x = data->pt.x;
       event.y = data->pt.y;
       bool valid = false;
@@ -736,6 +748,10 @@ rime::core::Error InputService::send(const std::vector<SendKeyEvent>& keys) {
       return {rime::core::Error::Code::InvalidState, "input service is not running"};
     }
   }
+  // One tag for the whole batch: the level is read once, so a concurrent
+  // set_send_level() cannot split one batch across two levels.
+  const ULONG_PTR extra_info = static_cast<ULONG_PTR>(
+      self_injected_marker_for(impl_->send_level.load(std::memory_order_acquire)));
   std::vector<INPUT> inputs;
   inputs.reserve(keys.size());
   for (const auto& step : keys) {
@@ -758,7 +774,7 @@ rime::core::Error InputService::send(const std::vector<SendKeyEvent>& keys) {
       input.ki.dwFlags = (step.down ? 0u : static_cast<DWORD>(KEYEVENTF_KEYUP)) |
                          (is_extended_vk(step.vk) ? static_cast<DWORD>(KEYEVENTF_EXTENDEDKEY) : 0u);
     }
-    input.ki.dwExtraInfo = static_cast<ULONG_PTR>(k_self_injected_marker);
+    input.ki.dwExtraInfo = extra_info;
     inputs.push_back(input);
   }
   const UINT sent = g_send_input.load(std::memory_order_acquire)(
@@ -800,6 +816,10 @@ rime::core::Error InputService::send_mouse(const std::vector<SendMouseStep>& ste
   // never swapped. We always inject in SendInput mode, so the swap applies
   // to every button batch (SendPlay would be exempt).
   const bool swap_buttons = GetSystemMetrics(SM_SWAPBUTTON) != 0;
+  // One tag for the whole batch, exactly like send(): the level is read once
+  // so a concurrent set_send_level() cannot split a batch across two levels.
+  const ULONG_PTR extra_info = static_cast<ULONG_PTR>(
+      self_injected_marker_for(impl_->send_level.load(std::memory_order_acquire)));
   std::vector<INPUT> inputs;
   inputs.reserve(steps.size());
   for (const auto& step : steps) {
@@ -835,7 +855,7 @@ rime::core::Error InputService::send_mouse(const std::vector<SendMouseStep>& ste
       default:
         return {rime::core::Error::Code::InvalidContract, "send_mouse step action is unknown"};
     }
-    input.mi.dwExtraInfo = static_cast<ULONG_PTR>(k_self_injected_marker);
+    input.mi.dwExtraInfo = extra_info;
     inputs.push_back(input);
   }
   const UINT sent = g_send_input.load(std::memory_order_acquire)(
@@ -912,6 +932,18 @@ void InputService::set_key_history_capacity(const std::size_t capacity) {
 std::size_t InputService::key_history_capacity() const {
   std::lock_guard lock(impl_->mutex);
   return impl_->history_capacity;
+}
+
+std::uint32_t InputService::send_level() const {
+  return impl_->send_level.load(std::memory_order_acquire);
+}
+
+void InputService::set_send_level(const std::uint32_t level) {
+  // The JS layer rejects anything outside 0..k_send_level_max with a
+  // TypeError; clamp here so a native caller cannot stamp a level the marker
+  // window cannot carry (same contract as set_key_history_capacity).
+  impl_->send_level.store(level > k_send_level_max ? k_send_level_max : level,
+                          std::memory_order_release);
 }
 
 }  // namespace rime::win32

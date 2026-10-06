@@ -1277,6 +1277,40 @@ JSValue input_key_history(JSContext* context, JSValueConst, int argc, JSValueCon
   return JS_ParseJSON(context, text.c_str(), text.size(), "<keyHistory>");
 }
 
+// input.sendLevel([level]): synchronous SendLevel switch (AHK SendLevel,
+// defines.h:880-887: integer 0..100). Omitted/undefined/null reads the
+// current level; a value sets it and returns the effective level. Every
+// batch send()/send_mouse() injects stamps it into dwExtraInfo and the hook
+// decodes it back onto the event (input.hpp self_injected_marker_for).
+// Validation runs first - arity, integer type, then 0..100 (TypeError; AHK
+// clamps silently, this repo rejects) - before the windows.input.inject gate
+// and before the write, so a denied or malformed call never moves the level.
+// Read and write share that one gate: the level exists only to shape this
+// process's injected input, exactly the surface input.modifiers() already
+// gates.
+JSValue input_send_level(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                         void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc > 1) return JS_ThrowTypeError(context, "sendLevel([level])");
+  const bool read_only = argc == 0 || JS_IsUndefined(argv[0]) || JS_IsNull(argv[0]);
+  std::int64_t level = 0;
+  if (!read_only && !js_int64_strict(context, argv[0], level, "sendLevel(level)")) {
+    return JS_EXCEPTION;
+  }
+  if (!read_only && (level < 0 || level > k_send_level_max)) {
+    return JS_ThrowTypeError(context, "sendLevel(level) must be in 0..100");
+  }
+  if (!binding->kernel->allows("windows.input.inject")) {
+    return throw_capability_error(context, "windows.input.inject");
+  }
+  if (read_only) return JS_NewUint32(context, binding->service->send_level());
+  binding->service->set_send_level(static_cast<std::uint32_t>(level));
+  return JS_NewUint32(context, binding->service->send_level());
+}
+
 int input_module_init(JSContext* context, JSModuleDef* module) {
   auto* binding = binding_of(context);
   if (!binding || !binding->service || !binding->kernel) {
@@ -1305,7 +1339,8 @@ int input_module_init(JSContext* context, JSModuleDef* module) {
       !add("getKeyVK", input_get_key_vk, 1) || !add("getKeyName", input_get_key_name, 1) ||
       !add("keyWait", input_key_wait, 2) ||
        !add("blockInput", input_block_input, 2) ||
-       !add("setLockForce", input_set_lock_force, 2) || !add("keyHistory", input_key_history, 1)) {
+       !add("setLockForce", input_set_lock_force, 2) || !add("keyHistory", input_key_history, 1) ||
+       !add("sendLevel", input_send_level, 1)) {
     return -1;
   }
   // M2-C event exports (hotkey/hotstring/hotIf/setTimer/onMessage/...) share

@@ -1,6 +1,10 @@
 // Realism: L5 - real SendInput keystrokes/mouse and a real global hook in
 // an interactive desktop session; the test owns its target window and
-// asserts the observed input, not just the absence of errors.
+// asserts the observed input, not just the absence of errors. SendLevel
+// coverage adds the dwExtraInfo level codec (0..100 round-trip on both the
+// 64-bit keyboard view and the truncated 32-bit mouse view) plus live
+// level-2 key and level-7 mouse batches decoded back off the hooks with
+// their self-injected flag intact.
 
 // Needs an interactive desktop, exclusive run: injects real keys/mouse and hooks global input.
 #include "rime/win32/input.hpp"
@@ -106,6 +110,7 @@ int main() {
          ((GetAsyncKeyState(VK_F24) & 0x8000) != 0));
   assert(service.key_history_capacity() == 40);
   assert(service.key_history().empty());
+  assert(service.send_level() == 0);
   assert(!service.blocked());
   assert(service.start().ok());
   assert(!service.start().ok());  // start-once
@@ -423,6 +428,148 @@ int main() {
   send_key_state(VK_F24, false);
   assert(wait_for([&] { return (GetAsyncKeyState(VK_F24) & 0x8000) == 0; }));
 
+  // --- SendLevel (AHK SendLevel, defines.h:880-887) ----------------------
+  // The level travels in dwExtraInfo as `marker - level` - the same shape AHK
+  // uses for KEY_IGNORE_LEVEL (keyboard_mouse.h:267) - so the codec is pinned
+  // first: every level 0..100 round-trips through the 64-bit keyboard view
+  // and the truncated 32-bit mouse view, level 0 stays bit-identical to the
+  // untagged marker, and anything outside the window is never mistaken for
+  // self input and decodes to 0 (documented deviation: AHK reports 101 for
+  // input it did not inject, hotkey.h:76-81; foreign input here reads 0).
+  assert(rime::win32::k_send_level_max == 100);
+  assert(rime::win32::self_injected_marker_for(0) == rime::win32::k_self_injected_marker);
+  assert(rime::win32::self_injected_marker_for(101) ==
+         rime::win32::self_injected_marker_for(100));
+  assert(rime::win32::self_injected_marker_for(~0u) == rime::win32::self_injected_marker_for(100));
+  for (std::uint32_t level = 0; level <= rime::win32::k_send_level_max; ++level) {
+    const std::uint64_t tagged = rime::win32::self_injected_marker_for(level);
+    const auto tagged_low = static_cast<std::uint32_t>(tagged);
+    assert(rime::win32::is_self_injected_marker(tagged));        // keyboard hook view
+    assert(rime::win32::is_self_injected_marker32(tagged_low));  // mouse hook view
+    assert(rime::win32::decode_send_level(tagged_low) == level);
+    // Subtracting the level never borrows out of the low word, so the high
+    // "Rime" half still matches the plain marker at every valid level.
+    assert((tagged >> 32) == (rime::win32::k_self_injected_marker >> 32));
+  }
+  {
+    const auto base_low = static_cast<std::uint32_t>(rime::win32::k_self_injected_marker);
+    assert(!rime::win32::is_self_injected_marker32(0));             // raw SendInput taps
+    assert(!rime::win32::is_self_injected_marker32(0xDEADBEEFu));   // probe value
+    assert(!rime::win32::is_self_injected_marker32(base_low + 1));  // above the base
+    assert(!rime::win32::is_self_injected_marker32(base_low - (rime::win32::k_send_level_max + 1)));
+    assert(rime::win32::decode_send_level(0) == 0);
+    assert(rime::win32::decode_send_level(0xDEADBEEFu) == 0);
+    assert(rime::win32::decode_send_level(base_low + 1) == 0);
+    // Wrong "Rime" half: rejected even when the low half sits in the window.
+    assert(!rime::win32::is_self_injected_marker(rime::win32::self_injected_marker_for(2) +
+                                                  (1ull << 32)));
+  }
+
+  // Everything observed so far - the raw foreign taps above and this
+  // process's own default-level batches alike - decodes to level 0, and at
+  // least one self batch exists to make that a real check.
+  {
+    std::lock_guard lock(mutex);
+    bool saw_self = false;
+    for (const auto& event : events) {
+      assert(event.send_level == 0);
+      if (event.self_injected) saw_self = true;
+    }
+    assert(saw_self);
+  }
+
+  // Service state: default 0, round-trips, and the native setter clamps to
+  // 100 exactly like set_key_history_capacity clamps to 500 (the JS layer
+  // rejects out-of-range input outright, this is the defensive side).
+  assert(service.send_level() == 0);
+  service.set_send_level(3);
+  assert(service.send_level() == 3);
+  service.set_send_level(101);
+  assert(service.send_level() == 100);
+  service.set_send_level(~0u);
+  assert(service.send_level() == 100);
+  service.set_send_level(0);
+  assert(service.send_level() == 0);
+
+  std::size_t events_before_level = 0;
+  {
+    std::lock_guard lock(mutex);
+    events_before_level = events.size();
+  }
+
+  // Live keyboard round-trip: a level-2 batch reaches the hook with its
+  // level decoded back off dwExtraInfo while still counting as self input
+  // (the BlockInput bypass and the chord skip both depend on that flag).
+  service.set_send_level(2);
+  {
+    const auto tagged_batch = service.send({{VK_F24, true}, {VK_F24, false}});
+    assert(tagged_batch.ok());
+  }
+  assert(wait_for([&] {
+    std::lock_guard lock(mutex);
+    for (std::size_t index = events_before_level; index < events.size(); ++index) {
+      const auto& event = events[index];
+      if (event.kind == InputEventKind::Key && event.vk == VK_F24 && event.self_injected &&
+          event.send_level == 2) {
+        return true;
+      }
+    }
+    return false;
+  }));
+
+  // Live mouse round-trip: WH_MOUSE_LL only reports the low 32 bits, so the
+  // same window has to hold on that path too. Absolute move to the cleared
+  // point the batch test already used, cursor restored right after - the
+  // desktop must end exactly where it started.
+  POINT level_origin{};
+  // NOTE: hoisted out of assert(): GetCursorPos writes level_origin even
+  // when NDEBUG compiles the assertion out.
+  const BOOL got_level_origin = GetCursorPos(&level_origin);
+  if (got_level_origin == FALSE) return 1;
+  service.set_send_level(7);
+  {
+    const auto mouse_batch =
+        service.send_mouse({{rime::win32::SendMouseAction::Move, 456, 650, 1}});
+    assert(mouse_batch.ok());
+  }
+  assert(wait_for([&] {
+    std::lock_guard lock(mutex);
+    for (std::size_t index = events_before_level; index < events.size(); ++index) {
+      const auto& event = events[index];
+      if (event.kind == InputEventKind::Mouse && event.mouse_action == MouseAction::Move &&
+          event.self_injected && event.send_level == 7 && event.x >= 455 && event.x <= 457 &&
+          event.y >= 649 && event.y <= 651) {
+        return true;
+      }
+    }
+    return false;
+  }));
+  // NOTE: hoisted out of assert(): SetCursorPos has a side effect (moves the
+  // cursor) that must run even when NDEBUG compiles assert() out.
+  const BOOL restored_level = SetCursorPos(level_origin.x, level_origin.y);
+  if (restored_level == FALSE) return 1;
+
+  // Back to the default: a level-0 batch after two non-zero ones still reads
+  // level 0 and still self - so the baseline above is not an artefact of the
+  // level never having been raised.
+  service.set_send_level(0);
+  assert(service.send_level() == 0);
+  {
+    const auto untagged_batch = service.send({{VK_F24, true}, {VK_F24, false}});
+    assert(untagged_batch.ok());
+  }
+  assert(wait_for([&] {
+    std::lock_guard lock(mutex);
+    for (std::size_t index = events_before_level; index < events.size(); ++index) {
+      const auto& event = events[index];
+      if (event.kind == InputEventKind::Key && event.vk == VK_F24 && event.self_injected &&
+          event.send_level == 0) {
+        return true;
+      }
+    }
+    return false;
+  }));
+
   // Unsubscribe closes the subscription; later events are not recorded.
   assert(service.unsubscribe(subscription));
   assert(service.subscription_count() == 0);
@@ -492,6 +639,7 @@ int main() {
   assert(!second.blocked());
   assert(second.key_history_capacity() == 40);
   assert(second.key_history().empty());
+  assert(second.send_level() == 0);
   assert(second.physical_key_down(VK_F24) ==
          ((GetAsyncKeyState(VK_F24) & 0x8000) != 0));
 

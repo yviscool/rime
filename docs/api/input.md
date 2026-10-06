@@ -1,6 +1,7 @@
 # Keyboard and Mouse API
 
-状态：`Send` 字符串语言（`Send`/`SendInput`/`SendEvent`/`SendPlay`/`SendText`，`SendMode` 经每调用 `mode` 选项承载，均映射到 `keyboard.send*` 族）、结构化注入 `input.send`、鼠标族 `mouse.move/click/drag/getPos`、修饰键快照 `input.modifiers()` 均已实现并通过 contract。`KeyWait`、`GetKeyState`、`BlockInput`、`KeyHistory` 已实现为 `input.keyWait`/`input.getKeyState`/`input.blockInput`/`input.keyHistory`（见"键状态与输入控制"）。`GetKeyName` 与 `Set{Caps,Num,Scroll}LockState`（`input.getKeyName`/`keyboard.setLockState`）已实现（contract 见 `tests/js/input_slice.cpp`、`tests/sdk/keyboard-lock.test.ts`）；`SendMessage`、`SendLevel` 仍未实现（`SendLevel`：事件级别固定 `0`；`SendMessage`：没有通用消息发送 API，Win32 消息只在 executor 内部按需使用）。全局 Hook 之上的声明式事件（`Hotkey`/`Hotstring`/`HotIf*`/`Install*Hook`/`SetTimer`/`OnMessage`/`OnClipboardChange`/`OnError`/`OnExit`）与捕获/调度控制（`input.createInputHook` 的 `InputHook` 23 成员、`input.suspend`、`input.policy`）已实现，契约与偏差见 [`hotkey-events.md`](./hotkey-events.md)。
+状态：`Send` 字符串语言（`Send`/`SendInput`/`SendEvent`/`SendPlay`/`SendText`，`SendMode` 经每调用 `mode` 选项承载，均映射到 `keyboard.send*` 族）、结构化注入 `input.send`、鼠标族 `mouse.move/click/drag/getPos`、修饰键快照 `input.modifiers()` 均已实现并通过 contract。`KeyWait`、`GetKeyState`、`BlockInput`、`KeyHistory` 已实现为 `input.keyWait`/`input.getKeyState`/`input.blockInput`/`input.keyHistory`（见"键状态与输入控制"）。`GetKeyName` 与 `Set{Caps,Num,Scroll}LockState`（`input.getKeyName`/`keyboard.setLockState`）已实现（contract 见 `tests/js/input_slice.cpp`、`tests/sdk/keyboard-lock.test.ts`）；`SendLevel` 已实现为 `input.sendLevel`（发送级别 0..100，见"发送级别"节，contract 见 `tests/native/input_tests.cpp`）；`SendMessage` 未实现，且按政策不进标准 TS API（`future-runtime.md` §10 把"未审计消息发送"列为不进入标准库的能力，`design-review.md:148`/`ts-windows-model.md:89` 同口径点名"未审计的 SendMessage"——条目落档在 [`window.md`](./window.md) 的"偏差与不实现项"）。
+全局 Hook 之上的声明式事件（`Hotkey`/`Hotstring`/`HotIf*`/`Install*Hook`/`SetTimer`/`OnMessage`/`OnClipboardChange`/`OnError`/`OnExit`）与捕获/调度控制（`input.createInputHook` 的 `InputHook` 23 成员、`input.suspend`、`input.policy`）已实现，契约与偏差见 [`hotkey-events.md`](./hotkey-events.md)。
 
 源码证据：`functions.h` 的 `Send*`/`Mouse*`/`KeyWait`；`rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp`（SendKeys ~460-830、SendKey 1035-1265、MouseClickDrag 2035-2106、MouseClick 2116、MouseMove 2355、BlockInput 4512/4520）；`script2.cpp:1308`（MouseGetPos）、`script2.cpp:2264`（GetKeyState 模式首字符）、`script2.cpp:870`（KeyHistory）、`lib/wait.cpp:111`（KeyWait 默认等释放/physical）、`hook.cpp:263-266`（hook 吞噬 return 1 先例）、`hook.h:255`+`globaldata.cpp:97`（`KeyHistoryItem` 与 `g_MaxHistoryKeys=40`）；`source/window.cpp:1136`（GetNonChildParent）；`lib/win.cpp:762`（ControlGetClassNN）。
 
@@ -112,6 +113,26 @@ input.keyHistory({ maxEvents: 40 });             // { capacity, count, events[] 
 - 四个面都是**读/控制路径而非 Action**：`getKeyState`/`keyHistory`/`blockInput` 同步、`keyWait` 轮询异步，均不经 `Context → Intent → Action IR → Action Kernel`（与 `windows.wait`、`mouseGetPos` 同构）；能力门禁、取消、超时、诊断仍齐备，只是不进 Action Trace。
 - TS 声明已随 M2-B 落地：`sdk/src/input/types.ts` 的 `InputBridge` 四方法与配套类型（`KeyStateMode`/`KeyWaitOptions`/`BlockInputOptions`/`KeyHistoryOptions`/`KeyHistoryRow`/`KeyHistoryReport`）。
 
+## 发送级别 — input.sendLevel
+
+```js
+import { input } from "rime:input";
+
+input.sendLevel();      // 0：读当前级别
+input.sendLevel(5);     // 5：写入并返回生效后的级别
+input.sendLevel(101);   // TypeError（0..100）
+input.sendLevel("5");   // TypeError（必须是整数）
+```
+
+- **语义**：AHK `SendLevel`（`defines.h:880-887`：`SendLevelType=UCHAR`、`SendLevelMax=100`、`SendLevelIsValid` 为 `0..100`）——本进程此后注入的每个 `input.send`/`input.mouse` 批次携带该级别，hook 侧解码回 `InputEvent::send_level`。同步；无参或 `undefined`/`null` 读，带参写并返回**生效后的级别**；没有独立读入口，归一用 `input.sendLevel(0)`（`input.suspend` 的"返回生效状态"同构）。
+- **编码**：级别写进 `dwExtraInfo` 的低 32 位，形态为 `k_self_injected_marker - level`——与 AHK 自己的 `KEY_IGNORE_LEVEL(L) = KEY_IGNORE_ALL_EXCEPT_MODIFIER - L`（`keyboard_mouse.h:267`）同构。选减法不选位打包有两条理由：`WH_MOUSE_LL` 只回报 `dwExtraInfo` 的低 32 位（本机探针实测 `0xDEADBEEF00000042` 到达为 `0x42`），级别必须落在 bit 32 以下；而标记的低半字没有任何 7 个连续空位可容纳 0..100。减法同时保证 **level 0 与未带级别的标记逐位相同**（`0x496E7074 - 100` 不借位进 "Rime" 高半字），因此自判定从逐字比较改为**窗口比较**（低半字落在 `[base-100, base]` 即自注入，键盘路径仍先校验高 32 位），level 0 的自判定行为与改前完全一致。
+- **错误契约**：**先校验后门禁**——参数超过 1 个、非数字、分数/非整数、`< 0` 或 `> 100` 一律同步 `TypeError`（AHK 静默夹取，此处显式拒绝）；随后查 `windows.input.inject`，缺 capability 同步抛 `Error`（消息含 `windows.input.inject`），**被拒调用不改级别**。读与写共用这一个门禁：级别只用于塑造本进程注入的输入，与 `input.send`/`input.mouse` 同属一个面——连纯读的 `input.modifiers()` 也挂 `windows.input.inject`（`input_module.cpp:402`），本函数没有更松的读口。
+- **native 防御性夹取**：`InputService::set_send_level` 把 `>100` 夹到 100（照 `set_key_history_capacity` 夹到 500 的先例——JS 层是严格校验方，native 层只兜底）。`stop()` **不**重置该级别：它是脚本级设置，和 history capacity 同类，不是 `blocked`/`force_toggle` 那种关停必须清掉的桌面危害。
+- **偏差（须与 `MinSendLevel` 一起读）**：AHK 对外来输入（非本进程注入）按 `hotkey.h:76-81` 返回 `SendLevelMax + 1 = 101`，从而永不被 `#InputLevel` 过滤；本仓库按设计令**外来事件读 `0`**。该偏差当前**不可观察**：`MinSendLevel` 过滤比较的是常量 `kEventLevel = 0`（`events_module.cpp:1189`、`:1643`、`:1667`、`:1829`、`:1847`），尚未把解码出的级别接进去。接线会改变公开事件对象形状（`event_json` 要输出 `sendLevel`，`sdk/src/input/types.ts` 的 `KeyEvent`/`MouseEvent` 需同步），两者都不在本轮所有权内，故本轮不接，缺口与建议补丁登记在交付报告。level 0 下两套语义完全一致；非 0 级别下若不改判，`MinSendLevel > 0` 会连物理输入一起滤掉（与 AHK 相反），接线时必须一并定夺。
+- **已落地的两处登记**：`sdk/src/input/types.ts` 的 `InputBridge` 已声明 `sendLevel(level?): number`（带回读文档）；`contracts/registry/actions.json` 的 `windows.input.inject` `checked` 已含门禁点 `engine/win32/js/src/input_module.cpp:1306`。
+
+测试：`tests/native/input_tests.cpp`（codec 在 0..100 全区间经 64 位键盘视图与截断 32 位鼠标视图双 round-trip、level 0 逐位等于未带级别标记、窗口外值不认自注入且解码为 0、服务状态往返与 100 夹取、level 2 键盘批次经真实 hook 解码回读、level 7 鼠标批次经 32 位视图解码回读、回到 0 后仍判自注入、全进程早期事件基线均为 0）。JS 层 TypeError/denied 矩阵待 `tests/js/input_slice.cpp` 归属方补。
+
 ## 捕获与调度控制 — createInputHook / suspend / policy（M2-D）
 
 ```js
@@ -141,6 +162,7 @@ input.hotkey("f16", fn, { suspendExempt: true, inputLevel: 1, on: true }); // �
 | `input.keyWait` | 同步校验、异步轮询 | `windows.input.read` | `TypeError` / 异步 `{ code: "timeout"\|"cancelled"\|"capability_denied" }` |
 | `input.blockInput` | 同步 | `windows.input.inject` | `TypeError`（mode/options）/ `Error`（capability）；服务未运行返回 `false` |
 | `input.keyHistory` | 同步（resize 在门禁后） | `windows.input.read` | `TypeError`（maxEvents/arity）/ `Error`（capability） |
+| `input.sendLevel` | 同步（参数校验先于门禁，写在门禁后） | `windows.input.inject` | `TypeError`（arity/非整数/不在 0..100）/ `Error`（capability） |
 | `input.createInputHook` | 同步（先校验后提交） | 构造免；`Start()` 需 `windows.hook.global` | `TypeError`（参数）/ `Error`（capability） |
 | `input.suspend` | 同步 | 无 | `TypeError`（非布尔/非 `"on"`/`"off"`/`"toggle"`） |
 | `input.policy` | 同步（整体校验后提交） | 无 | `TypeError`（未知字段/负数/非整数/`overflow` 越界/非对象） |
@@ -152,14 +174,15 @@ input.hotkey("f16", fn, { suspendExempt: true, inputLevel: 1, on: true }); // �
 - SendEvent/SendPlay：编译语法与批次同 SendInput，交付模式不同（AHK event/play 走消息注入/回放）。
 - 未知 `{..}` 项抛错而非静默跳过（见上，有意偏离）。
 - `{Text}` 外的非 ASCII 依赖 US 布局 VK 表，不可映射即抛错；不实现布局探测。
-- `SendLevel`、CapsLock 预翻转（`{CapsLock}` 按普通键处理）、SendEvent/SendPlay 的批间光标预测、标题栏点击补偿、`{Click}`/`{ASC}`/`{U+}`/鼠标键注入、相对移动 `R` 标志、X1/X2/滚轮点击：不实现。
+- CapsLock 预翻转（`{CapsLock}` 按普通键处理）、SendEvent/SendPlay 的批间光标预测、标题栏点击补偿、`{Click}`/`{ASC}`/`{U+}`/鼠标键注入、相对移动 `R` 标志、X1/X2/滚轮点击：不实现。（`SendLevel` 已在本轮实现为 `input.sendLevel`，见"发送级别"节，不再列入不实现项。）
+- `SendMessage`：不实现，且按政策裁剪（`future-runtime.md` §10"未审计消息发送"不进入标准 TS API）。本仓库的 Win32 消息使用全部由 runtime 自选（`window.cpp` 的 `WM_CLOSE`/`WM_GETTEXT`/`WM_COMMAND` 与 `ui_thread.cpp` 的唤醒消息），不构成脚本可指定 `msg`/`wParam`/`lParam` 的通用发送面；完整条目与替代路径见 [`window.md`](./window.md) 的"偏差与不实现项"。
 - 绝对坐标按主屏 `SM_CXSCREEN/SM_CYSCREEN` 归一化（AHK 同为主屏-only，不带 `MOUSEEVENTF_VIRTUALDESK`）。
 - M2-B 四件套（`KeyWait`/`GetKeyState`/`BlockInput`/`KeyHistory`）的逐条偏差见上文"键状态与输入控制"节；TS 声明已在 `sdk/src/input/types.ts` 的 `InputBridge` 落地（`getKeyState`/`keyWait`/`blockInput`/`keyHistory` 及配套类型）。
 
 ## 测试与契约
 
 - `tests/sdk/send.test.ts`：文法单元 + 门面行为（mock `rime:input`）。
-- `tests/native/input_tests.cpp`：`input.send`/`read_modifier_state`/`send_mouse` 契约与真实注入（含 Unicode 包、自标记、绝对/相对移动、down/up）；M2-B：`read_key_state` 三模式对照 Win32 源、`physical_key_down` 播种与自注入跟踪、`keyHistory` 环（resize/裁剪/0 关断/500 上限）、block 吞咽（订阅可见而 `GetAsyncKeyState` 不可见、自注入放行、off 恢复、`stop()` 清位）。
+- `tests/native/input_tests.cpp`：`input.send`/`read_modifier_state`/`send_mouse` 契约与真实注入（含 Unicode 包、自标记、绝对/相对移动、down/up）；M2-B：`read_key_state` 三模式对照 Win32 源、`physical_key_down` 播种与自注入跟踪、`keyHistory` 环（resize/裁剪/0 关断/500 上限）、block 吞咽（订阅可见而 `GetAsyncKeyState` 不可见、自注入放行、off 恢复、`stop()` 清位）；`SendLevel`：标记 codec 全 0..100 双视图 round-trip、level 0 逐位兼容、窗口外值解码为 0、服务状态往返与 100 夹取、level 2 键盘批次与 level 7 鼠标批次经真实 hook 解码回读、回到 0 后仍判自注入。
 - `tests/js/input_slice.cpp`：bridge→executor 全链（Send 文本/Unicode、`input.mouse`、`input.modifiers`、`input.mouseGetPos`、denied 门禁）；M2-B：`getKeyState`（TypeError 矩阵、toggle≡`modifiers().capsLock`、按住/释放实读）、`keyWait`（即时 resolve、timeout、cancel、真实按放、TypeError、denied `capability_denied`）、`blockInput`（TypeError、被拒调用不置位、吞咽+订阅可见+自注入放行、cancellation 守卫释放、`off` 恢复投递）、`keyHistory`（TypeError 矩阵、capacity resize 后六事件剩四行、denied）。
 - `contracts/registry/actions.json`：`input.send`/`input.mouse` 条目与 `windows.input.inject`/`windows.input.read` 门禁声明；M2-B 追加两 capability 的 `checked` 行（getKeyState/keyWait/keyHistory/blockInput 门禁点）与三条 `readSurfaces` 条目。
 

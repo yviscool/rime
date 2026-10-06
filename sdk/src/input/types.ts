@@ -357,6 +357,17 @@ export interface InputBridge {
   blockInput(mode: "on" | "off", options?: BlockInputOptions): boolean;
 
   /**
+   * Reads or writes the injection level this process stamps on its own
+   * `send`/`mouse` batches (`SendLevel`, 0..100; level 0 is the default).
+   * No argument (or `undefined`/`null`) reads the current level; a write
+   * returns the effective level afterwards. Synchronous: TypeError for a
+   * non-integer or out-of-range level; throws Error naming
+   * `windows.input.inject` when gated — reads and writes share the one
+   * gate, and a denied call never moves the level.
+   */
+  sendLevel(level?: number): number;
+
+  /**
    * Arms or clears the persistent force behind `keyboard.setLockState`'s
    * `alwaysOn`/`alwaysOff` (`input.setLockForce`): `on`/`off` establish an
    * enforced direction — the low-level hook swallows foreign presses and
