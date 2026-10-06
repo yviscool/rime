@@ -186,7 +186,7 @@ bool ensure_window_class() {
 
 UiThread::UiThread() : impl_(std::make_unique<Impl>()) {}
 
-UiThread::~UiThread() { stop(); }
+UiThread::~UiThread() { (void)stop(); }
 
 rime::core::Error UiThread::start() {
   std::unique_lock lock(impl_->mutex);
