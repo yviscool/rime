@@ -187,7 +187,7 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 - audit-gaps 12 条逐条销项（COM/VARIANT 边界文档化、ahklib.idl → 版本化 Host ABI contract、错误原型、globaldata 状态簇归属表、漂移检查 CI）；
 - 对象 213+ 成员语义还原测试、builtins 全量测试补齐；
 - `unsupported-by-policy` 每项：拒绝行为测试 + 替代路径文档；
-- 生成**核算报告**（脚本输出终态计数/百分比）入 CI，`≥99%` 为硬门槛；
+- 生成**核算报告**（脚本输出终态计数/百分比）入 CI，`≥99%` 为硬门槛（报告已入 CI：2026-10-07 起 `bun tools/coverage-matrix.ts --summary $GITHUB_STEP_SUMMARY` 在 Full suite 之后把计数与百分比写进 run 的 Summary 面，只报数不拦人；`≥99%` 硬门待分母到 99% 再开——当前 53.76%，现在开门只会教人忽略门禁）；
 - 生产 hosts 端到端：Rim bundle 经共享 bootstrap 跑通全模块。
 
 ## 4. 质量与流程约束
@@ -209,5 +209,5 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 
 ## 6. 进度度量（机器可读）
 
-- `bun run matrix:check` + 新增核算脚本：输出各 JSON 终态计数与总百分比；
+- `bun run matrix:check` + 核算报告脚本 `bun tools/coverage-matrix.ts --summary <file>`：输出各 JSON 终态计数与总百分比，CI 在 Full suite 之后同时写进 run 的 Summary 面；
 - 目标曲线：M0 后分母固定（764，有效 753）；M1~M5 每阶段消化 15~25%；M6/M7 消化对象成员大头；M8 收口 ≥99%。
