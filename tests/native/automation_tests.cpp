@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <cstdio>
 #include <chrono>
 #include <string>
 #include <thread>
@@ -128,7 +129,19 @@ int main() {
   query.name = "RimeAutomationNativeOK";
   query.control_type = "button";
   assert(service.find(query, found).ok());
-  assert(found.size() == 1);
+  if (found.size() != 1) {
+    // Say what came back: a bare assert records neither the count nor which
+    // element matched, and this is the assertion that failed in the field
+    // (2026-10-07, full-suite run; FLAKY row in docs/FLAKY.md).
+    std::fprintf(stderr, "find(%s, button) -> %zu element(s):", query.name.c_str(),
+                 found.size());
+    for (const auto& hit : found) {
+      std::fprintf(stderr, " [%s|%s id=%llu]", hit.name.c_str(),
+                   hit.control_type.c_str(), static_cast<unsigned long long>(hit.id));
+    }
+    std::fprintf(stderr, "\n");
+    assert(found.size() == 1);
+  }
   const std::uint64_t element_id = found[0].id;
   assert(element_id > 0);
   assert(found[0].name == "RimeAutomationNativeOK");
