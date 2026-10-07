@@ -9,8 +9,22 @@
         "typescript": "^5.9.0",
       },
     },
+    "apps/picker": {
+      "name": "@rime/picker",
+      "version": "0.1.0",
+      "dependencies": {
+        "@rime/sdk": "workspace:*",
+      },
+    },
     "apps/rim": {
       "name": "@rime/rim",
+      "version": "0.1.0",
+      "dependencies": {
+        "@rime/sdk": "workspace:*",
+      },
+    },
+    "apps/spy": {
+      "name": "@rime/spy",
       "version": "0.1.0",
       "dependencies": {
         "@rime/sdk": "workspace:*",
@@ -22,9 +36,13 @@
     },
   },
   "packages": {
+    "@rime/picker": ["@rime/picker@workspace:apps/picker"],
+
     "@rime/rim": ["@rime/rim@workspace:apps/rim"],
 
     "@rime/sdk": ["@rime/sdk@workspace:sdk"],
+
+    "@rime/spy": ["@rime/spy@workspace:apps/spy"],
 
     "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
