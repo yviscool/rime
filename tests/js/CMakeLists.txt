@@ -45,6 +45,14 @@ if (WIN32 AND TARGET rime_win32_js)
   add_test(NAME quickjs_golden_failures
            COMMAND rime_js_bundle --production
                    ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/golden-violations.generated.mjs)
+  # Rejection contract for the `unsupported-by-policy` rows (M8 item 3): the
+  # production module surface must expose none of the 28 stdlib.md §5 /
+  # future-runtime §10 names, and the alternatives §2.4 documents instead
+  # must exist. --production keeps a capability grant out of the assertion,
+  # the golden fixture's argument order, and its desktop environment.
+  add_test(NAME quickjs_policy_refusal
+           COMMAND rime_js_bundle --production
+                   ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/policy-refusal.mjs)
   # Reload (AHK Reload): the harness returns the code the reloaded pass
   # asked for, so the expected code proves the host loop re-read the file and
   # evaluated it a second time in a fresh runtime (count carried across).

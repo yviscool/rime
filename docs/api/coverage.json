@@ -36,7 +36,7 @@
       "status": "unsupported-by-policy",
       "async": "explicit-capability",
       "capability": "native.unsafe",
-      "contractTest": "missing",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs",
       "lane": "plugin-isolated",
       "cancellation": "plugin-defined"
     },
@@ -51,7 +51,7 @@
       "status": "unsupported-by-policy",
       "async": "explicit-capability",
       "capability": "native.unsafe",
-      "contractTest": "missing",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs",
       "lane": "plugin-isolated",
       "cancellation": "plugin-defined"
     },
@@ -615,7 +615,7 @@
       "status": "unsupported-by-policy",
       "async": "async",
       "capability": "runtime",
-      "contractTest": "docs/api/runtime-language.md",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs,docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2285,7 +2285,7 @@
       "status": "unsupported-by-policy",
       "async": "explicit-capability",
       "capability": "native.unsafe",
-      "contractTest": "missing",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs",
       "lane": "plugin-isolated",
       "cancellation": "plugin-defined"
     },
@@ -2300,7 +2300,7 @@
       "status": "unsupported-by-policy",
       "async": "explicit-capability",
       "capability": "native.unsafe",
-      "contractTest": "missing",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs",
       "lane": "plugin-isolated",
       "cancellation": "plugin-defined"
     },
@@ -2315,7 +2315,7 @@
       "status": "unsupported-by-policy",
       "async": "explicit-capability",
       "capability": "native.unsafe",
-      "contractTest": "missing",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs",
       "lane": "plugin-isolated",
       "cancellation": "plugin-defined"
     },
@@ -2431,7 +2431,7 @@
       "status": "unsupported-by-policy",
       "async": "async",
       "capability": "runtime",
-      "contractTest": "docs/api/runtime-language.md",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs,docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2504,7 +2504,7 @@
       "status": "unsupported-by-policy",
       "async": "sync",
       "capability": "runtime",
-      "contractTest": "docs/api/window.md",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs,docs/api/window.md",
       "lane": "js",
       "cancellation": "none"
     },
@@ -2836,7 +2836,7 @@
       "status": "unsupported-by-policy",
       "async": "async",
       "capability": "windows.input.inject",
-      "contractTest": "docs/api/window.md",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs,docs/api/window.md",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3326,7 +3326,7 @@
       "status": "unsupported-by-policy",
       "async": "async",
       "capability": "runtime",
-      "contractTest": "docs/api/runtime-language.md",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs,docs/api/runtime-language.md",
       "lane": "js",
       "cancellation": "deadline+AbortSignal"
     },

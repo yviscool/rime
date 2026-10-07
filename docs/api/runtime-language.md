@@ -202,12 +202,13 @@
 | `Pause` | COV | stdlib.md §5.3：AHK 伪线程挂起模型（Pause 挂起脚本线程执行）与 `Critical`/`Thread` 同族——无伪线程的架构里“整脚本停摆”无法定义为脚本可变状态 | hotkey/hotstring 分发用 `input.suspend`（events_module 分发挡板）；timer 用取消/清除；整体不响应属宿主生命周期策略（`Persistent` 已由批 4 实现为 `runtime.persistent`，本项仍判 unsupported） | `script.cpp:12468` |
 | `PostMessage` | COV | future-runtime.md §10：「未审计消息发送……不进入标准 TS API」（`design-review.md:148` 与 `ts-windows-model.md:89` 同口径点名「未审计的 SendMessage」）——脚本可指定 `msg`/`wParam`/`lParam` 投递给任意窗口的通用发送面被裁；`PostMessage` 与 `SendMessage` 同属这一面，条目统一落在 [`window.md`](./window.md) 的「偏差与不实现项」 | ① 结构化 Action（`windows.*` 写族，走 Action Kernel，可检查/可 Trace/可取消）；② UIA automation（`automation.find/read/invoke`）；③ 进程外任意消息走隔离插件与版本化 token（计划 §0.3）。runtime 内部的 `SendMessageTimeoutW`/`PostMessageW(WM_COMMAND,…)` 由 runtime 自选消息，不构成该面 | `lib/functions.h:225` |
 | `SoundGetInterface` | CB | stdlib.md §5.1：返回裸 COM 接口指针（sound.cpp:292 的 GetInterface 族） | 按能力暴露的 SoundGet/Set 高层读写（M5） | `lib/sound.cpp:292` |
-| `StrGet` | CB | stdlib.md §5.4：按地址读字符串缓冲 | TypedArray/TextDecoder 解码 | `lib/interop.cpp:242` |
+| `StrGet` | CB | stdlib.md §5.4：按地址读字符串缓冲 | `Uint8Array` + `TextDecoder` 解码（本 runtime 未提供 `TextDecoder`——QuickJS 探针 `typeof` 为 `undefined`，只有 `Uint8Array`/`ArrayBuffer`，所以脚本侧只能按字节取，解码要自己做） | `lib/interop.cpp:242` |
 | `StrPtr` | CB | stdlib.md §5.4：暴露字符串缓冲地址 | 不提供 | `lib/interop.cpp:577` |
-| `StrPut` | CB | stdlib.md §5.4：按地址写字符串缓冲 | TextEncoder 编码进二进制缓冲 | `lib/interop.cpp:242` |
+| `StrPut` | CB | stdlib.md §5.4：按地址写字符串缓冲 | `Uint8Array` 写进二进制缓冲再按编码序列化（同 `StrGet`：本 runtime 无 `TextEncoder`，只承诺字节层） | `lib/interop.cpp:242` |
 | `Thread` | COV | stdlib.md §5.3：线程中断/优先级语义属隐式伪线程模型 | SchedulerPolicy 集中定义的优先级与并发（AGENTS 调度规则） | `lib/functions.h:293` |
 | `VarSetStrCapacity` | CB | stdlib.md §5.4：预留变量缓冲容量（script2.cpp:2327-2331），属内存布局细节 | JS 字符串不可变，容量无概念 | `script2.cpp:2327` |
 
+**拒绝行为测试**：本表 22 项（CB 18 + COV 4）与 coverage 侧的 `CallbackCreate`/`CallbackFree`/`ObjGetDataPtr`/`ObjGetDataSize`/`ObjSetDataPtr` 合计 28 个名字，由 `tests/js/fixtures/policy-refusal.mjs`（ctest `quickjs_policy_refusal`，`rime_js_bundle --production`）一条断言背书：28 个名字在 `globalThis`、11 个 `rime:*` 模块的 13 个导出绑定及其方法名上**一个都解析不到**（按 API 名不区分大小写，`dllCall` 这类改写也算命中），同时本表点名的替代 API 必须真的存在——`input.suspend`（`Pause`）、`windows.focus`/`windows.close`（`PostMessage`/`SendMessage`）、`sound.getVolume`/`setVolume`（`SoundGetInterface`）、`Uint8Array`（`NumGet`/`NumPut`/`StrGet`/`StrPut`）。该测试已反向验证：往名单里塞一个真实存在的名字（`send`）或把替代断言改坏，都会以非零退出码失败，所以它不是恒真断言。
 
 ## 3. L4 还原保留清单与政策对照（10 项，已实现）
 
@@ -231,7 +232,7 @@
 - **M4**：`FileOpen`（fs service + `File` 对象）、`Reg*` 5 项 + `SetRegView`（registry service，计划 line 105 点名）。
 - **M5**：`Sound*` 5 项（winmm，计划 line 112）。
 - **M7**：原排 `PostMessage`（Control 三层执行的 Win32 消息层）——**本轮改判撤销**：`PostMessage`/`SendMessage` 按 future-runtime.md §10「未审计消息发送」判 `unsupported-by-policy`（§2.4），M7 不再有该档期；Control 三层执行的窗口消息面仍属计划范围，但只能是 runtime 内部选定消息，不开放脚本级 `msg`/`wParam`/`lParam`（完整条目见 [`window.md`](./window.md)）。
-- **M8**：`ComObj*` 7 项（audit-gaps 的 COM/VARIANT 边界）+ 22 项 `unsupported-by-policy` 的拒绝行为测试与替代路径文档（计划 line 131）。
+- **M8**：`ComObj*` 7 项（audit-gaps 的 COM/VARIANT 边界）+ 22 项 `unsupported-by-policy` 的拒绝行为测试与替代路径文档（计划 line 131）。**2026-10-07 已还**：拒绝行为测试见 §2.4 表下的 `tests/js/fixtures/policy-refusal.mjs`（本表 22 项 + coverage 侧 `Callback*`/`Obj*DataPtr*` 共 28 个名字），替代路径文档即 §2.4 的「等价物 / 替代路径」列；`ComObj*` 7 项的 COM/VARIANT 边界文档化仍归 M8。
 - **判定已定案（stdlib.md 修订后口径，无遗留冲突）**：
   1. `Critical`/`Thread` = `unsupported-by-policy`，引用 stdlib.md §5 第 3 条（隐式伪线程/抢占模型）；替代物为集中式 SchedulerPolicy 与 Action 临界区。计划 §M3 的措辞由 orchestrator 同步修订。
   2. `ComObj*` 7 项 = `contract-only`（M8）：stdlib.md §5 尾注明确其不在黑名单，去向是计划 §0.3 与 audit-gaps 的 COM 边界定档，按隔离插件信任模型处理。

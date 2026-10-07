@@ -26,6 +26,7 @@
 
 - `Format`/`FormatTime`/`Round`/`Sort`/`VerCompare` → `tests/sdk/runtime-language.test.ts`。js lane 没有 native 层可以测，这个 bun 测试就是唯一的真实消费者，期望值全部锚到 AHK 源码（`string.cpp:1409-1476`、`math.cpp:44-45`、`string.cpp:777-870`、`util.cpp:3299-3338`）；`coverage.json` 的 `DateAdd`/`DateDiff` 已经用同一文件作 `contractTest`，这里是同例。**局限**：该测试是纯逻辑级（AGENTS L2），按「低于 L4 不得作为行为契约唯一证据」，它只够给这五项的函数语义背书，不够给 Runtime 分层背书；补法是把 `@rime/runtime-language` 暴露给 QuickJS 后加一条 slice 竖切作为第二个消费者，在此之前这两列保持同值而不是编一个不存在的文件。
 - `Click` → `tests/native/input_tests.cpp`：它构造与 `Click` 同形的 `send_mouse` down/up 批次，并用真实钩子按 `self_injected` + `button == 1` 观察回来（L5，含空批次与非法按钮的拒绝路径）。参数到 steps 的映射在 `tests/sdk/send.test.ts`（`compatibilityTest`），down/up step 的 JS 边界校验在 `tests/js/input_slice.cpp`（同列）。
+- 18 项 `unsupported-by-policy`（`DllCall`/`NumGet`/`ObjPtr` 等裸互操作与 `SoundGetInterface`）→ `tests/js/fixtures/policy-refusal.mjs`（ctest `quickjs_policy_refusal`，`rime_js_bundle --production`）。这些行不背书「能做什么」，背书「坚决不提供什么」：28 个黑名单名字在 `globalThis` 与全部 `rime:*` 导出面上一个都解析不到，且 §2.4 点名的替代 API 必须存在；理由与替代路径仍在 `compatibilityTest` 指向的 `runtime-language.md` §2.4。
 
 ## 必须纳入的字段
 

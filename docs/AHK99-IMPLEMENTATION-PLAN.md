@@ -158,7 +158,7 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 3. **`WindowService::focus()` 取前台阶梯根治**（`32fc070`、`0a3bc3a`）：见 `docs/FLAKY.md` 批2 节。
 4. **门禁实测（本批）**：`bun run test` 全绿（contract:smoke/check、matrix:check、typecheck、sdk:test、native:test 16、ts:quickjs 39/39 + bundle）；`bun run test:asan` 39/39；`matrix:check` 新输出 `Production grants all 20 implemented capabilities and 22 capability refs resolve`、`Terminal 330/731 = 45.14%`。
 
-**本批遗留（M5/M8 要还的账）**：① `WindowService` 未接入 `TraceSink`，设计文档要求的"逐次记录激活尝试"未落地（`docs/api/window.md` 已如实标注）；② `core-builtins` 6 项证据缺口；③ 能力指针只校验到文件与行号、未校验指向 gate 本身；④ `objects` 成员缺逐成员 `status`（M8）。
+**本批遗留（M5/M8 要还的账）**：① `WindowService` 未接入 `TraceSink`，设计文档要求的"逐次记录激活尝试"未落地（`docs/api/window.md` 已如实标注）；② `core-builtins` 6 项证据缺口（2026-10-07 已回填 `contractTest`，`evidence_gaps` 归零）；③ 能力指针只校验到文件与行号、未校验指向 gate 本身；④ `objects` 成员缺逐成员 `status`（M8）。
 
 
 ### M5 clipboard + screen（≈16，M）
