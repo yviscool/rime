@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "rule": "terminal = implemented | js-native | unsupported-by-policy; objects members count by evidence until they gain a status column",
+  "rule": "terminal = implemented | js-native | unsupported-by-policy",
   "ledgers": [
     {
       "ledger": "coverage",
@@ -41,21 +41,23 @@
     },
     {
       "ledger": "objects",
-      "denominator": 243,
-      "terminal": 55,
-      "remaining": 188,
+      "denominator": 259,
+      "terminal": 113,
+      "remaining": 146,
       "breakdown": {
-        "compatibility-test": 55,
-        "uncovered": 188
+        "unsupported-by-policy": 16,
+        "js-native": 42,
+        "implemented": 55,
+        "contract-only": 146
       },
-      "rule": "member has a compatibilityTest naming a real file (members carry no status until M8)"
+      "rule": "status in implemented | js-native | unsupported-by-policy"
     }
   ],
   "total": {
-    "denominator": 731,
-    "terminal": 401,
-    "remaining": 330,
-    "percent": 54.86
+    "denominator": 747,
+    "terminal": 459,
+    "remaining": 288,
+    "percent": 61.45
   },
   "evidence_gaps": []
 }

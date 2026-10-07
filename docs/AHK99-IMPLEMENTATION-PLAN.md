@@ -18,10 +18,10 @@
 |---|---:|---|
 | `coverage.json`（functions.h `md_func`） | 253 | 立项时已对齐 |
 | `core-builtins.json`（script.cpp `g_BIF`） | **101（BIF1 41 + BIFn 47 + BIFi 13）** | 补齐 60 个未追踪条目：Reg* 5、WinExist/WinActive、SoundGet/Set 系 6、Trim/RTrim/LTrim/StrLower/StrUpper/StrTitle/StrGet/StrPut、ACos/Ceil/Floor/Max/Min/Sqrt/Ln/Log、Is* 谓词 12、Obj* 裸互操作系、DllCall/ComCall/ComObjFromPtr、GetMethod/HasMethod/IsSetRef |
-| `objects.json`（对象成员） | **243（20 对象）** | 提取控件专用对象（ListView 11 /TreeView 12 /StatusBar 3 /Edit/Date/Tab/ComboBox）等 30 成员 |
+| `objects.json`（对象成员） | **259（20 对象）** | 提取控件专用对象（ListView 11 /TreeView 12 /StatusBar 3 /Edit/Date/Tab/ComboBox）等 30 成员；Round 5 补 sMembers 完整性审计漏提的 16 成员（Array 2 / Map 6 / RegExMatchObject 3 / ComObject 4 / GuiControl 1） |
 | `builtins.json`（`A_*` 变量） | **145 = `g_BIV_A` 134 + 11 个 v1 别名** | 134 逐个分类（快照字段 / EventContext / 动态 async）；11 别名标 `excluded`（不计分母，理由在各自 `source`） |
 | 指令（`IsDirective`） | **22** | 逐项分类：TS 等价 API 4、配置映射 13、排除 5（`directives-and-syntax.md`） |
-| 合计 | **764（有效 753 = 764 − 11 别名）** | 分母冻结；`matrix:check` 漂移检查守住（coverage ≡ `md_func`、core-builtins ≡ `g_BIF`、builtins ⊇ `g_BIV_A`、指令 ≡ `IS_DIRECTIVE_MATCH`） |
+| 合计 | **780（有效 769 = 780 − 11 别名；计分分母 747 = 769 − 22 指令）** | 分母冻结；`matrix:check` 漂移检查守住（coverage ≡ `md_func`、core-builtins ≡ `g_BIF`、builtins ⊇ `g_BIV_A`、指令 ≡ `IS_DIRECTIVE_MATCH`） |
 
 ### 1.2 终态现状
 
@@ -31,8 +31,8 @@
 | coverage | 253 | 240 | 13 | status in implemented \| js-native \| unsupported-by-policy；实测 implemented 218、contract-only 13、unsupported-by-policy 11、js-native 11 |
 | core-builtins | 101 | 101 | 0 | status in implemented \| js-native \| unsupported-by-policy；实测 js-native 57、unsupported-by-policy 25、implemented 19 |
 | builtins | 134 | 5 | 129 | status in implemented \| js-native \| unsupported-by-policy (excluded leaves the denominator)；实测 unset 129、excluded 11、implemented 5 |
-| objects | 243 | 55 | 188 | member has a compatibilityTest naming a real file (members carry no status until M8)；实测 uncovered 188、compatibility-test 55 |
-| **合计** | **731** | **401** | **330** | **54.86%** |
+| objects | 259 | 113 | 146 | status in implemented \| js-native \| unsupported-by-policy；实测 contract-only 146、implemented 55、js-native 42、unsupported-by-policy 16 |
+| **合计** | **747** | **459** | **288** | **61.45%** |
 
 证据缺口：无（每个 `implemented` 条目都有指向真实文件的 contract/compatibility 测试路径）。
 
@@ -186,8 +186,8 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 
 - audit-gaps 12 条逐条销项（**COM/VARIANT 边界文档化：2026-10-07 已销**——`docs/api/native-interop.md` §1-§3 定档与六问、`runtime-language.md` §2.4 逐项理由/替代/证据、`stdlib.md` §5 尾注同步、`audit-gaps.md` 同条改写；余：ahklib.idl → 版本化 Host ABI contract、错误原型、globaldata 状态簇归属表、漂移检查 CI）；
 - 对象 213+ 成员语义还原测试、builtins 全量测试补齐；
-- `unsupported-by-policy` 每项：拒绝行为测试 + 替代路径文档（**2026-10-07 全覆盖**：36 个名字 = core-builtins 25 + coverage 11，`tests/js/fixtures/policy-refusal.mjs` / ctest `quickjs_policy_refusal` / `rime_js_bundle --production`，替代路径列在 `runtime-language.md` §2.4，两次反向验证非恒真）；
-- 生成**核算报告**（脚本输出终态计数/百分比）入 CI，`≥99%` 为硬门槛（报告已入 CI：2026-10-07 起 `bun tools/coverage-matrix.ts --summary $GITHUB_STEP_SUMMARY` 在 Full suite 之后把计数与百分比写进 run 的 Summary 面，只报数不拦人；`≥99%` 硬门待分母到 99% 再开——当前 54.86%（以 §1.2 生成块为准），现在开门只会教人忽略门禁）；
+- `unsupported-by-policy` 每项：拒绝行为测试 + 替代路径文档（**2026-10-07 全覆盖**：39 个名字 = core-builtins 25 + coverage 11 + 对象入口级 3（`Ptr`/`Handle`/`Hwnd`，`design-review.md:64`），`tests/js/fixtures/policy-refusal.mjs` / ctest `quickjs_policy_refusal` / `rime_js_bundle --production`，替代路径列在 `runtime-language.md` §2.4，两次反向验证非恒真；objects 台账 16 条 `unsupported-by-policy` 成员由 `objects.json` 状态 + `checkObjectsLedger` + `object-model.md` 裁剪条款背书，入口级拒绝共用同一名字表）；
+- 生成**核算报告**（脚本输出终态计数/百分比）入 CI，`≥99%` 为硬门槛（报告已入 CI：2026-10-07 起 `bun tools/coverage-matrix.ts --summary $GITHUB_STEP_SUMMARY` 在 Full suite 之后把计数与百分比写进 run 的 Summary 面，只报数不拦人；`≥99%` 硬门待分母到 99% 再开——当前 61.45%（以 §1.2 生成块为准），现在开门只会教人忽略门禁）；
 - 生产 hosts 端到端：Rim bundle 经共享 bootstrap 跑通全模块。
 
 ## 4. 质量与流程约束

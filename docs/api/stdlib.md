@@ -62,11 +62,12 @@ L4  还原保留层           JS 覆盖不了的语义能力，以自有命名�
 1. 裸 `HANDLE`/`HWND`/COM 指针与任何跨线程拥有状态的裸指针。
 2. Hook 线程、UI 线程、消息泵的实现细节；第二套脚本消息泵。
 3. AHK 式隐式全局可变态（`SetTitleMatchMode`、`A_*` 写入）与隐式伪线程/抢占模型（`Thread`/`Critical` 的线程中断语义）。
-4. 裸内存与引擎布局互操作：`DllCall`/`NumPut`/`NumGet`/`StrGet`/`StrPut`/`NumGet`、DLL 装载、`ObjGetCapacity`/`ObjSetCapacity`（AHK 对象字段数组容量是引擎内部布局，非可移植语言概念）。
+4. 裸内存与引擎布局互操作：`DllCall`/`NumPut`/`NumGet`/`StrGet`/`StrPut`、DLL 装载、`ObjGetCapacity`/`ObjSetCapacity`（AHK 对象字段数组容量是引擎内部布局，非可移植语言概念）、同族的 `Array.Capacity`（引擎分配槽位数）、`Map.Capacity`（Map 引擎容量槽位；set 仅校验数值类型 + 失败抛 MemoryError，`script_object.cpp:2003-2047`，无用户可观察的范围语义）与 `Buffer.Ptr`（缓冲区裸地址，无地址可观察面，替代是 `Uint8Array` 视图 + 显式拷贝）。
 5. 散落的全局函数——公共 API 只走模块与稳定 ID。
 6. 无 deadline 的无限等待（API 层面不提供这种签名）。
+7. AHK 声明层反射与 ByRef：`Func.IsByRef`/`IsOptional`/`IsBuiltIn`/`IsVariadic`/`MaxParams`、`Object.__Ref`（`PropRef`/`VarRef`）——ByRef 出参与引用对象是 AHK 声明模型的组成部分，函数形状与来源反射在 TS 里是编译期信息，均不进 Runtime 内核（`design-review.md`：原型链、ByRef 与动态属性只作研究依据；语法级能力清单见 `audit-gaps.md`）；替代是值语义 + 显式返回值与类型声明。`Func.MinParams`（=`fn.length`）与 `Func.Name`（=`fn.name`）有真等价，不在此列；逐成员判定与等价表达式见 `object-model.md`。
 
-（`ComObj*` 系 7 项已于 2026-10-07 随 M8 COM/VARIANT 边界定档为 `unsupported-by-policy`：按第 1 条（不给 JS 可调用的裸 COM 包装/裸指针）与第 4 条裁剪，隔离插件信任模型即其去向（计划 §0.3）；逐项理由、替代路径与证据见 `runtime-language.md` §2.4，边界文档见 `native-interop.md`，台账与拒绝测试（`policy-refusal.mjs`）同步。同案 `ControlGetHwnd` 按第 1 条裁剪——返回值就是裸 `HWND`，替代是 `control.resolve` → `ControlSnapshot.id`（见 `control.md` §4）。）
+（`ComObj*` 系 7 项已于 2026-10-07 随 M8 COM/VARIANT 边界定档为 `unsupported-by-policy`：按第 1 条（不给 JS 可调用的裸 COM 包装/裸指针）与第 4 条裁剪，隔离插件信任模型即其去向（计划 §0.3）；逐项理由、替代路径与证据见 `runtime-language.md` §2.4，边界文档见 `native-interop.md`，台账与拒绝测试（`policy-refusal.mjs`）同步。同案 `ControlGetHwnd` 按第 1 条裁剪——返回值就是裸 `HWND`，替代是 `control.resolve` → `ControlSnapshot.id`（见 `control.md` §4）。`objects.json` 的 59 个语言核心成员于 2026-10-07 逐项定档（42 `js-native` + 16 `unsupported-by-policy`，按第 1/4/7 条裁剪；另 `Map.CaseSense` 判 `contract-only` 留 L4 还原路径），等价表见 `object-model.md`。）
 
 ## 6. L4 还原保留层（@rime/runtime-language）
 

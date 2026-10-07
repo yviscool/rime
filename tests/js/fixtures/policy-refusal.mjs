@@ -1,10 +1,18 @@
 // Refusal contract for the `unsupported-by-policy` rows (M8's rejection
-// tests, AGENTS plan item 3). Two ledgers name the same policy: 25 rows in
-// docs/api/core-builtins.json (stdlib.md §5 blacklist) and 11 in
-// docs/api/coverage.json. No name is claimed by both ledgers; the coverage
+// tests, AGENTS plan item 3). Three ledgers name the same policy: 25 rows in
+// docs/api/core-builtins.json (stdlib.md §5 blacklist), 11 in
+// docs/api/coverage.json, and 11 language-core members in
+// docs/api/objects.json (Array.Capacity, Buffer.Ptr, ComObject.__Item/
+// __Value/Ptr, Func arity/reflection, Object.__Ref - stdlib.md
+// §5.1/§5.4/§5.7 and native-interop.md). No name is claimed by both ledgers;
+// the coverage
 // rows Critical/Pause/PostMessage/Thread are the ones §2.4's table lists as
 // COV, while Callback*, Obj*DataPtr* and SendMessage are coverage-only and
 // are documented in runtime-language.md §2.4 and window.md respectively.
+// The objects ledger's member names are not globals or module methods, but
+// the raw-handle property names they carry (Ptr, and the Handle/Hwnd family
+// design-review.md:64 promises never surface) are asserted absent at the
+// entry-point level too, so a leak cannot hide behind casing.
 // The claim each row makes is that Rime exposes no entry point for it - so
 // the fixture walks every registered module plus the global object and fails
 // if any of those names resolves, matched case-insensitively on the API name
@@ -78,6 +86,14 @@ const refused = [
   "StrPut",
   "Thread",
   "VarSetStrCapacity",
+  // objects ledger + design-review.md:64: raw-handle property names (the
+  // Buffer.Ptr / ComObject.Ptr member rows are unsupported-by-policy; a
+  // Handle or Hwnd own key on any reachable object would break the branded
+  // id promise), asserted at the entry-point level with the same
+  // case-insensitive match.
+  "Handle",
+  "Hwnd",
+  "Ptr",
 ];
 
 const surfaces = {

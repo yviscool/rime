@@ -125,6 +125,55 @@ async function checkDrift(): Promise<void> {
   );
 
   await checkActionRegistry(root, fail);
+  await checkObjectsLedger(root, fail);
+}
+
+// objects.json is a ledger under the same discipline as the others: every
+// member carries the declared fields (including the `status` column added in
+// round 5), a status from the stdlib.md §3 vocabulary, and - when the evidence
+// field names a file rather than "missing" - a path that exists on disk.
+// js-native rows point at the equivalence table, unsupported rows at the
+// policy chapter that settles them, implemented rows at a real test.
+async function checkObjectsLedger(
+  root: string,
+  fail: (message: string) => never,
+): Promise<void> {
+  const objects = JSON.parse(await readFile(resolve(root, "docs/api/objects.json"), "utf8")) as {
+    requiredFieldsPerMember: string[];
+    objects: Array<{
+      name: string;
+      members: Array<Record<string, unknown> & { name: string; status?: string; compatibilityTest?: string }>;
+    }>;
+  };
+  const fields = objects.requiredFieldsPerMember;
+  if (!fields.includes("status")) fail("objects.json requiredFieldsPerMember misses status");
+  const vocabulary = new Set(["implemented", "js-native", "unsupported-by-policy", "contract-only"]);
+  let members = 0;
+  for (const object of objects.objects) {
+    for (const member of object.members) {
+      members += 1;
+      const id = `${object.name}.${member.name}`;
+      for (const field of fields) {
+        const value = member[field];
+        if (value === undefined || value === null || (typeof value === "string" && value.length === 0)) {
+          fail(`objects.json ${id} misses ${field}`);
+        }
+      }
+      if (!vocabulary.has(member.status ?? "")) fail(`objects.json ${id} has status ${member.status}`);
+      if (member.compatibilityTest && member.compatibilityTest !== "missing") {
+        for (const file of member.compatibilityTest.split(",")) {
+          const path = file.trim();
+          if (!path) continue;
+          try {
+            await stat(resolve(root, path));
+          } catch {
+            fail(`objects.json ${id} compatibilityTest file not found: ${path}`);
+          }
+        }
+      }
+    }
+  }
+  console.log(`Objects ledger checked: ${members} members across ${objects.objects.length} objects`);
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +224,10 @@ async function computeAccounting(): Promise<Accounting> {
     domains: Record<string, Array<{ name: string; status?: string; compatibilityTest?: string }>>;
   };
   const objects = JSON.parse(await readFile(resolve(root, "docs/api/objects.json"), "utf8")) as {
-    objects: Array<{ name: string; members: Array<{ name: string; compatibilityTest?: string }> }>;
+    objects: Array<{
+      name: string;
+      members: Array<{ name: string; status?: string; compatibilityTest?: string }>;
+    }>;
   };
 
   const count_status = (
@@ -200,23 +252,21 @@ async function computeAccounting(): Promise<Accounting> {
   const builtin_scored = builtin_all.filter((entry) => entry.status !== "excluded");
   const bui = count_status(builtin_scored);
 
-  // objects.json members carry no `status` field yet (M8 owns the per-member
-  // restoration pass), so their terminal count is the evidence count: a
-  // compatibilityTest that names a real file. Until members gain a status
-  // column this is the only non-self-reported reading available.
-  let object_terminal = 0;
-  const object_members: Array<{ id: string; compatibilityTest?: string }> = [];
+  // objects.json members carry a per-member `status` column (the same
+  // four-state vocabulary as every other ledger, stdlib.md §3), so they count
+  // exactly like coverage/core-builtins/builtins rows: TERMINAL statuses only,
+  // with the evidence question tracked separately by gap_for below.
+  const object_members: Array<{ id: string; status?: string; compatibilityTest?: string }> = [];
   for (const object of objects.objects) {
     for (const member of object.members) {
       object_members.push({
         id: `${object.name}.${member.name}`,
+        status: member.status,
         compatibilityTest: member.compatibilityTest,
       });
     }
   }
-  object_terminal = object_members.filter(
-    (member) => typeof member.compatibilityTest === "string" && member.compatibilityTest !== "missing",
-  ).length;
+  const obj = count_status(object_members);
 
   const rows: LedgerRow[] = [
     {
@@ -246,10 +296,10 @@ async function computeAccounting(): Promise<Accounting> {
     {
       ledger: "objects",
       denominator: object_members.length,
-      terminal: object_terminal,
-      remaining: object_members.length - object_terminal,
-      breakdown: { "compatibility-test": object_terminal, uncovered: object_members.length - object_terminal },
-      rule: "member has a compatibilityTest naming a real file (members carry no status until M8)",
+      terminal: obj.terminal,
+      remaining: object_members.length - obj.terminal,
+      breakdown: obj.breakdown,
+      rule: "status in implemented | js-native | unsupported-by-policy",
     },
   ];
 
@@ -284,11 +334,20 @@ async function computeAccounting(): Promise<Accounting> {
       builtin_scored.map((entry) => ({ ...entry, status: entry.status ?? "unset" })),
       "compatibilityTest",
     ),
+    gap_for(
+      "objects",
+      object_members.map((member) => ({
+        name: member.id,
+        status: member.status ?? "unset",
+        compatibilityTest: member.compatibilityTest,
+      })),
+      "compatibilityTest",
+    ),
   ].filter((gap): gap is EvidenceGap => gap !== null);
 
   return {
     schemaVersion: 1,
-    rule: "terminal = implemented | js-native | unsupported-by-policy; objects members count by evidence until they gain a status column",
+    rule: "terminal = implemented | js-native | unsupported-by-policy",
     ledgers: rows,
     total: { denominator, terminal, remaining: denominator - terminal, percent: Number(((terminal / denominator) * 100).toFixed(2)) },
     evidence_gaps: gaps,

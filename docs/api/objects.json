@@ -22,8 +22,9 @@
           "lane": "js",
           "async": "sync",
           "ownership": "none",
-          "error": "TypeError when the value is not a number; RangeError when the value is negative or exceeds MaxIndex; MemoryError on allocation failure",
-          "compatibilityTest": "missing"
+          "error": "TypeError when the value is not a number; ValueError when the value is negative or exceeds MaxIndex; MemoryError on allocation failure",
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/stdlib.md"
         },
         {
           "name": "Length",
@@ -34,8 +35,9 @@
           "lane": "js",
           "async": "sync",
           "ownership": "none",
-          "error": "TypeError when the value is not a number; RangeError when the value is negative or exceeds MaxIndex; MemoryError on allocation failure",
-          "compatibilityTest": "missing"
+          "error": "TypeError when the value is not a number; ValueError when the value is negative or exceeds MaxIndex; MemoryError on allocation failure",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "__Enum",
@@ -47,7 +49,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Clone",
@@ -59,7 +62,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive; MemoryError on allocation failure",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Delete",
@@ -70,8 +74,9 @@
           "lane": "js",
           "async": "sync",
           "ownership": "none",
-          "error": "IndexError when the index is out of range or not numeric; TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "error": "ValueError when the index is out of range or not numeric; TypeError when receiver is primitive",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Get",
@@ -82,8 +87,9 @@
           "lane": "js",
           "async": "sync",
           "ownership": "none",
-          "error": "IndexError when the index is out of range or not numeric; UnsetError when the item is unset and no default is given; TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "error": "IndexError when the index is out of range or not numeric; UnsetItemError when the item is unset and no default is given; TypeError when receiver is primitive",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Has",
@@ -95,7 +101,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "InsertAt",
@@ -107,7 +114,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "ValueError when the index is out of range; MemoryError on allocation failure; TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Pop",
@@ -119,7 +127,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "Error when the array is empty; TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Push",
@@ -131,7 +140,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "MemoryError on allocation failure; TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "RemoveAt",
@@ -142,8 +152,35 @@
           "lane": "js",
           "async": "sync",
           "ownership": "none",
-          "error": "IndexError when index or index+count is out of range; TypeError when count is not a number; TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "error": "ValueError when index or index+count is out of range; TypeError when count is not a number; TypeError when receiver is primitive",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
+        },
+        {
+          "name": "__Item",
+          "kind": "property",
+          "parameters": "(index) / (index, value)",
+          "returnType": "any",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/script_object.cpp:Array::sMembers",
+          "lane": "js",
+          "async": "sync",
+          "ownership": "none",
+          "error": "IndexError when the index is zero or out of range or not numeric; UnsetItemError when reading an unset item without a default; MemoryError on allocation failure (set); TypeError when receiver is primitive",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
+        },
+        {
+          "name": "__New",
+          "kind": "constructor",
+          "parameters": "(item, ...)",
+          "returnType": "Array",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/script_object.cpp:Array::sMembers",
+          "lane": "js",
+          "async": "sync",
+          "ownership": "none",
+          "error": "MemoryError on allocation failure",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         }
       ]
     },
@@ -159,8 +196,9 @@
           "lane": "worker",
           "async": "async",
           "ownership": "BufferRef copies across threads",
-          "error": "TypeError when size is not a number; RangeError when size is negative; MemoryError on allocation failure; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "error": "TypeError when size is not a number; ValueError when size is negative; MemoryError on allocation failure; InvalidState when closed",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Ptr",
@@ -172,7 +210,8 @@
           "async": "async",
           "ownership": "BufferRef copies across threads",
           "error": "unsupported-by-policy (raw address exposure); InvalidState when closed",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/stdlib.md"
         },
         {
           "name": "Size",
@@ -183,8 +222,9 @@
           "lane": "worker",
           "async": "async",
           "ownership": "BufferRef copies across threads",
-          "error": "TypeError when the value is not a number; RangeError when the value is negative; MemoryError on allocation failure; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "error": "TypeError when the value is not a number; ValueError when the value is negative; MemoryError on allocation failure; InvalidState when closed",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         }
       ]
     },
@@ -201,6 +241,7 @@
           "async": "async",
           "ownership": "copied clipboard snapshot owned by JS",
           "error": "ValueError when data is neither a Buffer nor a usable address; MemoryError on allocation failure; OSError when the clipboard cannot be read; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/clipboard.test.ts"
         }
       ]
@@ -218,7 +259,8 @@
           "async": "async",
           "ownership": "ComObject typed facade, apartment-bound",
           "error": "OSError when the IDispatch invocation fails with an HRESULT; ValueError when the value cannot be converted to the target VARIANT type; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/native-interop.md"
         },
         {
           "name": "__Value",
@@ -230,7 +272,8 @@
           "async": "async",
           "ownership": "ComObject typed facade, apartment-bound",
           "error": "OSError when the referenced value cannot be read or written; ValueError when the value does not fit the VARIANT type; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/native-interop.md"
         },
         {
           "name": "Ptr",
@@ -242,7 +285,60 @@
           "async": "async",
           "ownership": "ComObject typed facade, apartment-bound",
           "error": "unsupported-by-policy (raw pointer exposure); Error when the wrapper does not support Ptr; InvalidState when closed",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/native-interop.md"
+        },
+        {
+          "name": "__Enum",
+          "kind": "method",
+          "parameters": "(maxItems?)",
+          "returnType": "object",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/script_com.cpp:ComObject::SafeArray_Enum",
+          "lane": "automation",
+          "async": "async",
+          "ownership": "ComObject typed facade, apartment-bound",
+          "error": "unsupported-by-policy (SAFEARRAY face of ComObject; native-interop.md); OSError when the underlying SAFEARRAY operation fails with an HRESULT",
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/native-interop.md"
+        },
+        {
+          "name": "Clone",
+          "kind": "method",
+          "parameters": "()",
+          "returnType": "object",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/script_com.cpp:ComObject::SafeArray_Clone",
+          "lane": "automation",
+          "async": "async",
+          "ownership": "ComObject typed facade, apartment-bound",
+          "error": "unsupported-by-policy (SAFEARRAY face of ComObject; native-interop.md); OSError when the underlying SAFEARRAY operation fails with an HRESULT",
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/native-interop.md"
+        },
+        {
+          "name": "MaxIndex",
+          "kind": "method",
+          "parameters": "(dims?)",
+          "returnType": "number",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/script_com.cpp:ComObject::SafeArray_MaxIndex",
+          "lane": "automation",
+          "async": "async",
+          "ownership": "ComObject typed facade, apartment-bound",
+          "error": "unsupported-by-policy (SAFEARRAY face of ComObject; native-interop.md); OSError when the underlying SAFEARRAY operation fails with an HRESULT",
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/native-interop.md"
+        },
+        {
+          "name": "MinIndex",
+          "kind": "method",
+          "parameters": "(dims?)",
+          "returnType": "number",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/script_com.cpp:ComObject::SafeArray_MinIndex",
+          "lane": "automation",
+          "async": "async",
+          "ownership": "ComObject typed facade, apartment-bound",
+          "error": "unsupported-by-policy (SAFEARRAY face of ComObject; native-interop.md); OSError when the underlying SAFEARRAY operation fails with an HRESULT",
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/native-interop.md"
         }
       ]
     },
@@ -259,6 +355,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         }
       ]
@@ -276,6 +373,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         }
       ]
@@ -293,6 +391,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         }
       ]
@@ -310,6 +409,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -322,6 +422,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "no source error path - Close is idempotent when the stream is already closed",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -334,6 +435,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; ValueError on an unsupported encoding",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -346,6 +448,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "unsupported-by-policy (raw OS HANDLE exposure); InvalidState when the FileRef is closed",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -358,6 +461,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -370,6 +474,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; ValueError on an invalid origin",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -382,6 +487,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; TypeError when buffer is not a Buffer; ValueError when bytes exceeds the buffer size",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -394,6 +500,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; ValueError when bytes exceeds the source length or the address is invalid",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -406,6 +513,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure; MemoryError on allocation failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -418,6 +526,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -430,6 +539,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -442,6 +552,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -454,6 +565,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -466,6 +578,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -478,6 +591,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -490,6 +604,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -502,6 +617,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -514,6 +630,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -526,6 +643,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -538,6 +656,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; ValueError on an invalid origin",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -550,6 +669,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; TypeError when the value is an object",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -562,6 +682,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -574,6 +695,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -586,6 +708,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -598,6 +721,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -610,6 +734,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -622,6 +747,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; TypeError when the value is an object",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -634,6 +760,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -646,6 +773,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -658,6 +786,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         },
         {
@@ -670,6 +799,7 @@
           "async": "async",
           "ownership": "FileRef closed deterministically on shutdown",
           "error": "InvalidState when the FileRef is closed; OSError on Win32 I/O failure",
+          "status": "implemented",
           "compatibilityTest": "tests/sdk/storage.test.ts"
         }
       ]
@@ -687,7 +817,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "MemoryError on allocation failure; TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Call",
@@ -699,7 +830,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive; errors thrown by the target function propagate to the caller",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "IsByRef",
@@ -711,7 +843,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "ValueError when position is not a valid parameter index; TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/stdlib.md"
         },
         {
           "name": "IsOptional",
@@ -723,7 +856,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "ValueError when position is not a valid parameter index; TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/stdlib.md"
         },
         {
           "name": "IsBuiltIn",
@@ -735,7 +869,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/stdlib.md"
         },
         {
           "name": "IsVariadic",
@@ -747,7 +882,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/stdlib.md"
         },
         {
           "name": "MaxParams",
@@ -759,7 +895,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/stdlib.md"
         },
         {
           "name": "MinParams",
@@ -771,7 +908,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Name",
@@ -783,7 +921,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         }
       ]
     },
@@ -800,6 +939,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -812,6 +952,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "Error when the Gui is already constructed or disposed; ValueError on invalid options; TypeError when eventObj is not an object; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -824,6 +965,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on an invalid control type or options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -836,6 +978,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -848,6 +991,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -860,6 +1004,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -872,6 +1017,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -884,6 +1030,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -896,6 +1043,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -908,6 +1056,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -920,6 +1069,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -932,6 +1082,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -944,6 +1095,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -956,6 +1108,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -968,6 +1121,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -980,6 +1134,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -992,6 +1147,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1004,6 +1160,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1016,6 +1173,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1028,6 +1186,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1040,6 +1199,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1052,6 +1212,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1064,6 +1225,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1076,6 +1238,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1088,6 +1251,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1100,6 +1264,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1112,6 +1277,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1124,6 +1290,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1136,6 +1303,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1148,6 +1316,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1160,6 +1329,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "no source error path - destroying an already destroyed Gui is a no-op",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1172,6 +1342,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1184,6 +1355,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1196,6 +1368,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1208,6 +1381,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1220,6 +1394,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1232,6 +1407,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1244,6 +1420,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1256,6 +1433,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError when the event name is unknown or addRemove is out of range",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1268,6 +1446,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError when addRemove is out of range",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1280,6 +1459,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1292,6 +1472,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1304,6 +1485,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1316,6 +1498,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1328,6 +1511,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; MemoryError on allocation failure",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1339,7 +1523,8 @@
           "lane": "ui",
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
-          "error": "InvalidState when the Gui window is destroyed; IndexError when no control matches the index or name",
+          "error": "InvalidState when the Gui window is destroyed; UnsetItemError when no control matches the index, name, text or HWND",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1352,6 +1537,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on an invalid color",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1364,6 +1550,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1376,6 +1563,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "unsupported-by-policy (raw HBRUSH handle exposure); InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1388,6 +1576,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "unsupported-by-policy (raw HWND exposure); InvalidState when the Gui window is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1400,6 +1589,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1412,6 +1602,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1424,6 +1615,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; TypeError when the value is neither a Menu bar nor empty",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1436,6 +1628,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "TypeError when the value is not a string; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1448,6 +1641,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; TypeError when the value is not a string",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         }
       ]
@@ -1465,6 +1659,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1477,6 +1672,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1489,6 +1685,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1501,6 +1698,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError when addRemove is out of range",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1513,6 +1711,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError when the event name is unknown or addRemove is out of range",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1525,6 +1724,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError when addRemove is out of range",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1537,6 +1737,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError when addRemove is out of range",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1549,6 +1750,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1561,6 +1763,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1573,6 +1776,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1585,6 +1789,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1597,6 +1802,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; TypeError when the value is not boolean-like",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1609,6 +1815,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1621,6 +1828,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1633,6 +1841,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "unsupported-by-policy (raw HWND exposure); InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1645,6 +1854,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; TypeError when the value is not a string",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1657,6 +1867,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1669,6 +1880,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1681,6 +1893,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError when the value is invalid for the control type",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1693,6 +1906,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; TypeError when the value is not boolean-like",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1705,6 +1919,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; TypeError when the List value is not an array; ValueError on invalid options or parent item",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1717,6 +1932,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError when the item is not found",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1729,6 +1945,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError when the index or row is out of range",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1741,6 +1958,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1753,6 +1971,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on an invalid format",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1765,6 +1984,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1777,6 +1997,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on invalid options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1789,6 +2010,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on an invalid mode",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1800,7 +2022,8 @@
           "lane": "ui",
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
-          "error": "InvalidState when the control is destroyed; IndexError when the row or item does not exist",
+          "error": "InvalidState when the control is destroyed; ValueError when the row or column is negative; Error when the row or item does not exist",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1813,6 +2036,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on an invalid row or options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1825,6 +2049,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on an invalid row, item or options",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1837,6 +2062,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on an invalid column",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1849,6 +2075,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on an invalid column",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1861,6 +2088,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError when the column is out of range",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1873,6 +2101,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on an invalid icon type",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1884,7 +2113,8 @@
           "lane": "ui",
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
-          "error": "InvalidState when the control is destroyed; IndexError when the item does not exist",
+          "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1896,7 +2126,8 @@
           "lane": "ui",
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
-          "error": "InvalidState when the control is destroyed; IndexError when the item does not exist",
+          "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1908,7 +2139,8 @@
           "lane": "ui",
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
-          "error": "InvalidState when the control is destroyed; IndexError when the item does not exist",
+          "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1921,6 +2153,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1933,6 +2166,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; Error when the icon cannot be loaded; ValueError on an invalid icon number",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1945,6 +2179,7 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; TypeError when a width is not numeric; ValueError when a width is negative",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -1957,6 +2192,20 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on an invalid part number or style",
+          "status": "contract-only",
+          "compatibilityTest": "missing"
+        },
+        {
+          "name": "Get",
+          "kind": "method",
+          "parameters": "(itemId, attribute)",
+          "returnType": "number",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/script_gui.cpp:GuiControlType::sMembersTV",
+          "lane": "ui",
+          "async": "async",
+          "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
+          "error": "InvalidState when the control is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         }
       ]
@@ -1974,6 +2223,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "ValueError on invalid options, end keys or match list; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -1986,6 +2236,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "ValueError on invalid keys or key options; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -1998,6 +2249,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - Start is idempotent while input is in progress",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2010,6 +2262,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - Stop is a no-op when input is not in progress",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2022,6 +2275,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - returns the EndReason string",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2034,6 +2288,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not boolean-like; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2046,6 +2301,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not boolean-like; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2058,6 +2314,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not boolean-like; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2070,6 +2327,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not boolean-like; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2082,6 +2340,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not boolean-like; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2094,6 +2353,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not boolean-like; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2106,6 +2366,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - snapshot getter",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2118,6 +2379,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - snapshot getter",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2130,6 +2392,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - snapshot getter",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2142,6 +2405,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - snapshot getter",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2154,6 +2418,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - snapshot getter",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2166,6 +2431,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "no source error path - snapshot getter",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2178,6 +2444,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not numeric; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2190,6 +2457,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not a callable object; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2202,6 +2470,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not a callable object; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2214,6 +2483,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not a callable object; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2226,6 +2496,7 @@
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
           "error": "TypeError when the value is not a callable object; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         },
         {
@@ -2237,7 +2508,8 @@
           "lane": "ui",
           "async": "async",
           "ownership": "Runtime-owned InputHookRef, stop before unload",
-          "error": "TypeError when the value is not numeric; RangeError when the value is negative; InvalidState when closed",
+          "error": "TypeError when the value is not numeric; ValueError when the value is negative; InvalidState when closed",
+          "status": "implemented",
           "compatibilityTest": "tests/js/events_slice.cpp"
         }
       ]
@@ -2255,6 +2527,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2267,6 +2540,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2279,6 +2553,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2291,6 +2566,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2303,6 +2579,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2315,6 +2592,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2327,6 +2605,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2339,6 +2618,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2351,6 +2631,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2363,6 +2644,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2375,6 +2657,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         }
       ]
@@ -2392,7 +2675,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Clear",
@@ -2404,7 +2688,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Clone",
@@ -2416,7 +2701,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive; MemoryError on allocation failure",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Delete",
@@ -2427,8 +2713,9 @@
           "lane": "js",
           "async": "sync",
           "ownership": "none",
-          "error": "UnsetError when the key does not exist; TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "error": "UnsetItemError when the key does not exist; TypeError when receiver is primitive",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Has",
@@ -2440,7 +2727,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Set",
@@ -2451,8 +2739,87 @@
           "lane": "js",
           "async": "sync",
           "ownership": "none",
-          "error": "ValueError when the argument count is odd; MemoryError on allocation failure; TypeError when receiver is primitive",
+          "error": "Error when the argument count is odd; MemoryError on allocation failure; TypeError when receiver is primitive",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
+        },
+        {
+          "name": "__Item",
+          "kind": "property",
+          "parameters": "(key) / (key, default) / (key, value)",
+          "returnType": "any",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/script_object.cpp:Array::sMembers",
+          "lane": "js",
+          "async": "sync",
+          "ownership": "none",
+          "error": "UnsetItemError when the key does not exist and no default is given; MemoryError on allocation failure (set); TypeError when receiver is primitive",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
+        },
+        {
+          "name": "Capacity",
+          "kind": "property",
+          "parameters": "(value?)",
+          "returnType": "number",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/script_object.cpp:Map::Capacity",
+          "lane": "js",
+          "async": "sync",
+          "ownership": "none",
+          "error": "TypeError when the value is not a number; MemoryError on allocation failure",
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/stdlib.md"
+        },
+        {
+          "name": "CaseSense",
+          "kind": "property",
+          "parameters": "(value?)",
+          "returnType": "string",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/script_object.cpp:Map::CaseSense",
+          "lane": "js",
+          "async": "sync",
+          "ownership": "none",
+          "error": "Error when the map is not empty; ValueError when the value is not one of On, Off or Locale; TypeError when receiver is primitive",
+          "status": "contract-only",
           "compatibilityTest": "missing"
+        },
+        {
+          "name": "Count",
+          "kind": "property",
+          "parameters": "()",
+          "returnType": "number",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/script_object.cpp:Map::Count",
+          "lane": "js",
+          "async": "sync",
+          "ownership": "none",
+          "error": "TypeError when receiver is primitive",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
+        },
+        {
+          "name": "__New",
+          "kind": "constructor",
+          "parameters": "(key, value, ...)",
+          "returnType": "Map",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/script_object.cpp:Array::sMembers",
+          "lane": "js",
+          "async": "sync",
+          "ownership": "none",
+          "error": "Error when the argument count is odd; MemoryError on allocation failure",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
+        },
+        {
+          "name": "Get",
+          "kind": "method",
+          "parameters": "(key, default?)",
+          "returnType": "any",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/script_object.cpp:Array::sMembers",
+          "lane": "js",
+          "async": "sync",
+          "ownership": "none",
+          "error": "UnsetItemError when the key does not exist and no default is given; TypeError when receiver is primitive",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         }
       ]
     },
@@ -2469,6 +2836,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "ValueError on an invalid parameter combination; TypeError when functionOrSubmenu is not an object; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2481,6 +2849,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "no source error path - appending the standard items can only fail internally",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2493,6 +2862,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2505,6 +2875,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "ValueError when the value is not 1 or 2; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2517,6 +2888,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; ValueError when the value is blank but invalid; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2529,6 +2901,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; ValueError when the item name is blank; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2541,6 +2914,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2553,6 +2927,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2565,6 +2940,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "unsupported-by-policy (raw HMENU handle exposure); InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2577,6 +2953,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the before item is not found; ValueError on an invalid parameter combination; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2589,6 +2966,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; Error when the new name is too long; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2601,6 +2979,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "ValueError on an invalid color; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2613,6 +2992,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; Error when the icon cannot be loaded; ValueError on an invalid icon number or width; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2625,6 +3005,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "Error when the menu cannot be displayed; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2637,6 +3018,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2649,6 +3031,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2661,6 +3044,7 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; InvalidState when closed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         }
       ]
@@ -2678,7 +3062,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when the receiver cannot own properties; ValueError when the name is empty",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "docs/api/stdlib.md"
         },
         {
           "name": "Clone",
@@ -2690,7 +3075,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive; TypeError when the class cannot be cloned by Object::Clone; MemoryError on allocation failure",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "DefineProp",
@@ -2702,7 +3088,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when the receiver cannot own properties; ValueError on an invalid descriptor or empty name; MemoryError on allocation failure",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "DeleteProp",
@@ -2714,7 +3101,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive; returns unset instead of throwing when the property is absent",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "GetOwnPropDesc",
@@ -2726,7 +3114,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive; returns unset when the property is absent; ValueError when the name is empty",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "HasOwnProp",
@@ -2738,7 +3127,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "OwnProps",
@@ -2750,7 +3140,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         }
       ]
     },
@@ -2767,7 +3158,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "TypeError when receiver is primitive",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "__Get",
@@ -2779,7 +3171,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "ValueError when the pattern number or name is not found; ValueError when params is a non-empty array",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Len",
@@ -2791,7 +3184,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "ValueError when pattern is not a valid pattern number or name",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Name",
@@ -2803,7 +3197,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "ValueError when pattern is not a valid pattern number or name",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         },
         {
           "name": "Pos",
@@ -2815,7 +3210,47 @@
           "async": "sync",
           "ownership": "none",
           "error": "ValueError when pattern is not a valid pattern number or name",
-          "compatibilityTest": "missing"
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
+        },
+        {
+          "name": "__Item",
+          "kind": "property",
+          "parameters": "(index?)",
+          "returnType": "string",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/lib/regex.cpp:RegExMatchObject::Invoke",
+          "lane": "js",
+          "async": "sync",
+          "ownership": "none",
+          "error": "ValueError when the pattern number or name is not found; TypeError when receiver is primitive",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
+        },
+        {
+          "name": "Count",
+          "kind": "property",
+          "parameters": "()",
+          "returnType": "number",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/lib/regex.cpp:RegExMatchObject::Invoke",
+          "lane": "js",
+          "async": "sync",
+          "ownership": "none",
+          "error": "TypeError when receiver is primitive",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
+        },
+        {
+          "name": "Mark",
+          "kind": "property",
+          "parameters": "()",
+          "returnType": "string",
+          "sourceDefinition": "rime-research/AutoHotkey-alpha/source/lib/regex.cpp:RegExMatchObject::Invoke",
+          "lane": "js",
+          "async": "sync",
+          "ownership": "none",
+          "error": "TypeError when receiver is primitive",
+          "status": "js-native",
+          "compatibilityTest": "docs/api/object-model.md"
         }
       ]
     },
@@ -2832,6 +3267,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2844,6 +3280,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2856,6 +3293,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         }
       ]
@@ -2873,6 +3311,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         }
       ]
@@ -2890,6 +3329,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2902,6 +3342,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2914,6 +3355,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2926,6 +3368,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2938,6 +3381,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2950,6 +3394,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2962,6 +3407,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2974,6 +3420,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2986,6 +3433,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -2998,6 +3446,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -3010,6 +3459,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         },
         {
@@ -3022,6 +3472,7 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
+          "status": "contract-only",
           "compatibilityTest": "missing"
         }
       ]
@@ -3037,6 +3488,7 @@
     "async",
     "ownership",
     "error",
+    "status",
     "compatibilityTest"
   ]
 }
