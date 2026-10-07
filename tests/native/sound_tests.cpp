@@ -1,7 +1,12 @@
 // Realism: L5 - winmm drives this machine's own audio device: Beep and
 // MessageBeep are real calls, and SoundPlay opens a real MCI device on a WAV
 // this test writes itself, so "playing" and "stopped" come from Windows
-// rather than from the service's own bookkeeping. The AHK defaults are pinned
+// rather than from the service's own bookkeeping. A runner without a render
+// endpoint (GitHub's headless windows-latest, where kernel32 Beep fails)
+// takes the other half of each two-branch pair: the same calls must fail
+// through the documented wrapper text - "Beep failed (win32 error ...)" and
+// "MCI open/play failed" - with no alias left behind, which is asserted
+// rather than skipped. The AHK defaults are pinned
 // with hand-written literals taken from lib/sound.cpp:594-600 (523 Hz, 150
 // ms, negative falls back) instead of being recomputed by the code under test,
 // and the file the device plays is deleted by the fixture on every path.
@@ -134,15 +139,40 @@ int main() {
   expect_device("0x2", false, "", 1);
   expect_device("1:2", false, "1", 1);
 
+  // One probe read picks the branch every device-driving call below runs in -
+  // the same two-asserted-branches shape as the endpoint section, never a
+  // skip. The call and the probe are asserted together: Beep plays through
+  // the default render endpoint, so "endpoint readable" and "Beep sounded"
+  // are two views of one fact and neither can pass alone.
+  const SoundService::ComponentSpec master;
+  const SoundService::DeviceSpec device;
+  double probe_percent = -1;
+  const auto probe = SoundService::get_volume(master, device, probe_percent);
+
   section("SoundBeep");
-  assert(SoundService::beep(std::nullopt, std::nullopt).ok());
-  assert(SoundService::beep(1000, 1).ok());
-  assert(SoundService::message_beep(0).ok());
+  if (probe.ok()) {
+    assert(SoundService::beep(std::nullopt, std::nullopt).ok());
+    assert(SoundService::beep(1000, 1).ok());
+    assert(SoundService::message_beep(0).ok());
+  } else {
+    const auto silent = SoundService::beep(std::nullopt, std::nullopt);
+    assert(!silent.ok());
+    assert(silent.code == rime::core::Error::Code::ExecutionFailed);
+    assert(silent.message.rfind("Beep failed (win32 error ", 0) == 0);
+    const auto tone = SoundService::beep(1000, 1);
+    assert(!tone.ok());
+    assert(tone.code == rime::core::Error::Code::ExecutionFailed);
+    assert(tone.message.rfind("Beep failed (win32 error ", 0) == 0);
+    // MessageBeep is deliberately not called here: user32 documents no
+    // behaviour for a machine with no wave device, so there is no honest
+    // expectation to assert. The branch above runs it wherever one exists.
+  }
 
   section("SoundPlay");
   SoundService sound;
   // A file that does not exist must be reported, never swallowed, and a
-  // failed open leaves the service holding no alias.
+  // failed open leaves the service holding no alias. Device-independent: a
+  // missing file cannot open on any machine, audio or not.
   const auto missing = sound.play(kMissingFile);
   assert(!missing.ok());
   assert(missing.code == rime::core::Error::Code::ExecutionFailed);
@@ -153,40 +183,49 @@ int main() {
   assert(wav.usable());
   assert(rime::test::write_wav(wav.path(), 1500));
 
-  // The device is the oracle: it reports the sound as playing right after the
-  // play and as stopped once its own 1500 ms of audio ran out.
-  assert(sound.play(wav.path()).ok());
-  assert(sound.play_mode() == "playing");
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-  while (sound.play_mode() == "playing" && std::chrono::steady_clock::now() < deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-  }
-  assert(sound.play_mode() == "stopped");
-  sound.close_play();
-  assert(sound.play_mode().empty());
+  if (probe.ok()) {
+    // The device is the oracle: it reports the sound as playing right after the
+    // play and as stopped once its own 1500 ms of audio ran out.
+    assert(sound.play(wav.path()).ok());
+    assert(sound.play_mode() == "playing");
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (sound.play_mode() == "playing" && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    assert(sound.play_mode() == "stopped");
+    sound.close_play();
+    assert(sound.play_mode().empty());
 
-  // One alias, one sound: a second play closes whatever the first still holds
-  // before it opens, so a failing open does not leave audio running behind it.
-  assert(sound.play(wav.path()).ok());
-  assert(sound.play_mode() == "playing");
-  const auto superseded = sound.play(kMissingFile);
-  assert(!superseded.ok());
-  assert(sound.play_mode().empty());
+    // One alias, one sound: a second play closes whatever the first still holds
+    // before it opens, so a failing open does not leave audio running behind it.
+    assert(sound.play(wav.path()).ok());
+    assert(sound.play_mode() == "playing");
+    const auto superseded = sound.play(kMissingFile);
+    assert(!superseded.ok());
+    assert(sound.play_mode().empty());
+  } else {
+    // No wave device to open: MCI has to refuse, and the refusal must carry
+    // one of the service's two documented stage prefixes (sound.cpp:
+    // mci_failure) with no alias left behind - a half-opened alias behind a
+    // reported failure is exactly what the missing-file case above forbids.
+    const auto refused = sound.play(wav.path());
+    assert(!refused.ok());
+    assert(refused.code == rime::core::Error::Code::ExecutionFailed);
+    assert(refused.message.rfind("MCI open failed", 0) == 0 ||
+           refused.message.rfind("MCI play failed", 0) == 0);
+    assert(sound.play_mode().empty());
+  }
 
   section("endpoint volume / mute / name (L5)");
 
-  // Two asserted branches chosen by one probe read - this is not a skip. A
-  // machine with a render endpoint runs the real write/read-back/restore
+  // Two asserted branches chosen by that same probe read - this is not a skip.
+  // A machine with a render endpoint runs the real write/read-back/restore
   // round-trip below; a runner without one (GitHub's headless windows-latest)
   // proves that every endpoint call reports the documented "Device not found"
   // target_gone instead, so a broken device path cannot pass either way.
   // "Component not found" is only distinguishable when an endpoint exists, so
   // that mapping is asserted by the first branch alone (a limitation, since
   // only machines with audio can prove it).
-  const SoundService::ComponentSpec master;
-  const SoundService::DeviceSpec device;
-  double probe_percent = -1;
-  const auto probe = SoundService::get_volume(master, device, probe_percent);
 
   if (probe.ok()) {
     // Capture phase: this section really writes to the machine's default

@@ -107,6 +107,7 @@ AHK 的两个位置参数在本仓库合成一个 options 对象（和 `play` �
 2. **参数形态**：AHK 的 `(component?, device?)` 位置参数合并为一个 options 对象（上表）。
 3. **读回精度**：百分比经 float32 往返，刚写入的值读回可能差最后几位（`0.01%` 级），AHK 同样如此；测试以 `0.01` 容差断言。
 4. **没有渲染端点的机器**（例如 CI 的 headless runner）：5 个调用全部以 `target_gone` + `Device not found` 结束。这被测试的第二个分支**断言**（每条调用的 code 与文案），不是跳过。
+5. **同一台机器上的 `beep` / `play`**：kernel32 `Beep` 与 MCI 播放也必须诚实失败——`execution_failed` + `Beep failed (win32 error ...)` / `MCI open|play failed ...`，失败后不留半个 alias，这两条同样由测试的第二分支断言。唯一例外是 `MessageBeep`（`play("*0")`）：user32 没有文档化"无波形设备"时的行为，没有可断言的预期就不编造一个，因此它只在存在端点的机器上执行。
 
 ```js
 import { sound } from "@rime/sdk";

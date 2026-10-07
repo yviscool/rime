@@ -6,7 +6,13 @@
 // endpoint and read them back (the original state is restored by C++ before
 // any assertion, since abort() runs no destructors). A machine without a
 // render endpoint proves the same five calls through their documented
-// target_gone miss instead - a branch that still asserts, never a skip.
+// target_gone miss instead - a branch that still asserts, never a skip - and
+// the beep and the waited play through the rejection the native service
+// returned ("Beep failed (win32 error ...)" / "MCI open|play failed"), so a
+// facade that swallowed a device failure fails here too. MessageBeep's `*`
+// branch is the one call only made where a device exists: user32 documents
+// nothing for a machine without one, so there is no expectation to assert
+// there rather than a reason to invent one.
 // Nothing dispatches an Action, which the empty trace proves. A second
 // capability-less runtime proves the gate. The WAV the device plays is
 // written by this test and removed by the fixture on every path.
@@ -81,24 +87,68 @@ int main() {
   assert(rime::win32::register_sound_module(runtime, &binding).ok());
   assert(runtime.start().ok());
 
-  // beep resolves null (a void write) and a fractional frequency is rejected
-  // synchronously, before any winmm call can happen.
+  // One probe read picks the branch every device-driving call below runs in -
+  // the same two-asserted-branches shape the endpoint section already uses,
+  // never a skip. It is read once, up here, so the beep, the waited play and
+  // the endpoint round-trip all describe the same machine state.
+  const SoundService::ComponentSpec master;
+  const SoundService::DeviceSpec device;
+  double before_percent = -1;
+  bool before_muted = false;
+  const auto probe = SoundService::get_volume(master, device, before_percent);
+  const bool probed_mute = SoundService::get_mute(master, device, before_muted).ok();
+
+  // The argument contract needs no device, so it runs everywhere: a
+  // fractional frequency is rejected synchronously, before any winmm call
+  // can happen.
   check(runtime,
         "import { sound } from 'rime:sound';\n"
-        "globalThis.beep = 'pending';\n"
         "globalThis.beepTypeError = 'none';\n"
-        "try { sound.beep(1.5); } catch (e) { globalThis.beepTypeError = e.constructor.name; }\n"
-        "sound.beep(1000, 1).then(r => { globalThis.beep = r; },\n"
-        "                         e => { globalThis.beep = String(e.code) + ':' + e.message; });",
-        "sound-beep.mjs");
+        "try { sound.beep(1.5); } catch (e) { globalThis.beepTypeError = e.constructor.name; }",
+        "sound-beep-args.mjs");
   assert(runtime.settle(5000ms).ok());
   check(runtime,
         "if (globalThis.beepTypeError !== 'TypeError')\n"
         "  throw new Error('a fractional frequency must be a TypeError: ' +\n"
-        "                   JSON.stringify(globalThis.beepTypeError));\n"
-        "if (globalThis.beep !== null)\n"
-        "  throw new Error('beep must resolve null: ' + JSON.stringify(globalThis.beep));",
-        "sound-beep-check.mjs");
+        "                   JSON.stringify(globalThis.beepTypeError));",
+        "sound-beep-args-check.mjs");
+
+  if (probe.ok()) {
+    // beep resolves null (a void write) where a device can answer it.
+    check(runtime,
+          "import { sound } from 'rime:sound';\n"
+          "globalThis.beep = 'pending';\n"
+          "sound.beep(1000, 1).then(r => { globalThis.beep = r; },\n"
+          "                         e => { globalThis.beep = String(e.code) + ':' + e.message; });",
+          "sound-beep.mjs");
+    assert(runtime.settle(5000ms).ok());
+    check(runtime,
+          "if (globalThis.beep !== null)\n"
+          "  throw new Error('beep must resolve null: ' + JSON.stringify(globalThis.beep));",
+          "sound-beep-check.mjs");
+  } else {
+    // No endpoint to beep through: the promise must reject with the exact
+    // execution failure the native call returned, because a facade that
+    // swallowed it would resolve null and be indistinguishable from a beep
+    // that actually sounded.
+    check(runtime,
+          "import { sound } from 'rime:sound';\n"
+          "globalThis.beep = null;\n"
+          "sound.beep(1000, 1).then(r => { globalThis.beep = 'resolved:' + JSON.stringify(r); },\n"
+          "                         e => { globalThis.beep = e; });",
+          "sound-beep.mjs");
+    assert(runtime.settle(5000ms).ok());
+    check(runtime,
+          "const failure = globalThis.beep;\n"
+          "if (typeof failure === 'string')\n"
+          "  throw new Error('beep must reject where no endpoint exists: ' + failure);\n"
+          "if (!failure || failure.code !== 'execution_failed')\n"
+          "  throw new Error('beep must reject execution_failed: ' +\n"
+          "                   JSON.stringify(failure && failure.code));\n"
+          "if (!/^Beep failed \\(win32 error /.test(failure.message))\n"
+          "  throw new Error('the failure must carry the Beep prefix: ' + failure.message);",
+          "sound-beep-check.mjs");
+  }
 
   // A missing file is reported with our own prefix (the text after it belongs
   // to MCI and is localised), and the message survives the promise boundary.
@@ -121,38 +171,69 @@ int main() {
         "sound-play-missing-check.mjs");
 
   // AHK's `*` branch: MessageBeep never waits and resolves like the others.
-  check(runtime,
-        "import { sound } from 'rime:sound';\n"
-        "globalThis.star = 'pending';\n"
-        "sound.play('*0').then(r => { globalThis.star = r; },\n"
-        "                      e => { globalThis.star = String(e.code) + ':' + e.message; });",
-        "sound-play-star.mjs");
-  assert(runtime.settle(5000ms).ok());
-  check(runtime,
-        "if (globalThis.star !== null)\n"
-        "  throw new Error('MessageBeep must resolve null: ' + JSON.stringify(globalThis.star));",
-        "sound-play-star-check.mjs");
+  // Only where a render endpoint exists: user32 documents no behaviour for a
+  // machine without one, so there is no honest expectation to assert there -
+  // the branch runs the call, it just does not invent a failure for it.
+  if (probe.ok()) {
+    check(runtime,
+          "import { sound } from 'rime:sound';\n"
+          "globalThis.star = 'pending';\n"
+          "sound.play('*0').then(r => { globalThis.star = r; },\n"
+          "                      e => { globalThis.star = String(e.code) + ':' + e.message; });",
+          "sound-play-star.mjs");
+    assert(runtime.settle(5000ms).ok());
+    check(runtime,
+          "if (globalThis.star !== null)\n"
+          "  throw new Error('MessageBeep must resolve null: ' + JSON.stringify(globalThis.star));",
+          "sound-play-star-check.mjs");
+  }
 
   // The wait: the file is 1500 ms of real audio, so a promise that resolved
   // as soon as the play was accepted would report well under a second.
-  check(runtime,
-        "import { sound } from 'rime:sound';\n"
-        "globalThis.waited = 'pending';\n"
-        "globalThis.startedAt = Date.now();\n"
-        "sound.play(" + wav_json + ", { wait: true, deadlineMs: 20000 })\n"
-        "  .then(r => { globalThis.waited = r; },\n"
-        "        e => { globalThis.waited = String(e.code) + ':' + e.message; });",
-        "sound-play-wait.mjs");
-  assert(runtime.settle(30000ms).ok());
-  check(runtime,
-        "if (globalThis.waited !== null)\n"
-        "  throw new Error('a waited play must resolve null: ' + JSON.stringify(globalThis.waited));\n"
-        "const elapsed = Date.now() - globalThis.startedAt;\n"
-        "if (elapsed < 1000)\n"
-        "  throw new Error('the wait must outlast the 1500ms file: ' + elapsed + 'ms');\n"
-        "if (elapsed >= 19000)\n"
-        "  throw new Error('the wait must respect its deadline: ' + elapsed + 'ms');",
-        "sound-play-wait-check.mjs");
+  if (probe.ok()) {
+    check(runtime,
+          "import { sound } from 'rime:sound';\n"
+          "globalThis.waited = 'pending';\n"
+          "globalThis.startedAt = Date.now();\n"
+          "sound.play(" + wav_json + ", { wait: true, deadlineMs: 20000 })\n"
+          "  .then(r => { globalThis.waited = r; },\n"
+          "        e => { globalThis.waited = String(e.code) + ':' + e.message; });",
+          "sound-play-wait.mjs");
+    assert(runtime.settle(30000ms).ok());
+    check(runtime,
+          "if (globalThis.waited !== null)\n"
+          "  throw new Error('a waited play must resolve null: ' + JSON.stringify(globalThis.waited));\n"
+          "const elapsed = Date.now() - globalThis.startedAt;\n"
+          "if (elapsed < 1000)\n"
+          "  throw new Error('the wait must outlast the 1500ms file: ' + elapsed + 'ms');\n"
+          "if (elapsed >= 19000)\n"
+          "  throw new Error('the wait must respect its deadline: ' + elapsed + 'ms');",
+          "sound-play-wait-check.mjs");
+  } else {
+    // Nothing to wait for: the play itself must reject through the MCI
+    // vocabulary the native service uses, and a rejection must not leave the
+    // facade pretending a play is in flight.
+    check(runtime,
+          "import { sound } from 'rime:sound';\n"
+          "globalThis.waited = null;\n"
+          "sound.play(" + wav_json + ", { wait: true, deadlineMs: 20000 })\n"
+          "  .then(r => { globalThis.waited = 'resolved:' + JSON.stringify(r); },\n"
+          "        e => { globalThis.waited = e; });",
+          "sound-play-wait.mjs");
+    assert(runtime.settle(30000ms).ok());
+    check(runtime,
+          "const outcome = globalThis.waited;\n"
+          "if (outcome === null)\n"
+          "  throw new Error('the play must settle');\n"
+          "if (typeof outcome === 'string')\n"
+          "  throw new Error('a play must reject where no wave device exists: ' + outcome);\n"
+          "if (outcome.code !== 'execution_failed')\n"
+          "  throw new Error('the rejection must be execution_failed: ' +\n"
+          "                   JSON.stringify(outcome && outcome.code));\n"
+          "if (!/^MCI (open|play) failed/.test(outcome.message))\n"
+          "  throw new Error('the rejection must carry an MCI stage prefix: ' + outcome.message);",
+          "sound-play-wait-check.mjs");
+  }
 
   // ---- endpoint controls (volume / mute / name) ----
   //
@@ -194,16 +275,9 @@ int main() {
   // The machine decides which of the two branches below runs, but neither is a
   // skip: with a render endpoint the values are written and read back, without
   // one every call must report the documented target_gone miss. The original
-  // volume and mute are captured first and restored by C++ straight after
-  // settle - before any JS assertion can abort - because abort() runs no
-  // destructors.
-  const SoundService::ComponentSpec master;
-  const SoundService::DeviceSpec device;
-  double before_percent = -1;
-  bool before_muted = false;
-  const auto probe = SoundService::get_volume(master, device, before_percent);
-  const bool probed_mute = SoundService::get_mute(master, device, before_muted).ok();
-
+  // volume and mute were captured by the probe read at the top and are
+  // restored by C++ straight after settle - before any JS assertion can abort
+  // - because abort() runs no destructors.
   if (probe.ok() && probed_mute) {
     check(runtime,
           "import { sound } from 'rime:sound';\n"
