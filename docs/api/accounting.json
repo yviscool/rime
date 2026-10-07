@@ -58,18 +58,5 @@
     "remaining": 338,
     "percent": 53.76
   },
-  "evidence_gaps": [
-    {
-      "ledger": "core-builtins",
-      "count": 6,
-      "names": [
-        "Click",
-        "Format",
-        "FormatTime",
-        "Round",
-        "Sort",
-        "VerCompare"
-      ]
-    }
-  ]
+  "evidence_gaps": []
 }

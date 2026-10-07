@@ -34,7 +34,7 @@
 | objects | 243 | 55 | 188 | member has a compatibilityTest naming a real file (members carry no status until M8)；实测 uncovered 188、compatibility-test 55 |
 | **合计** | **731** | **393** | **338** | **53.76%** |
 
-证据缺口（`core-builtins` 6 项：Click、Format、FormatTime、Round、Sort、VerCompare）——状态已翻 `implemented` 但没有测试文件背书，按 AGENTS 反作弊第 9 条不得作为契约证据。
+证据缺口：无（每个 `implemented` 条目都有指向真实文件的 contract/compatibility 测试路径）。
 
 本表由 `bun tools/coverage-matrix.ts --write` 生成，`bun run matrix:check` 校验；真值源为 `docs/api/accounting.json`。手工改写会被检查拒绝。
 <!-- accounting:end -->

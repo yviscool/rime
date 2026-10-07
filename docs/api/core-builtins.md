@@ -20,6 +20,13 @@
 
 因此当前已知的函数型表面至少是 `253 + 101` 项，尚不包括对象成员、动态属性、内置变量、指令、语法事件和 Host ABI。这个数字只用于审计定位，不代表最终 API 数量，因为同名方法、别名和动态成员必须按来源和语义去重。
 
+## 测试证据
+
+`contractTest` 与 `compatibilityTest` 分工：前者是 Runtime 侧被真实消费者执行的合同测试，后者是 SDK/兼容面的消费者。六项曾是「状态翻 `implemented` 但 `contractTest` 为 `missing`」的证据缺口，回填依据如下：
+
+- `Format`/`FormatTime`/`Round`/`Sort`/`VerCompare` → `tests/sdk/runtime-language.test.ts`。js lane 没有 native 层可以测，这个 bun 测试就是唯一的真实消费者，期望值全部锚到 AHK 源码（`string.cpp:1409-1476`、`math.cpp:44-45`、`string.cpp:777-870`、`util.cpp:3299-3338`）；`coverage.json` 的 `DateAdd`/`DateDiff` 已经用同一文件作 `contractTest`，这里是同例。**局限**：该测试是纯逻辑级（AGENTS L2），按「低于 L4 不得作为行为契约唯一证据」，它只够给这五项的函数语义背书，不够给 Runtime 分层背书；补法是把 `@rime/runtime-language` 暴露给 QuickJS 后加一条 slice 竖切作为第二个消费者，在此之前这两列保持同值而不是编一个不存在的文件。
+- `Click` → `tests/native/input_tests.cpp`：它构造与 `Click` 同形的 `send_mouse` down/up 批次，并用真实钩子按 `self_injected` + `button == 1` 观察回来（L5，含空批次与非法按钮的拒绝路径）。参数到 steps 的映射在 `tests/sdk/send.test.ts`（`compatibilityTest`），down/up step 的 JS 边界校验在 `tests/js/input_slice.cpp`（同列）。
+
 ## 必须纳入的字段
 
 核心函数清单需要和 `coverage.json` 使用相同字段，并额外加入 `sourceKind: "core-bif"`、`definitionFile`、`minParams`、`maxParams`、`returnsObject`、`unsafeMemory` 和 `compatibilityTest`。CI 必须在 `g_BIF` 变化时提示清单漂移。
