@@ -18,13 +18,13 @@
     {
       "ledger": "core-builtins",
       "denominator": 101,
-      "terminal": 89,
-      "remaining": 12,
+      "terminal": 94,
+      "remaining": 7,
       "breakdown": {
         "js-native": 57,
-        "implemented": 14,
+        "implemented": 19,
         "unsupported-by-policy": 18,
-        "contract-only": 12
+        "contract-only": 7
       },
       "rule": "status in implemented | js-native | unsupported-by-policy"
     },
@@ -54,9 +54,9 @@
   ],
   "total": {
     "denominator": 731,
-    "terminal": 385,
-    "remaining": 346,
-    "percent": 52.67
+    "terminal": 390,
+    "remaining": 341,
+    "percent": 53.35
   },
   "evidence_gaps": [
     {

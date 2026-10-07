@@ -1,6 +1,6 @@
 # GUI, Menu, Tray and Dialog API
 
-状态：`contract-only`，尚未实现。
+状态：`SoundGetVolume` / `SoundSetVolume` / `SoundGetMute` / `SoundSetMute` / `SoundGetName` 已实现（实现归属 `@rime/sound`，见 `docs/api/sound.md`），`SoundGetInterface` 为 `unsupported-by-policy`；本域其余项（`Gui*` / `Menu*` / `Tray*` / `ToolTip` / `MsgBox` / `InputBox` / `LoadPicture` / `IL_*`）仍为 `contract-only`。
 
 源码证据：`functions.h` 的 `Gui*`、`Menu*`、`Tray*`、`ToolTip`、`MsgBox`、`InputBox`、`Sound*`、`LoadPicture`、`IL_*`；`source/script_gui.cpp`、`source/script_menu.cpp`、`source/lib/sound.cpp`。
 

@@ -1,10 +1,10 @@
 # Sound API
 
-状态：`SoundBeep` / `SoundPlay` 已实现（真设备与 AHK 默认值见 `tests/native/sound_tests.cpp`，JS contract 与拒绝门见 `tests/js/sound_slice.cpp`，facade 的 wait 拆分与错误透传见 `tests/sdk/sound.test.ts`）。`SoundGetVolume` / `SoundSetVolume` / `SoundGetMute` / `SoundSetMute` / `SoundGetName` 仍为 `contract-only`（见文末"未实现"），`SoundGetInterface` 判 `unsupported-by-policy`。
+状态：`SoundBeep` / `SoundPlay` 与 `SoundGetVolume` / `SoundSetVolume` / `SoundGetMute` / `SoundSetMute` / `SoundGetName` 共 7 项已实现（真设备与 AHK 默认值见 `tests/native/sound_tests.cpp`，JS contract、拒绝门与端点往返见 `tests/js/sound_slice.cpp`，facade 的 wait 拆分与错误透传见 `tests/sdk/sound.test.ts`，拓扑解析见 `tests/native/sound_topology_tests.cpp`）。只有 `SoundGetInterface` 判 `unsupported-by-policy`。
 
-源码证据：`functions.h` 的 `SoundBeep` / `SoundPlay` / `SoundGet*` / `SoundSet*`；`source/lib/sound.cpp` 的 `SoundPlay`（540-600）、设备选择（60-126）、component 解析（146-160）与 `BIF_Sound`（292-536）；`source/script.h:2489` 的 `AHK_PlayMe` 单 alias 规则与 `source/script.h:216-218` 的三条错误原文。
+源码证据：`functions.h` 的 `SoundBeep` / `SoundPlay` / `SoundGet*` / `SoundSet*`；`source/lib/sound.cpp` 的 `SoundPlay`（540-600）、设备选择（60-126）、component 解析（146-160）、找不到 component（254-286）与 `BIF_Sound`（292-536）；`source/util.cpp:326-436` 的 `IsNumeric` 与 `source/util.h:484-494` 的 `ParseInteger`；`source/script.h:2489` 的 `AHK_PlayMe` 单 alias 规则与 `source/script.h:216-218` 的三条错误原文。本仓库侧对应实现：`engine/win32/src/sound_endpoint.cpp`（Core Audio 端点与拓扑 walk）、`engine/win32/include/rime/win32/sound.hpp`（`SoundService` 端点 API）与 `engine/win32/js/src/sound_module.cpp`（`rime:sound` 入口）。
 
-两个入口都走 worker lane（`async_task.hpp` 的骨架）：capability `media.sound` 在 body 的第一行读，缺权时连 winmm 都不碰；`deadlineMs` + `cancellationId`/`signal` 每个切片重新求值。**两个调用都不构建 Action，所以 Action Trace 恒为空**（`sound_slice.cpp` 断言调用前后 trace 条目数不变）。JS 只收到 `null` 或字符串，不接收 MCI 句柄、设备 ID 或 COM 指针。
+7 个入口都走 worker lane（`async_task.hpp` 的骨架）：capability `media.sound` 在 body 的第一行读，缺权时连 winmm / Core Audio 都不碰；`deadlineMs` + `cancellationId`/`signal` 每个切片重新求值。**这些调用都不构建 Action，所以 Action Trace 恒为空**（`sound_slice.cpp` 断言调用前后 trace 条目数不变）。JS 只收到 `null`、数字、布尔或字符串，不接收 MCI 句柄、设备 ID 或 COM 指针。
 
 ## `sound.beep([frequency][, duration][, options])`（AHK `SoundBeep`）
 
@@ -55,17 +55,77 @@ await sound.beep(880, 200, { deadlineMs: 1000 });
 await sound.play("C:\\tmp\\chime.wav");
 await sound.play("C:\\tmp\\chime.wav", { wait: true, deadlineMs: 15000 });
 await sound.play("*0");             // MessageBeep(MB_OK)，不等待
+await sound.getVolume();            // 端点控制见下一节
 ```
 
 模块入口也可以直接用运行时模块：`import { sound } from "rime:sound";`。
+
+## 5 个端点控制：`sound.getVolume` / `setVolume` / `getMute` / `setMute` / `getName`
+
+AHK `SoundGetVolume` / `SoundSetVolume` / `SoundGetMute` / `SoundSetMute` / `SoundGetName`（`lib/sound.cpp:292-536`）。实现是 Core Audio：`IMMDeviceEnumerator` 选设备、`IAudioEndpointVolume` 读写 master、设备拓扑（`IDeviceTopology` → `IPart` → `IAudioVolumeLevel` / `IAudioMute`）读写命名 component。每次调用自带一个 COM apartment，接口只活在本次调用内，不跨线程封送，**JS 拿不到任何 COM 指针**；调用在 worker lane 完成，不占 UI Thread。
+
+| AHK | 本仓库 | 返回 |
+|---|---|---|
+| `SoundGetVolume(component?, device?)` | `sound.getVolume(options?)` | `number`：百分比 `0..100` |
+| `SoundSetVolume(value, component?, device?)` | `sound.setVolume(value, options?)` | `void` |
+| `SoundGetMute(component?, device?)` | `sound.getMute(options?)` | `boolean` |
+| `SoundSetMute(muted, component?, device?)` | `sound.setMute(muted, options?)` | `void` |
+| `SoundGetName(component?, device?)` | `sound.getName(options?)` | `string` |
+
+AHK 的两个位置参数在本仓库合成一个 options 对象（和 `play` 把 `wait` 挂在 options 上是同一条规则）：`{ component?, device?, ...actionOptions }`，actionOptions 仍是 `deadlineMs` / `cancellationId` / `signal` 那套。
+
+| 项 | 值 |
+|---|---|
+| `options.component` | AHK 的 component 文法：省略或 `""` = master；`"Wave"`、`"Wave:2"`（末个冒号切分）、纯数字实例号（`lib/sound.cpp:146-160`） |
+| `options.device` | AHK 的 device 文法：省略或 `""` = 默认渲染端点；`"名称"`、`"名称:N"`、1 起始索引（含未插入设备，`lib/sound.cpp:56-126`） |
+| capability | `media.sound`（worker body 内读，缺权 → `capability_denied`，连 COM 都不初始化） |
+| Trace | 无（直接服务调用，不构建 Action） |
+
+### `setVolume(value)` 的取值
+
+`value` 可以是数字或字符串，两者都交给 **AHK 同一个解析器**（`SoundService::parse_volume_setting`），因此 JS 不可能接受脚本侧会拒绝的写法：
+
+- 首尾空格/制表符裁剪；`0x` 十六进制、指数形式合法；必须整串消费（`IsNumeric` + `ATOF`，`util.cpp:326-436`）。
+- 除以 100 后 clamp 到 `[-1, 1]`：`1e999` 落到 100%，**不是错误**。
+- 带 `+` / `-` 开头是相对调节（`lib/sound.cpp:331-342`）；**数字的负号同样算相对**——AHK 判断的是字符串化后的首字符，`setVolume(-5)` 是"降 5"，不存在绝对负音量。
+- 不可解析（`"abc"`、`Infinity`、空串）→ `TypeError`，在任何 worker 启动之前抛出。
+
+### 失败映射
+
+| 原文（AHK `script.h:216-218`） | 本仓库 |
+|---|---|
+| `Device not found` | `target_gone` |
+| `Component not found` | `target_gone` |
+| `Component doesn't support this control type` | `unsupported` |
+| 其他 HRESULT | `execution_failed`，消息 `sound <op> failed (HRESULT 0x%08X)` |
+
+前两条逐字沿用 AHK 的文案（本仓库自己的字符串，不受 Windows 语言影响）；第三条是**有意的偏差**：AHK 抛 `Target` 异常，本仓库按能力边界归到 `unsupported`，因为"这个部件没有该控制类型"是目标不支持该操作，而不是目标消失。
+
+### 与 AHK 的偏差
+
+1. **`SoundSetMute` 的相对形式不进 TS**：AHK 的 `SoundSetMute("+1")` 切换、`"-1"` 解除，是字符串约定，没有诚实的布尔拼写。本仓库只收绝对布尔，切换写 `await sound.setMute(!await sound.getMute())`。
+2. **参数形态**：AHK 的 `(component?, device?)` 位置参数合并为一个 options 对象（上表）。
+3. **读回精度**：百分比经 float32 往返，刚写入的值读回可能差最后几位（`0.01%` 级），AHK 同样如此；测试以 `0.01` 容差断言。
+4. **没有渲染端点的机器**（例如 CI 的 headless runner）：5 个调用全部以 `target_gone` + `Device not found` 结束。这被测试的第二个分支**断言**（每条调用的 code 与文案），不是跳过。
+
+```js
+import { sound } from "@rime/sdk";
+
+const volume = await sound.getVolume();          // 例如 14
+await sound.setVolume(42);                       // 绝对
+await sound.setVolume("+5");                     // 相对 +5
+await sound.setVolume(-5);                       // 也是相对 -5
+await sound.setMute(true);
+const name = await sound.getName({ component: "Wave", device: "Speakers" });
+await sound.setMute(!await sound.getMute());     // 切换（替代 AHK 的 SoundSetMute("+1")）
+```
+
+证据分层：L2 手写字面量钉解析规则（`tests/native/sound_tests.cpp` 的 `parse_volume_setting` / `parse_component` / `parse_device` 段）、L3 合成 `IPart` 树钉拓扑 walk（`tests/native/sound_topology_tests.cpp`）、L5 真设备写读回带 restore（`sound_tests.cpp` 端点段 + `tests/js/sound_slice.cpp`）、facade 的参数拆分与错误透传（`tests/sdk/sound.test.ts`）。
 
 ## 未实现
 
 | AHK | 状态 | 说明 |
 |---|---|---|
-| `SoundGetVolume` / `SoundSetVolume` | `contract-only` | Core Audio 端点 + 拓扑 component，M5 尾段交付 |
-| `SoundGetMute` / `SoundSetMute` | `contract-only` | 同上 |
-| `SoundGetName` | `contract-only` | 同上 |
 | `SoundGetInterface` | `unsupported-by-policy` | 返回原始 COM 指针违反 AGENTS"不得向 JS 暴露裸 `HANDLE` / `HWND` / COM 指针"；不提供替代路径 |
 
-`Sound*` 5 项的台账行在 `docs/api/core-builtins.json`，域为 `gui-menu`（源自 AHK 把 `BIF_Sound` 与 GUI 函数放在同一批源文件），实现归属 `@rime/sound`，能力同为 `media.sound`。
+台账在 `docs/api/core-builtins.json`：`BIF_Sound` 那 6 行域为 `gui-menu`（源自 AHK 把 `Sound*` 与 GUI 函数放在同一批源文件），`tsModule` 为 `@rime/sound`（实现归属），能力同为 `media.sound`；5 行已翻 `implemented` 并指向 `tests/native/sound_tests.cpp,tests/js/sound_slice.cpp`，`SoundGetInterface` 保持 `unsupported-by-policy`。

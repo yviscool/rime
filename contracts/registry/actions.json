@@ -1037,12 +1037,17 @@
     {
       "name": "media.sound",
       "status": "implemented",
-      "declared": "engine/win32/js/src/sound_module.cpp:27",
+      "declared": "engine/win32/js/src/sound_module.cpp:31",
       "checked": [
-        "engine/win32/js/src/sound_module.cpp:73",
-        "engine/win32/js/src/sound_module.cpp:117",
-        "engine/win32/js/src/sound_module.cpp:190",
-        "engine/win32/js/src/sound_module.cpp:206"
+        "engine/win32/js/src/sound_module.cpp:159",
+        "engine/win32/js/src/sound_module.cpp:203",
+        "engine/win32/js/src/sound_module.cpp:276",
+        "engine/win32/js/src/sound_module.cpp:292",
+        "engine/win32/js/src/sound_module.cpp:336",
+        "engine/win32/js/src/sound_module.cpp:372",
+        "engine/win32/js/src/sound_module.cpp:398",
+        "engine/win32/js/src/sound_module.cpp:432",
+        "engine/win32/js/src/sound_module.cpp:459"
       ],
       "actions": []
     },

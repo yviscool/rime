@@ -1886,12 +1886,12 @@
         "rime-research/AutoHotkey-alpha/source/script.cpp",
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
-      "tsModule": "@rime/gui-menu",
-      "status": "contract-only",
+      "tsModule": "@rime/sound",
+      "status": "implemented",
       "async": "async",
       "capability": "media.sound",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/native/sound_tests.cpp,tests/js/sound_slice.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal",
       "minParams": 0,
       "maxParams": 2,
@@ -1900,7 +1900,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "tests/sdk/sound.test.ts"
     },
     {
       "ahkName": "SoundGetName",
@@ -1910,12 +1910,12 @@
         "rime-research/AutoHotkey-alpha/source/script.cpp",
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
-      "tsModule": "@rime/gui-menu",
-      "status": "contract-only",
+      "tsModule": "@rime/sound",
+      "status": "implemented",
       "async": "async",
       "capability": "media.sound",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/native/sound_tests.cpp,tests/js/sound_slice.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal",
       "minParams": 0,
       "maxParams": 2,
@@ -1924,7 +1924,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "tests/sdk/sound.test.ts"
     },
     {
       "ahkName": "SoundGetVolume",
@@ -1934,12 +1934,12 @@
         "rime-research/AutoHotkey-alpha/source/script.cpp",
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
-      "tsModule": "@rime/gui-menu",
-      "status": "contract-only",
+      "tsModule": "@rime/sound",
+      "status": "implemented",
       "async": "async",
       "capability": "media.sound",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/native/sound_tests.cpp,tests/js/sound_slice.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal",
       "minParams": 0,
       "maxParams": 2,
@@ -1948,7 +1948,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "tests/sdk/sound.test.ts"
     },
     {
       "ahkName": "SoundSetMute",
@@ -1958,12 +1958,12 @@
         "rime-research/AutoHotkey-alpha/source/script.cpp",
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
-      "tsModule": "@rime/gui-menu",
-      "status": "contract-only",
+      "tsModule": "@rime/sound",
+      "status": "implemented",
       "async": "async",
       "capability": "media.sound",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/native/sound_tests.cpp,tests/js/sound_slice.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal",
       "minParams": 1,
       "maxParams": 3,
@@ -1972,7 +1972,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "tests/sdk/sound.test.ts"
     },
     {
       "ahkName": "SoundSetVolume",
@@ -1982,12 +1982,12 @@
         "rime-research/AutoHotkey-alpha/source/script.cpp",
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
-      "tsModule": "@rime/gui-menu",
-      "status": "contract-only",
+      "tsModule": "@rime/sound",
+      "status": "implemented",
       "async": "async",
       "capability": "media.sound",
-      "contractTest": "missing",
-      "lane": "ui",
+      "contractTest": "tests/native/sound_tests.cpp,tests/js/sound_slice.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal",
       "minParams": 1,
       "maxParams": 3,
@@ -1996,7 +1996,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "tests/sdk/sound.test.ts"
     },
     {
       "ahkName": "Sqrt",
