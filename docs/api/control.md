@@ -129,6 +129,14 @@ c.dispose();  // -> boolean，同步
 7. **无 HWND 控件的坐标点击**——WPF/Qt 自绘走 UIA 路径；消息路径在
    `controls()` 无对应 id 时直接 `target_gone`，不静默降级为屏幕坐标
    （降级即不可解释）。
+8. **`ControlGetHwnd` 的裸 `HWND` 返回**——2026-10-07 定档
+   `unsupported-by-policy`（coverage 台账，依据 stdlib.md §5 第 1 条：
+   本函数的返回值本身就是句柄，`functions.h:32` 的 `Ret/Hwnd`，没有
+   「id 化」的余地）。替代是 `control.resolve(...)` → `ControlSnapshot.id`，
+   与 `windows.controls()` 同一 id 空间、可重新验证身份；拒绝断言与替代
+   断言在 `tests/js/fixtures/policy-refusal.mjs`（ctest
+   `quickjs_policy_refusal`），条目表见
+   [`runtime-language.md`](./runtime-language.md) §2.4。
 
 ## 5. 底层实现（window 层实际怎么做）
 

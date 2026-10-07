@@ -18,6 +18,8 @@
 - `Click` 是输入注入能力，必须与 `MouseClick` 的兼容语义合并审计；
 - `Random`、数学、字符串和格式化函数属于 SDK-owned，但仍需对照原版的语义还原测试。
 
+本台账 101 项现已全部为终态（19 `implemented` + 57 `js-native` + 25 `unsupported-by-policy`），根字段 `status` 记 `implemented` 表示「本台账已收敛到终态」，不代表每一项都写了专属实现代码。
+
 因此当前已知的函数型表面至少是 `253 + 101` 项，尚不包括对象成员、动态属性、内置变量、指令、语法事件和 Host ABI。这个数字只用于审计定位，不代表最终 API 数量，因为同名方法、别名和动态成员必须按来源和语义去重。
 
 ## 测试证据
@@ -26,7 +28,7 @@
 
 - `Format`/`FormatTime`/`Round`/`Sort`/`VerCompare` → `tests/sdk/runtime-language.test.ts`。js lane 没有 native 层可以测，这个 bun 测试就是唯一的真实消费者，期望值全部锚到 AHK 源码（`string.cpp:1409-1476`、`math.cpp:44-45`、`string.cpp:777-870`、`util.cpp:3299-3338`）；`coverage.json` 的 `DateAdd`/`DateDiff` 已经用同一文件作 `contractTest`，这里是同例。**局限**：该测试是纯逻辑级（AGENTS L2），按「低于 L4 不得作为行为契约唯一证据」，它只够给这五项的函数语义背书，不够给 Runtime 分层背书；补法是把 `@rime/runtime-language` 暴露给 QuickJS 后加一条 slice 竖切作为第二个消费者，在此之前这两列保持同值而不是编一个不存在的文件。
 - `Click` → `tests/native/input_tests.cpp`：它构造与 `Click` 同形的 `send_mouse` down/up 批次，并用真实钩子按 `self_injected` + `button == 1` 观察回来（L5，含空批次与非法按钮的拒绝路径）。参数到 steps 的映射在 `tests/sdk/send.test.ts`（`compatibilityTest`），down/up step 的 JS 边界校验在 `tests/js/input_slice.cpp`（同列）。
-- 18 项 `unsupported-by-policy`（`DllCall`/`NumGet`/`ObjPtr` 等裸互操作与 `SoundGetInterface`）→ `tests/js/fixtures/policy-refusal.mjs`（ctest `quickjs_policy_refusal`，`rime_js_bundle --production`）。这些行不背书「能做什么」，背书「坚决不提供什么」：28 个黑名单名字在 `globalThis` 与全部 `rime:*` 导出面上一个都解析不到，且 §2.4 点名的替代 API 必须存在；理由与替代路径仍在 `compatibilityTest` 指向的 `runtime-language.md` §2.4。
+- 25 项 `unsupported-by-policy`（`DllCall`/`NumGet`/`ObjPtr` 等裸互操作、`SoundGetInterface`，以及 2026-10-07 M8 定档的 `ComObjActive`/`ComObjConnect`/`ComObjFlags`/`ComObjGet`/`ComObjQuery`/`ComObjType`/`ComObjValue` 7 项）→ `tests/js/fixtures/policy-refusal.mjs`（ctest `quickjs_policy_refusal`，`rime_js_bundle --production`）。这些行不背书「能做什么」，背书「坚决不提供什么」：与 coverage 侧 11 项合计 36 个黑名单名字在 `globalThis` 与全部 `rime:*` 导出面上一个都解析不到，且 §2.4 点名的替代 API 必须存在（`ComObjGet`/`ComObjActive`→`automation.find`、`ComObjConnect`→`input.subscribe`）；理由与替代路径仍在 `compatibilityTest` 指向的 `runtime-language.md` §2.4。`ControlGetHwnd` 同日按 stdlib.md §5.1 判 `unsupported-by-policy`（裸 `HWND` 不出 lane，替代 `control.resolve`），它属 coverage 而非本表。
 
 ## 必须纳入的字段
 

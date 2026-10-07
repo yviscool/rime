@@ -66,7 +66,7 @@ L4  还原保留层           JS 覆盖不了的语义能力，以自有命名�
 5. 散落的全局函数——公共 API 只走模块与稳定 ID。
 6. 无 deadline 的无限等待（API 层面不提供这种签名）。
 
-（`ComObj*` 系不在本黑名单：其去向是计划 §0.3 与 audit-gaps 的 COM 边界定档，按隔离插件信任模型处理，台账暂记 `contract-only` 至 M8 定档。）
+（`ComObj*` 系 7 项已于 2026-10-07 随 M8 COM/VARIANT 边界定档为 `unsupported-by-policy`：按第 1 条（不给 JS 可调用的裸 COM 包装/裸指针）与第 4 条裁剪，隔离插件信任模型即其去向（计划 §0.3）；逐项理由、替代路径与证据见 `runtime-language.md` §2.4，边界文档见 `native-interop.md`，台账与拒绝测试（`policy-refusal.mjs`）同步。同案 `ControlGetHwnd` 按第 1 条裁剪——返回值就是裸 `HWND`，替代是 `control.resolve` → `ControlSnapshot.id`（见 `control.md` §4）。）
 
 ## 6. L4 还原保留层（@rime/runtime-language）
 

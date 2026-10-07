@@ -99,23 +99,23 @@
 | `Type` | CB | `v === undefined ? 'unset' : typeof v === 'string' ? 'String' : typeof v === 'number' ? (Number.isInteger(v) ? 'Integer' : 'Float') : typeof v === 'bigint' ? 'Integer' : (v?.constructor?.name ?? 'Object')` | 三段映射与 TokenTypeString（script2.cpp:3099-3121）一致：String/Integer/Float/对象类名/unset（无参调用即 undefined→unset）；残余差异：JS 只有 IEEE double，整数值的 Float（如 3.0）报 Integer 而 AHK 报 Float——token 类型在 L0 已丢失，专属函数同样无法恢复；函数报 Function 而 AHK 报 Func/Closure/BoundFunc；BigInt 报 Integer（AHK 对应 int64）；null 与 symbol 无 AHK 对应物 | `script2.cpp:3099` |
 
 
-### 2.2 `contract-only`（20；另 23 项已实现，见 §2.2.2 与本节注记）
+### 2.2 `contract-only`（13；另 23 项已实现，见 §2.2.2 与本节注记）
 
-过渡态，不计终态（stdlib.md §3）。本节现为 20 项常规能力，按 L2 模块归属排期；原 44 + 10 的 54 项中，10 项 L4 还原保留已实现并流转 `implemented`（§2.2.2 注记），5 项（`ListVars`/`SetKeyDelay`/`SetMouseDelay`/`SetDefaultMouseSpeed`/`SetStoreCapsLockMode`）经 M3 盘点改判 §2.1 `js-native`，3 项（`OutputDebug`/`SetWorkingDir`/`GetKeySC`）经批 2 绑定实现流转 `implemented`（`runtime.debug`/`runtime.cwd`+`runtime.setCwd`/`input.getKeySC`，测试 `tests/js/runtime_smoke.cpp`+`tests/js/input_slice.cpp`），3 项（`GetKeyVK`/`GetKeyName`/`ListHotkeys`）经批 3 输入映射实现流转 `implemented`（`input.getKeyVK`/`input.getKeyName` 含共享语法 `scNNN` 扩展、`input.listHotkeys` 注册表读出，测试 `tests/js/input_slice.cpp`+`tests/js/events_slice.cpp`），3 项（`SetCapsLockState`/`SetNumLockState`/`SetScrollLockState`）经批 3 锁键状态实现流转 `implemented`（`keyboard.setLockState` 编排 + 原生 `input.setLockForce` force-toggle 抑制，测试 `tests/js/input_slice.cpp`+`tests/sdk/keyboard-lock.test.ts`），2 项（`Exit`/`ExitApp`）经批 4 宿主生命周期实现流转 `implemented`（`runtime.exit(code?)` 单一 API——无线程可退故两名合一，同步 throw 解卷当前 turn、settle 提前返回、onExit 以 `{reason:"exit",code}` 排空、入口返回码；测试 `tests/js/runtime_smoke.cpp`+`tests/js/js_bundle.cpp`），6 项经批 4 分流（`CoordMode` 实现流转 `implemented`——mouse per-call `coords`/`window` 选项经 `rime:window` 原点偏移，测试 `tests/sdk/coord-mode.test.ts`；`Persistent` 实现流转 `implemented`——`runtime.persistent` 强制驻留标志 + events 声明式探针（hooks/hotkeys/hotstrings/setTimer/monitors 等容器实时计数）+ settle(5s) 之后的驻留泵（长 delay 与声明式驻留不再报 did not settle，测试 `tests/js/runtime_smoke.cpp`+`tests/js/js_bundle.cpp` fixtures `persist-*`）；`SetControlDelay`/`SetWinDelay`/`IsLabel` 改判 §2.1 `js-native`；`Pause` 改判 §2.4 `unsupported-by-policy`），表列均留原处以保持分类研究原貌。本轮再分流 2 项：`ListLines` 改判 §2.1 `js-native`（零代码诊断面，等价式与差异入 §2.1，`engine` 无 console 故日志开关恒等），`PostMessage` 改判 §2.4 `unsupported-by-policy`（依据 `future-runtime.md` §10「未审计消息发送」，理由与替代路径入 §2.4，并在 [`window.md`](./window.md) 的「偏差与不实现项」落完整条目），两行同样留原处。
+过渡态，不计终态（stdlib.md §3）。本节现为 13 项常规能力，按 L2 模块归属排期；原 44 + 10 的 54 项中，10 项 L4 还原保留已实现并流转 `implemented`（§2.2.2 注记），5 项（`ListVars`/`SetKeyDelay`/`SetMouseDelay`/`SetDefaultMouseSpeed`/`SetStoreCapsLockMode`）经 M3 盘点改判 §2.1 `js-native`，3 项（`OutputDebug`/`SetWorkingDir`/`GetKeySC`）经批 2 绑定实现流转 `implemented`（`runtime.debug`/`runtime.cwd`+`runtime.setCwd`/`input.getKeySC`，测试 `tests/js/runtime_smoke.cpp`+`tests/js/input_slice.cpp`），3 项（`GetKeyVK`/`GetKeyName`/`ListHotkeys`）经批 3 输入映射实现流转 `implemented`（`input.getKeyVK`/`input.getKeyName` 含共享语法 `scNNN` 扩展、`input.listHotkeys` 注册表读出，测试 `tests/js/input_slice.cpp`+`tests/js/events_slice.cpp`），3 项（`SetCapsLockState`/`SetNumLockState`/`SetScrollLockState`）经批 3 锁键状态实现流转 `implemented`（`keyboard.setLockState` 编排 + 原生 `input.setLockForce` force-toggle 抑制，测试 `tests/js/input_slice.cpp`+`tests/sdk/keyboard-lock.test.ts`），2 项（`Exit`/`ExitApp`）经批 4 宿主生命周期实现流转 `implemented`（`runtime.exit(code?)` 单一 API——无线程可退故两名合一，同步 throw 解卷当前 turn、settle 提前返回、onExit 以 `{reason:"exit",code}` 排空、入口返回码；测试 `tests/js/runtime_smoke.cpp`+`tests/js/js_bundle.cpp`），6 项经批 4 分流（`CoordMode` 实现流转 `implemented`——mouse per-call `coords`/`window` 选项经 `rime:window` 原点偏移，测试 `tests/sdk/coord-mode.test.ts`；`Persistent` 实现流转 `implemented`——`runtime.persistent` 强制驻留标志 + events 声明式探针（hooks/hotkeys/hotstrings/setTimer/monitors 等容器实时计数）+ settle(5s) 之后的驻留泵（长 delay 与声明式驻留不再报 did not settle，测试 `tests/js/runtime_smoke.cpp`+`tests/js/js_bundle.cpp` fixtures `persist-*`）；`SetControlDelay`/`SetWinDelay`/`IsLabel` 改判 §2.1 `js-native`；`Pause` 改判 §2.4 `unsupported-by-policy`），表列均留原处以保持分类研究原貌。本轮再分流 2 项：`ListLines` 改判 §2.1 `js-native`（零代码诊断面，等价式与差异入 §2.1，`engine` 无 console 故日志开关恒等），`PostMessage` 改判 §2.4 `unsupported-by-policy`（依据 `future-runtime.md` §10「未审计消息发送」，理由与替代路径入 §2.4，并在 [`window.md`](./window.md) 的「偏差与不实现项」落完整条目），两行同样留原处。2026-10-07 M8 COM 边界定档：`ComObjActive`/`ComObjConnect`/`ComObjFlags`/`ComObjGet`/`ComObjQuery`/`ComObjType`/`ComObjValue` 7 项由本节改判 §2.4 `unsupported-by-policy`（理由、替代路径与证据入 §2.4，台账与拒绝测试同步，边界文档见 [`native-interop.md`](./native-interop.md)），行按同一惯例留本表以保持分类研究原貌——表内「台账」列仍记 CB，状态以 §2.4 与台账为准；本节剩 13 项在途。
 
-#### 2.2.1 常规能力（20）
+#### 2.2.1 常规能力（13；另 7 项 `ComObj*` 已改判 §2.4，行留原处）
 
 目标模块按 stdlib.md §1 L2 命名（`fs` 由台账 `@rime/storage` 改名；`registry` 的台账 `Reg*` 条目已改写为 `@rime/registry`，`SetRegView` 同），计划阶段取自 `AHK99-IMPLEMENTATION-PLAN.md`。
 
 | 函数 | 台账 | 目标模块 | 计划阶段 | 为何不是 js-native 或 L4 还原 | 证据 |
 |---|---|---|---|---|---|
-| `ComObjActive` | CB | `@rime/native-interop` | M8（audit-gaps：COM/VARIANT 边界文档化） | COM 需 Apartment 归属与跨线程封送，非纯函数；stdlib.md §5.1 禁裸 COM 指针，只能经隔离插件面暴露；计划 §0.3 现把它记作 unsupported-by-policy，本判定取 contract-only（见 §5 冲突注记） | `script_com.cpp:153` |
-| `ComObjConnect` | CB | `@rime/native-interop` | M8 | 同 ComObjActive：事件 sink 回调必须是可取消订阅并回 JS 线程调度 | `script_com.cpp:272` |
-| `ComObjFlags` | CB | `@rime/native-interop` | M8 | 同 ComObjActive：COM marshalling 标志属于隔离面配置，不是脚本可移植能力 | `script_com.cpp:458` |
-| `ComObjGet` | CB | `@rime/native-interop` | M8 | 同 ComObjActive：按 ProgID/CLSID 获取对象需要跨进程 COM，须 capability 门禁 | `script_com.cpp:64` |
-| `ComObjQuery` | CB | `@rime/native-interop` | M8 | 同 ComObjActive：QI 结果仍是隔离面对象，不能返回裸指针 | `script_com.cpp:523` |
-| `ComObjType` | CB | `@rime/native-interop` | M8 | 同 ComObjActive：可改为对隔离面包装对象的只读查询，等 M8 COM 边界定档 | `script_com.cpp:383` |
-| `ComObjValue` | CB | `@rime/native-interop` | M8 | 同 ComObjActive：VARIANT 解包涉及类型归一化，属隔离面能力 | `script_com.cpp:374` |
+| `ComObjActive` | CB | `@rime/native-interop` | M8（**2026-10-07 定档**：unsupported-by-policy，边界文档 [`native-interop.md`](./native-interop.md)） | COM 需 Apartment 归属与跨线程封送，非纯函数；stdlib.md §5.1 禁裸 COM 指针，只能经隔离插件面暴露；计划 §0.3 拍板 unsupported-by-policy，本判定同案（理由与替代见 §2.4） | `script_com.cpp:153` |
+| `ComObjConnect` | CB | `@rime/native-interop` | M8（**2026-10-07 定档**：unsupported-by-policy） | 同 ComObjActive：事件 sink 回调必须是可取消订阅并回 JS 线程调度（理由与替代见 §2.4） | `script_com.cpp:272` |
+| `ComObjFlags` | CB | `@rime/native-interop` | M8（**2026-10-07 定档**：unsupported-by-policy） | 同 ComObjActive：COM marshalling 标志属于隔离面配置，不是脚本可移植能力（理由与替代见 §2.4） | `script_com.cpp:458` |
+| `ComObjGet` | CB | `@rime/native-interop` | M8（**2026-10-07 定档**：unsupported-by-policy） | 同 ComObjActive：按 ProgID/CLSID 获取对象需要跨进程 COM，须 capability 门禁（理由与替代见 §2.4） | `script_com.cpp:64` |
+| `ComObjQuery` | CB | `@rime/native-interop` | M8（**2026-10-07 定档**：unsupported-by-policy） | 同 ComObjActive：QI 结果仍是隔离面对象，不能返回裸指针（理由与替代见 §2.4） | `script_com.cpp:523` |
+| `ComObjType` | CB | `@rime/native-interop` | M8（**2026-10-07 定档**：unsupported-by-policy） | 同 ComObjActive：对隔离面包装对象的只读查询留在插件内部，类型标签不进 JS（理由与替代见 §2.4） | `script_com.cpp:383` |
+| `ComObjValue` | CB | `@rime/native-interop` | M8（**2026-10-07 定档**：unsupported-by-policy） | 同 ComObjActive：VARIANT 解包涉及类型归一化，属隔离面能力（理由与替代见 §2.4） | `script_com.cpp:374` |
 | `CoordMode` | COV | `@rime/input` | M3（计划 line 97 显式 API） | 坐标空间必须是 mouse/screen 调用的参数而非进程全局态（stdlib.md §2 设置原则），当前 input/automation 尚无 coords 参数（sdk/src/input/ 无该选项） | `lib/functions.h:52` |
 | `Exit` | COV | `rime:runtime` | M3（HostLifecycle） | 退出必须由宿主执行：engine/js/src/host.cpp:211-220 只有 ping/delay/取消/inspect 桥，无 JS exit 面；不能在模块内自起脚本泵（AGENTS 线程与生命周期规则） | `script.cpp:1220` |
 | `ExitApp` | COV | `rime:runtime` | M3（HostLifecycle） | 同 Exit（script.cpp:1240 → Script::ExitApp），需 OnExit 订阅可排空并诊断 | `script.cpp:1240` |
@@ -181,12 +181,20 @@
 | `WinExist` | CB | `@rime/window` | 服务表面 window.exists(query)（sdk/src/window.ts:665，枚举到首个匹配即停）；同 WinActive 的 HWND→boolean 与 WinTitle→WindowQuery 改名 | `tests/native/win32_tests.cpp,tests/js/vertical_slice.cpp` |
 
 
-### 2.4 `unsupported-by-policy`（22）
+### 2.4 `unsupported-by-policy`（30）
 
 | 函数 | 台账 | 理由 | 等价物 / 替代路径 | 证据 |
 |---|---|---|---|---|
 | `ComCall` | CB | stdlib.md §5.4：vtable 裸调用与裸内存互操作，与 DllCall 同族裁剪 | 进程外插件 / 隔离 COM 面（计划 §0.3 已拍板） | `lib/DllCall.cpp:497` |
+| `ComObjActive` | CB | stdlib.md §5.1：按 ProgID/ROT 取活动对象（`script_com.cpp:153`）返回的是可调用的裸 COM 包装，封送与所有权对 JS 不可见；M8 按隔离插件信任模型定档（计划 §0.3） | ① `automation.find/read/invoke`（UIA 对象图，已实现）——“找到对象并操作”这件事脚本级已有；② 已装进程/COM 自动化走进程外插件 + 版本化 token | `script_com.cpp:153` |
+| `ComObjConnect` | CB | stdlib.md §5.1：COM 事件 sink 必须跨线程封送并回 JS 线程调度，脚本级裸 sink 不是可取消订阅（`script_com.cpp:272`） | `input.subscribe` / `input.unsubscribe`（返回可取消 `Subscription`，分发回 JS 线程）；COM 事件由插件转成同一事件面 | `script_com.cpp:272` |
+| `ComObjFlags` | CB | stdlib.md §5.1：marshalling 标志（EOAC_*）是隔离面的信任/封送配置，不是可移植脚本能力（`script_com.cpp:458`） | 不提供；策略由插件清单声明，脚本不改 | `script_com.cpp:458` |
 | `ComObjFromPtr` | CB | stdlib.md §5.1/§5.4：把裸指针包装成可调用对象（script_com.cpp:78） | 不提供；COM 对象一律经隔离插件面获取 | `script_com.cpp:78` |
+| `ComObjGet` | CB | stdlib.md §5.1：按 ProgID/CLSID 跨进程取对象（`script_com.cpp:64`），须 capability 门禁且不返回裸指针 | `automation.find`（按 UIA 找窗口/控件对象）；按 CLSID 的访问走进程外插件 + `windows.automation.*` 能力（计划 §0.3） | `script_com.cpp:64` |
+| `ComObjQuery` | CB | stdlib.md §5.1：QI 结果仍是隔离面对象，不给脚本裸指针（`script_com.cpp:523`） | 不提供；接口访问在插件内部完成 | `script_com.cpp:523` |
+| `ComObjType` | CB | stdlib.md §5.1：interface name 与类型标签读出属隔离面（`script_com.cpp:383`） | 对已暴露对象用 `typeof`/模块自有只读查询；COM 类型信息不进 JS | `script_com.cpp:383` |
+| `ComObjValue` | CB | stdlib.md §5.1：VARIANT 解包的类型归一化属隔离面能力（`script_com.cpp:374`） | 插件先把值归一成 JS 原生值或稳定快照再返回 | `script_com.cpp:374` |
+| `ControlGetHwnd` | COV | stdlib.md §5.1 + future-runtime.md §2：本函数的返回值就是裸 `HWND`（`functions.h:32` 的 Ret/Hwnd），而裸句柄永不出 lane——身份只以稳定 id 表达 | `control.resolve(...)` → `ControlSnapshot.id`（与窗口同一 id 空间，可重新验证身份；见 [`control.md`](./control.md) §1/§4） | `lib/functions.h:32` |
 | `Critical` | COV | stdlib.md §5.3：AHK 隐式伪线程/抢占模型（Critical 的线程中断语义）明令不暴露 | 协程/临界区排队与合并策略（Action Kernel 的可中断区间，进 Trace） | `lib/functions.h:53` |
 | `DllCall` | CB | stdlib.md §5.4：DLL 装载与裸内存互操作 | 能力化的 native 插件（版本化 Host ABI） | `lib/DllCall.cpp:497` |
 | `NumGet` | CB | stdlib.md §5.4：按地址读内存 | 以结构化二进制/TypedArray 解析代替 | `lib/interop.cpp:107` |
@@ -208,7 +216,7 @@
 | `Thread` | COV | stdlib.md §5.3：线程中断/优先级语义属隐式伪线程模型 | SchedulerPolicy 集中定义的优先级与并发（AGENTS 调度规则） | `lib/functions.h:293` |
 | `VarSetStrCapacity` | CB | stdlib.md §5.4：预留变量缓冲容量（script2.cpp:2327-2331），属内存布局细节 | JS 字符串不可变，容量无概念 | `script2.cpp:2327` |
 
-**拒绝行为测试**：本表 22 项（CB 18 + COV 4）与 coverage 侧的 `CallbackCreate`/`CallbackFree`/`ObjGetDataPtr`/`ObjGetDataSize`/`ObjSetDataPtr` 合计 28 个名字，由 `tests/js/fixtures/policy-refusal.mjs`（ctest `quickjs_policy_refusal`，`rime_js_bundle --production`）一条断言背书：28 个名字在 `globalThis`、11 个 `rime:*` 模块的 13 个导出绑定及其方法名上**一个都解析不到**（按 API 名不区分大小写，`dllCall` 这类改写也算命中），同时本表点名的替代 API 必须真的存在——`input.suspend`（`Pause`）、`windows.focus`/`windows.close`（`PostMessage`/`SendMessage`）、`sound.getVolume`/`setVolume`（`SoundGetInterface`）、`Uint8Array`（`NumGet`/`NumPut`/`StrGet`/`StrPut`）。该测试已反向验证：往名单里塞一个真实存在的名字（`send`）或把替代断言改坏，都会以非零退出码失败，所以它不是恒真断言。
+**拒绝行为测试**：本表 30 项（CB 25 + COV 5；`SendMessage` 同为 COV 但条目在 [`window.md`](./window.md)）与 coverage 侧的 `CallbackCreate`/`CallbackFree`/`ObjGetDataPtr`/`ObjGetDataSize`/`ObjSetDataPtr` 合计 36 个名字（两台账无同名重叠），由 `tests/js/fixtures/policy-refusal.mjs`（ctest `quickjs_policy_refusal`，`rime_js_bundle --production`）一条断言背书：36 个名字在 `globalThis`、11 个 `rime:*` 模块的 13 个导出绑定及其方法名上**一个都解析不到**（按 API 名不区分大小写，`dllCall` 这类改写也算命中），同时本表点名的替代 API 必须真的存在——`input.suspend`（`Pause`）、`windows.focus`/`windows.close`（`PostMessage`/`SendMessage`）、`sound.getVolume`/`setVolume`（`SoundGetInterface`）、`automation.find`（`ComObjGet`/`ComObjActive`）、`input.subscribe`（`ComObjConnect`）、`control.resolve`（`ControlGetHwnd`）、`Uint8Array`（`NumGet`/`NumPut`/`StrGet`/`StrPut`）。该测试已反向验证：往名单里塞一个真实存在的名字（`send` 或 `resolve`）或把替代断言改坏（`control.resolveX`），都会以非零退出码失败，所以它不是恒真断言。
 
 ## 3. L4 还原保留清单与政策对照（10 项，已实现）
 
@@ -232,12 +240,12 @@
 - **M4**：`FileOpen`（fs service + `File` 对象）、`Reg*` 5 项 + `SetRegView`（registry service，计划 line 105 点名）。
 - **M5**：`Sound*` 5 项（winmm，计划 line 112）。
 - **M7**：原排 `PostMessage`（Control 三层执行的 Win32 消息层）——**本轮改判撤销**：`PostMessage`/`SendMessage` 按 future-runtime.md §10「未审计消息发送」判 `unsupported-by-policy`（§2.4），M7 不再有该档期；Control 三层执行的窗口消息面仍属计划范围，但只能是 runtime 内部选定消息，不开放脚本级 `msg`/`wParam`/`lParam`（完整条目见 [`window.md`](./window.md)）。
-- **M8**：`ComObj*` 7 项（audit-gaps 的 COM/VARIANT 边界）+ 22 项 `unsupported-by-policy` 的拒绝行为测试与替代路径文档（计划 line 131）。**2026-10-07 已还**：拒绝行为测试见 §2.4 表下的 `tests/js/fixtures/policy-refusal.mjs`（本表 22 项 + coverage 侧 `Callback*`/`Obj*DataPtr*` 共 28 个名字），替代路径文档即 §2.4 的「等价物 / 替代路径」列；`ComObj*` 7 项的 COM/VARIANT 边界文档化仍归 M8。
+- **M8**：`ComObj*` 7 项（audit-gaps 的 COM/VARIANT 边界）+ `unsupported-by-policy` 的拒绝行为测试与替代路径文档（计划 line 131）。**2026-10-07 全部已还**：拒绝行为测试见 §2.4 表下的 `tests/js/fixtures/policy-refusal.mjs`（本表 30 项 + coverage 侧 `Callback*`/`Obj*DataPtr*` 共 36 个名字），替代路径文档即 §2.4 的「等价物 / 替代路径」列；`ComObj*` 7 项的 COM/VARIANT 边界定档为 §2.4 `unsupported-by-policy`，边界文档入 [`native-interop.md`](./native-interop.md)，audit-gaps 同条同步销项。
 - **判定已定案（stdlib.md 修订后口径，无遗留冲突）**：
   1. `Critical`/`Thread` = `unsupported-by-policy`，引用 stdlib.md §5 第 3 条（隐式伪线程/抢占模型）；替代物为集中式 SchedulerPolicy 与 Action 临界区。计划 §M3 的措辞由 orchestrator 同步修订。
-  2. `ComObj*` 7 项 = `contract-only`（M8）：stdlib.md §5 尾注明确其不在黑名单，去向是计划 §0.3 与 audit-gaps 的 COM 边界定档，按隔离插件信任模型处理。
+  2. ~~`ComObj*` 7 项 = `contract-only`（M8）~~ **2026-10-07 改判 `unsupported-by-policy`**：M8 定档按计划 §0.3 的隔离插件信任模型裁剪（stdlib.md §5 尾注已同步销注）；理由、替代路径与逐项证据见 §2.4，边界文档见 [`native-interop.md`](./native-interop.md)，拒绝测试已覆盖 7 个名字。
   3. `ObjGetCapacity`/`ObjSetCapacity` = `unsupported-by-policy`，引用 stdlib.md §5 第 4 条（裸内存与引擎布局互操作，条目已点名这两项）。
-  4. `PostMessage`（domain=runtime-language）与 `SendMessage`（domain=input，本页无表列）= `unsupported-by-policy`，引用 future-runtime.md §10「未审计消息发送」（design-review.md:148、ts-windows-model.md:89 同口径）；替代物为结构化 `windows.*` Action、UIA automation 与隔离插件 token，完整条目见 [`window.md`](./window.md)。stdlib.md §5 暂无逐字条目，登记缺口见 window.md 同名节；计划 §M7 措辞与 M8 的 22 项计数由 orchestrator 同步修订。
+  4. `PostMessage`（domain=runtime-language）与 `SendMessage`（domain=input，本页无表列）= `unsupported-by-policy`，引用 future-runtime.md §10「未审计消息发送」（design-review.md:148、ts-windows-model.md:89 同口径）；替代物为结构化 `windows.*` Action、UIA automation 与隔离插件 token，完整条目见 [`window.md`](./window.md)。stdlib.md §5 暂无逐字条目，登记缺口见 window.md 同名节；计划 §M7 措辞已同步撤销；M8 的拒绝计数已随 2026-10-07 定档同步为本表 30 项、拒绝测试 36 个名字。
 
 ## 6. 跨域注记
 

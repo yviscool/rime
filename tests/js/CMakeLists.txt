@@ -46,8 +46,9 @@ if (WIN32 AND TARGET rime_win32_js)
            COMMAND rime_js_bundle --production
                    ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/golden-violations.generated.mjs)
   # Rejection contract for the `unsupported-by-policy` rows (M8 item 3): the
-  # production module surface must expose none of the 28 stdlib.md §5 /
-  # future-runtime §10 names, and the alternatives §2.4 documents instead
+  # production module surface must expose none of the 36 stdlib.md §5 /
+  # future-runtime §10 names (25 core-builtins + 11 coverage), and the
+  # alternatives §2.4 documents instead
   # must exist. --production keeps a capability grant out of the assertion,
   # the golden fixture's argument order, and its desktop environment.
   add_test(NAME quickjs_policy_refusal

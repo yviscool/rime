@@ -5,12 +5,12 @@
     {
       "ledger": "coverage",
       "denominator": 253,
-      "terminal": 239,
-      "remaining": 14,
+      "terminal": 240,
+      "remaining": 13,
       "breakdown": {
         "implemented": 218,
-        "unsupported-by-policy": 10,
-        "contract-only": 14,
+        "unsupported-by-policy": 11,
+        "contract-only": 13,
         "js-native": 11
       },
       "rule": "status in implemented | js-native | unsupported-by-policy"
@@ -18,13 +18,12 @@
     {
       "ledger": "core-builtins",
       "denominator": 101,
-      "terminal": 94,
-      "remaining": 7,
+      "terminal": 101,
+      "remaining": 0,
       "breakdown": {
         "js-native": 57,
         "implemented": 19,
-        "unsupported-by-policy": 18,
-        "contract-only": 7
+        "unsupported-by-policy": 25
       },
       "rule": "status in implemented | js-native | unsupported-by-policy"
     },
@@ -54,9 +53,9 @@
   ],
   "total": {
     "denominator": 731,
-    "terminal": 393,
-    "remaining": 338,
-    "percent": 53.76
+    "terminal": 401,
+    "remaining": 330,
+    "percent": 54.86
   },
   "evidence_gaps": []
 }

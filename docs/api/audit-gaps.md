@@ -5,10 +5,10 @@
 ## 已发现但尚未逐项提取
 
 - 对象成员矩阵已按真实源码签名提取进 `objects.json`：全部 20 个对象（Gui、GuiControl、Menu、InputHook、File、Object、Array、Map、Func、Buffer、ClipboardAll、RegExMatch、ComObject，以及 ListView、TreeView、StatusBar、Edit、DateTime、Tab、ComboBox）的每个成员都补齐了 `name/kind/parameters/returnType/sourceDefinition/lane/async/ownership/error/compatibilityTest`；剩余缺口只是 `md_member*` 元数据层的参数个数与可选参数边界仍需 CI 做漂移检查。
-- `script.cpp` 的 101 个核心内建函数（`BIF1` 41 + `BIFn` 47 + `BIFi` 13）：已逐项提取进 `core-builtins.json`（`domain`/`tsModule`/`lane`/`capability`/`status`/`contractTest`，口径见 [`core-builtins.md`](./core-builtins.md) 与计划 §M0）；剩余缺口是 18 条 `contract-only` 行的语义还原测试（`matrix:check` 对 `coverage ≡ md_func`、`core-builtins ≡ g_BIF` 的漂移检查已在 CI 守住）。
+- `script.cpp` 的 101 个核心内建函数（`BIF1` 41 + `BIFn` 47 + `BIFi` 13）：已逐项提取进 `core-builtins.json`（`domain`/`tsModule`/`lane`/`capability`/`status`/`contractTest`，口径见 [`core-builtins.md`](./core-builtins.md) 与计划 §M0）；**2026-10-07 收敛**：`contract-only` 行已清零，101/101 全终态（19 `implemented` + 57 `js-native` + 25 `unsupported-by-policy`，后者含 M8 定档的 `ComObj*` 7 项），逐行证据见 [`core-builtins.md`](./core-builtins.md)；`matrix:check` 对 `coverage ≡ md_func`、`core-builtins ≡ g_BIF` 的漂移检查在 CI 守住。
 - 内置变量：`builtins.json` 目前是按源码命中的分域清单，不是完整定义表；需要从 `globaldata` 的注册/解析逻辑提取所有动态变量、只读属性和更新时机。
 - `ahklib.idl` 的全部 ABI 与描述对象；需要生成版本化 Rime Host ABI contract，而不是把它归入普通函数。
-- COM/VARIANT/SAFEARRAY 互操作，包括事件 sink、引用计数、Apartment 和异常转换。
+- COM/VARIANT/SAFEARRAY 互操作，包括事件 sink、引用计数、Apartment 和异常转换。**2026-10-07 M8 已定档并文档化**：脚本面 7×`ComObj*` 判 `unsupported-by-policy`（边界文档 [`native-interop.md`](./native-interop.md) §1-§3，逐项理由/替代/证据 [`runtime-language.md`](./runtime-language.md) §2.4，拒绝测试 `policy-refusal.mjs` 守 36 个名字，[`stdlib.md`](./stdlib.md) §5 尾注同步）；剩余缺口收敛为隔离插件面本身的实现（版本化 Host ABI 的进程内 COM 调用与进程外桥、事件 sink 的订阅/卸载诊断）与 SAFEARRAY 逐项语义——不再阻塞设计完备，因为脚本级入口已全部判不提供。
 - AHK 语法级能力：热键标签、热字符串、自动执行段、类/原型、ByRef、动态属性、异常、伪线程、`Critical` 和嵌套消息泵。
 - 指令和配置状态：`#Requires`、`#SingleInstance`、`#Persistent`、`#InstallKeybdHook`、`#HotIf`、`#Hotstring` 等不在 `functions.h` 中。
 - 内置错误原型、警告、`OnError` 继续/重抛规则、ErrorLevel/退出码语义。

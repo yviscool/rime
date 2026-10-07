@@ -1,21 +1,27 @@
 // Refusal contract for the `unsupported-by-policy` rows (M8's rejection
-// tests, AGENTS plan item 3). Two ledgers name the same policy: 22 rows in
-// docs/api/core-builtins.json (stdlib.md §5 blacklist) and 10 in
-// docs/api/coverage.json (the overlap is Critical/Pause/PostMessage/Thread;
-// Callback* and Obj*DataPtr* are coverage-only). The claim each row makes is
-// that Rime exposes no entry point for it - so the fixture walks every
-// registered module plus the global object and fails if any of those names
-// resolves, matched case-insensitively on the API name so an alias like
-// `dllCall` cannot pass by changing casing.
+// tests, AGENTS plan item 3). Two ledgers name the same policy: 25 rows in
+// docs/api/core-builtins.json (stdlib.md §5 blacklist) and 11 in
+// docs/api/coverage.json. No name is claimed by both ledgers; the coverage
+// rows Critical/Pause/PostMessage/Thread are the ones §2.4's table lists as
+// COV, while Callback*, Obj*DataPtr* and SendMessage are coverage-only and
+// are documented in runtime-language.md §2.4 and window.md respectively.
+// The claim each row makes is that Rime exposes no entry point for it - so
+// the fixture walks every registered module plus the global object and fails
+// if any of those names resolves, matched case-insensitively on the API name
+// so an alias like `dllCall` cannot pass by changing casing.
 //
 // The second half pins the alternative the row documents instead of the
 // function: §2.4 names `input.suspend` for Pause, the structured `windows.*`
 // write family for PostMessage/SendMessage, `sound.get*`/`set*` for
-// SoundGetInterface, and Uint8Array for the address-shaped string and number
-// buffers (this runtime has no TextDecoder/TextEncoder - see the probe note
-// below). Rows whose alternative is deliberately
+// SoundGetInterface, `automation.find` for ComObjGet/ComObjActive,
+// `input.subscribe` for ComObjConnect (event sinks), `control.resolve` for
+// ControlGetHwnd (stable ControlId, never a raw HWND), and Uint8Array for
+// the address-shaped string and number buffers (this runtime has no
+// TextDecoder/TextEncoder - see the probe note below). Rows whose
+// alternative is deliberately
 // script-invisible (naked COM/DLL interop -> isolated plugin, reference
-// counting -> GC, `Critical`/`Thread` -> kernel SchedulerPolicy) assert
+// counting -> GC, `Critical`/`Thread` -> kernel SchedulerPolicy, QI/variant
+// unpacking -> the same isolated COM face) assert
 // absence only: there is no JS surface to require.
 //
 // Run through `rime_js_bundle --production`, so the module set is the
@@ -39,7 +45,15 @@ const refused = [
   "CallbackCreate",
   "CallbackFree",
   "ComCall",
+  "ComObjActive",
+  "ComObjConnect",
+  "ComObjFlags",
   "ComObjFromPtr",
+  "ComObjGet",
+  "ComObjQuery",
+  "ComObjType",
+  "ComObjValue",
+  "ControlGetHwnd",
   "Critical",
   "DllCall",
   "NumGet",
@@ -125,6 +139,15 @@ const alternatives = [
   ["NumPut", "Uint8Array", () => typeof Uint8Array === "function"],
   ["StrGet", "Uint8Array", () => typeof Uint8Array === "function"],
   ["StrPut", "Uint8Array", () => typeof Uint8Array === "function"],
+  // M8 COM 定档: script-visible side of the boundary. The COM face is the
+  // isolated plugin, but the two things a script reaches for instead -
+  // "find an object somewhere" and "subscribe to its events" - are already
+  // capabilities of the public API, so their absence is not a dead end.
+  ["ComObjGet", "automation.find", () => typeof automation.find === "function"],
+  ["ComObjActive", "automation.find", () => typeof automation.find === "function"],
+  ["ComObjConnect", "input.subscribe", () => typeof input.subscribe === "function"],
+  // M8 Control 定档: the id, not the handle.
+  ["ControlGetHwnd", "control.resolve", () => typeof control.resolve === "function"],
 ];
 for (const [name, alternative, present] of alternatives) {
   if (!present()) {

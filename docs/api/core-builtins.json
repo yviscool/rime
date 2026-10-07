@@ -4,7 +4,7 @@
   "sourceFile": "rime-research/AutoHotkey-alpha/source/script.cpp",
   "registrationMacro": "BIF1+BIFn+BIFi",
   "functionCount": 101,
-  "status": "contract-only",
+  "status": "implemented",
   "entries": [
     {
       "ahkName": "ACos",
@@ -231,12 +231,12 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/native-interop",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.automation.control",
-      "contractTest": "missing",
-      "lane": "automation",
-      "cancellation": "deadline+AbortSignal",
+      "status": "unsupported-by-policy",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined",
       "minParams": 1,
       "maxParams": 1,
       "definitionSymbol": "BIF_ComObjActive",
@@ -244,7 +244,7 @@
       "sourceKind": "core-bif",
       "returnsObject": true,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "docs/api/runtime-language.md"
     },
     {
       "ahkName": "ComObjConnect",
@@ -255,12 +255,12 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/native-interop",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.automation.control",
-      "contractTest": "missing",
-      "lane": "automation",
-      "cancellation": "deadline+AbortSignal",
+      "status": "unsupported-by-policy",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined",
       "minParams": 1,
       "maxParams": 2,
       "definitionSymbol": "BIF_ComObjConnect",
@@ -268,7 +268,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "docs/api/runtime-language.md"
     },
     {
       "ahkName": "ComObjFlags",
@@ -279,12 +279,12 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/native-interop",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.automation.control",
-      "contractTest": "missing",
-      "lane": "automation",
-      "cancellation": "deadline+AbortSignal",
+      "status": "unsupported-by-policy",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined",
       "minParams": 1,
       "maxParams": 3,
       "definitionSymbol": "BIF_ComObjFlags",
@@ -292,7 +292,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "docs/api/runtime-language.md"
     },
     {
       "ahkName": "ComObjFromPtr",
@@ -327,12 +327,12 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/native-interop",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.automation.control",
-      "contractTest": "missing",
-      "lane": "automation",
-      "cancellation": "deadline+AbortSignal",
+      "status": "unsupported-by-policy",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined",
       "minParams": 1,
       "maxParams": 1,
       "definitionSymbol": "BIF_ComObjGet",
@@ -340,7 +340,7 @@
       "sourceKind": "core-bif",
       "returnsObject": true,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "docs/api/runtime-language.md"
     },
     {
       "ahkName": "ComObjQuery",
@@ -351,12 +351,12 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/native-interop",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.automation.control",
-      "contractTest": "missing",
-      "lane": "automation",
-      "cancellation": "deadline+AbortSignal",
+      "status": "unsupported-by-policy",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined",
       "minParams": 2,
       "maxParams": 3,
       "definitionSymbol": "BIF_ComObjQuery",
@@ -364,7 +364,7 @@
       "sourceKind": "core-bif",
       "returnsObject": true,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "docs/api/runtime-language.md"
     },
     {
       "ahkName": "ComObjType",
@@ -375,12 +375,12 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/native-interop",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.automation.control",
-      "contractTest": "missing",
-      "lane": "automation",
-      "cancellation": "deadline+AbortSignal",
+      "status": "unsupported-by-policy",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined",
       "minParams": 1,
       "maxParams": 2,
       "definitionSymbol": "BIF_ComObjType",
@@ -388,7 +388,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "docs/api/runtime-language.md"
     },
     {
       "ahkName": "ComObjValue",
@@ -399,12 +399,12 @@
         "rime-research/AutoHotkey-alpha/source/script.h"
       ],
       "tsModule": "@rime/native-interop",
-      "status": "contract-only",
-      "async": "async",
-      "capability": "windows.automation.control",
-      "contractTest": "missing",
-      "lane": "automation",
-      "cancellation": "deadline+AbortSignal",
+      "status": "unsupported-by-policy",
+      "async": "explicit-capability",
+      "capability": "native.unsafe",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs",
+      "lane": "plugin-isolated",
+      "cancellation": "plugin-defined",
       "minParams": 1,
       "maxParams": 1,
       "definitionSymbol": "BIF_ComObjValue",
@@ -412,7 +412,7 @@
       "sourceKind": "core-bif",
       "returnsObject": false,
       "unsafeMemory": false,
-      "compatibilityTest": "missing"
+      "compatibilityTest": "docs/api/runtime-language.md"
     },
     {
       "ahkName": "Cos",

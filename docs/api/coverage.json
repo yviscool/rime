@@ -294,10 +294,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/control",
-      "status": "contract-only",
+      "status": "unsupported-by-policy",
       "async": "async",
       "capability": "windows.automation.control",
-      "contractTest": "missing",
+      "contractTest": "tests/js/fixtures/policy-refusal.mjs,docs/api/control.md",
       "lane": "automation",
       "cancellation": "deadline+AbortSignal"
     },
