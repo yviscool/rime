@@ -16,6 +16,7 @@
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <cstdio>
 #include <functional>
 #include <string>
 #include <thread>
@@ -61,9 +62,13 @@ class TargetWindow final {
     if (!thread_.joinable()) return;
     PostThreadMessageW(thread_id_, WM_QUIT, 0, 0);
     thread_.join();
+    root_.store(nullptr);
+    button_.store(nullptr);
   }
 
   [[nodiscard]] std::size_t clicks() const { return clicks_.load(); }
+  [[nodiscard]] HWND root() const { return root_.load(); }
+  [[nodiscard]] HWND button() const { return button_.load(); }
 
  private:
   static LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -93,10 +98,12 @@ class TargetWindow final {
         CW_USEDEFAULT, 480, 420, nullptr, nullptr, window_class.hInstance, nullptr);
     if (!window) return;
     SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+    root_.store(window);
     HWND button = CreateWindowExW(
         0, L"BUTTON", L"RimeControlNativeOK", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 40, 40,
         240, 36, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(1)),
         window_class.hInstance, nullptr);
+    button_.store(button);
     HWND edit = CreateWindowExW(
         0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT | ES_AUTOHSCROLL, 40, 100,
         240, 32, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(2)),
@@ -206,6 +213,8 @@ class TargetWindow final {
   std::thread thread_;
   std::atomic<bool> ready_{false};
   std::atomic<std::size_t> clicks_{0};
+  std::atomic<HWND> root_{nullptr};
+  std::atomic<HWND> button_{nullptr};
   DWORD thread_id_{0};
 };
 
@@ -243,6 +252,44 @@ bool poll_true(std::chrono::milliseconds budget, const std::function<bool()>& pr
     std::this_thread::sleep_for(5ms);
   }
   return probe();
+}
+
+void report_click_poll(const char* stage, std::size_t before, std::size_t want,
+                       const TargetWindow& target) {
+  const HWND root = target.root();
+  const HWND button = target.button();
+  RECT rect{};
+  POINT service_center{};
+  if (button && GetWindowRect(button, &rect)) {
+    service_center.x = (rect.left + rect.right) / 2;
+    service_center.y = (rect.top + rect.bottom) / 2;
+  }
+  const POINT service_screen = service_center;
+  if (button) ScreenToClient(button, &service_center);
+  POINT cursor{};
+  (void)GetCursorPos(&cursor);
+  if (button) ScreenToClient(button, &cursor);
+  DWORD_PTR state = 0;
+  if (button) {
+    (void)SendMessageTimeoutW(button, BM_GETSTATE, 0, 0, SMTO_ABORTIFHUNG, 500, &state);
+  }
+  const HWND capture = GetCapture();
+  const HWND foreground = GetForegroundWindow();
+  fprintf(stderr,
+          "control.click %s never reached %zu: before=%zu now=%zu root=%p button=%p "
+          "capture=%p capture_is_button=%d foreground=%p foreground_is_root=%d "
+          "bm_getstate=0x%lx pushed=%d service_center_screen=(%ld,%ld) "
+          "service_center_client=(%ld,%ld) cursor_client=(%ld,%ld) "
+          "button_client=%ldx%ld hung=%d\n",
+          stage, want, before, target.clicks(), static_cast<void*>(root),
+          static_cast<void*>(button), static_cast<void*>(capture),
+          capture == button ? 1 : 0, static_cast<void*>(foreground),
+          foreground == root ? 1 : 0, static_cast<unsigned long>(state),
+          (state & BST_PUSHED) != 0 ? 1 : 0, static_cast<long>(service_screen.x),
+          static_cast<long>(service_screen.y), static_cast<long>(service_center.x),
+          static_cast<long>(service_center.y), static_cast<long>(cursor.x),
+          static_cast<long>(cursor.y), rect.right - rect.left, rect.bottom - rect.top,
+          (root && IsHungAppWindow(root)) ? 1 : 0);
 }
 
 }  // namespace
@@ -414,7 +461,9 @@ int main(int argc, char** argv) {
   const std::size_t clicks_before = target.clicks();
   Result clicked = run_one(dispatcher, make_action(1, "control.click", button, "{}"));
   assert(clicked.succeeded);
-  assert(poll_true(5s, [&] { return target.clicks() == clicks_before + 1; }));
+  const bool down_up_clicked = poll_true(5s, [&] { return target.clicks() == clicks_before + 1; });
+  if (!down_up_clicked) report_click_poll("downUp", clicks_before, clicks_before + 1, target);
+  assert(down_up_clicked);
 
   // count 0 is a silent no-op.
   Result noop = run_one(dispatcher, make_action(2, "control.click", button,
@@ -429,7 +478,9 @@ int main(int argc, char** argv) {
   Result up = run_one(
       dispatcher, make_action(4, "control.click", button, "{\"phase\": \"up\"}"));
   assert(up.succeeded);
-  assert(poll_true(5s, [&] { return target.clicks() == clicks_before + 2; }));
+  const bool halves_clicked = poll_true(5s, [&] { return target.clicks() == clicks_before + 2; });
+  if (!halves_clicked) report_click_poll("split halves", clicks_before, clicks_before + 2, target);
+  assert(halves_clicked);
 
   // focus never reports failure (AHK rule); a dead id fails as TargetGone.
   Result focused = run_one(dispatcher, make_action(5, "control.focus", button, "{}"));
