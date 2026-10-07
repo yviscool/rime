@@ -263,6 +263,38 @@ JSValue process_launch(JSContext* context, JSValueConst, int argc, JSValueConst*
   return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
 }
 
+// process.edit(path[, options]): opens a file for editing (AHK Edit rule:
+// shell "edit" verb, notepad fallback). Capability process.launch: it
+// launches programs either way.
+JSValue process_edit(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void*) {
+  ProcessModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
+    return JS_ThrowInternalError(context, "rime:process is not wired");
+  }
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "edit(path[, options])");
+  if (!JS_IsString(argv[0])) {
+    return JS_ThrowTypeError(context, "edit(path): path must be a string");
+  }
+  const char* path_text = JS_ToCString(context, argv[0]);
+  if (!path_text) return JS_EXCEPTION;
+  const std::string path(path_text);
+  JS_FreeCString(context, path_text);
+  if (path.empty()) {
+    return JS_ThrowTypeError(context, "edit(path): path must not be empty");
+  }
+  // No JS-side capability gate (like launch): the kernel denies at dispatch.
+  ActionOptions options;
+  if (argc == 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
+  json::Value payload = json::Value::object();
+  payload.set("path", json::Value::string(path));
+  auto action = make_action(*binding->next_action_id, "rime:process", "process.edit",
+                            kProcessLaunchCapability, {"process", "new"},
+                            json::stringify(payload), options);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
+}
+
 JSValue process_terminate(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                           void*) {
   ProcessModuleBinding* binding = binding_of(context);
@@ -673,7 +705,8 @@ int process_module_init(JSContext* context, JSModuleDef* module) {
     return true;
   };
   if (!add("list", process_list, 0) || !add("info", process_info, 1) ||
-      !add("launch", process_launch, 1) || !add("terminate", process_terminate, 1) ||
+      !add("launch", process_launch, 1) || !add("edit", process_edit, 1) ||
+      !add("terminate", process_terminate, 1) ||
       !add("wait", process_wait, 1) || !add("waitClose", process_wait_close, 1) ||
       !add("runWait", process_run_wait, 1) || !add("setPriority", process_set_priority, 2) ||
       !add("runAs", process_run_as, 1) || !add("shutdown", process_shutdown, 1)) {

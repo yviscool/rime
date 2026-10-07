@@ -175,7 +175,12 @@ int main(int argc, char** argv) {
         "  throw new Error('launch must resolve a pid');\n"
         "globalThis.badLaunch = null;\n"
         "try { process.launch({}); } catch (e) { globalThis.badLaunch = e instanceof TypeError; }\n"
-        "if (!globalThis.badLaunch) throw new Error('launch({}) must throw TypeError');",
+        "if (!globalThis.badLaunch) throw new Error('launch({}) must throw TypeError');\n"
+        "globalThis.badEdit = 0;\n"
+        "try { process.edit(); } catch (e) { if (e instanceof TypeError) globalThis.badEdit++; }\n"
+        "try { process.edit(42); } catch (e) { if (e instanceof TypeError) globalThis.badEdit++; }\n"
+        "try { process.edit(''); } catch (e) { if (e instanceof TypeError) globalThis.badEdit++; }\n"
+        "if (globalThis.badEdit !== 3) throw new Error('edit shape mistakes must throw TypeError');",
         "breadth-launch-check.mjs");
 
   check(runtime,

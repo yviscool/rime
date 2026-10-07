@@ -1010,23 +1010,17 @@
     },
     {
       "ahkName": "Edit",
-      "domain": "control",
+      "domain": "process-shell",
       "sourceFiles": [
-        "rime-research/AutoHotkey-alpha/source/application.cpp",
-        "rime-research/AutoHotkey-alpha/source/defines.h",
-        "rime-research/AutoHotkey-alpha/source/error.cpp",
-        "rime-research/AutoHotkey-alpha/source/hook.cpp",
-        "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp",
         "rime-research/AutoHotkey-alpha/source/script.cpp",
-        "rime-research/AutoHotkey-alpha/source/script.h",
-        "rime-research/AutoHotkey-alpha/source/script2.cpp"
+        "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/control",
-      "status": "contract-only",
+      "tsModule": "@rime/process-shell",
+      "status": "implemented",
       "async": "async",
-      "capability": "windows.automation.control",
-      "contractTest": "missing",
-      "lane": "automation",
+      "capability": "process.launch",
+      "contractTest": "tests/native/process_tests.cpp,tests/js/breadth_slice.cpp",
+      "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
     {
@@ -1310,10 +1304,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1355,10 +1349,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/storage",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "filesystem.read/write",
-      "contractTest": "missing",
+      "contractTest": "tests/native/storage_tests.cpp,tests/js/storage_slice.cpp",
       "lane": "worker",
       "cancellation": "deadline+AbortSignal"
     },

@@ -111,6 +111,21 @@ const bridge: StorageBridge = {
     failIfSet(readRejection);
     return { value: `${section}/${key}` };
   },
+  async shortcut(path, options) {
+    readCalls.push([path, options]);
+    failIfSet(readRejection);
+    return {
+      target: "C:\\Windows\\notepad.exe",
+      workingDir: "C:\\Windows",
+      args: "--rime",
+      icon: "shell32.dll,0",
+    };
+  },
+  async version(path, options) {
+    readCalls.push([path, options]);
+    failIfSet(readRejection);
+    return { version: "10.0.26100.1" };
+  },
   async driveGet(field, letter, options): Promise<DriveInfo> {
     driveCalls.push([field, letter, options]);
     failIfSet(readRejection);
@@ -250,9 +265,31 @@ test("the facade unwraps every wire result into the documented shape", async () 
   expect(await facade.download("https://example.test/a", "C:/a.bin")).toBe(1234);
   expect(await facade.selectFile()).toEqual(["C:\\picked\\file.txt"]);
   expect(await facade.selectDir()).toBe("C:\\picked\\dir");
+  expect(await facade.shortcut("C:\\links\\target.lnk")).toEqual({
+    target: "C:\\Windows\\notepad.exe",
+    workingDir: "C:\\Windows",
+    args: "--rime",
+    icon: "shell32.dll,0",
+  });
+  // The wire carries {version}; the facade unwraps it like read/envGet/download.
+  expect(await facade.version("C:/Windows/notepad.exe")).toBe("10.0.26100.1");
 
   expect(readCalls.some(([path]) => path === "C:/data.txt")).toBe(true);
+  expect(readCalls.some(([path]) => path === "C:\\links\\target.lnk")).toBe(true);
   expect(driveCalls.at(-1)).toEqual(["capacity", "C", undefined]);
+});
+
+test("shortcut and version upgrade a coded rejection to ActionError", async () => {
+  readRejection = { code: "target_gone", message: "file not found: C:/gone.lnk" };
+  const shortcutError = await facade.shortcut("C:/gone.lnk").catch((e: unknown) => e);
+  expect(shortcutError).toBeInstanceOf(ActionError);
+  expect((shortcutError as ActionError).code).toBe("target_gone");
+
+  readRejection = { code: "execution_failed", message: "no version resource" };
+  const versionError = await facade.version("C:/gone.dll").catch((e: unknown) => e);
+  expect(versionError).toBeInstanceOf(ActionError);
+  expect((versionError as ActionError).code).toBe("execution_failed");
+  expect((versionError as ActionError).message).toBe("no version resource");
 });
 
 test("a coded rejection surfaces as ActionError carrying the same code", async () => {

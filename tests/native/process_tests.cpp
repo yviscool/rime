@@ -17,10 +17,12 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -152,6 +154,74 @@ int main(int argc, char** argv) {
   assert(service.info(0, scratch).code == rime::core::Error::Code::InvalidContract);
   std::uint32_t pid = 0;
   assert(service.launch({L"", L"", L""}, pid).code == rime::core::Error::Code::InvalidContract);
+
+  // edit() opens a temp text file in an editor: snapshot notepad pids, edit,
+  // expect newcomers, then terminate all of them (no UI left behind). The name
+  // match is case-insensitive because Toolhelp reports the on-disk casing
+  // ("Notepad.exe"): a case-sensitive compare never sees the newcomer.
+  {
+    wchar_t temp_dir[MAX_PATH]{};
+    assert(GetTempPathW(MAX_PATH, temp_dir) != 0);
+    const std::wstring edit_path =
+        std::wstring(temp_dir) + L"rime-edit-test-" + std::to_wstring(self_pid) + L".txt";
+    {
+      HANDLE file = CreateFileW(edit_path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+      assert(file != INVALID_HANDLE_VALUE);
+      const char* text = "rime edit probe";
+      DWORD written = 0;
+      assert(WriteFile(file, text, static_cast<DWORD>(std::strlen(text)), &written, nullptr) &&
+             written == std::strlen(text));
+      CloseHandle(file);
+    }
+    auto notepad_pids = [&] {
+      std::vector<std::uint32_t> pids;
+      std::vector<ProcessInfo> snapshot;
+      if (!service.list(snapshot).ok()) return pids;
+      for (const auto& process : snapshot) {
+        if (_stricmp(process.name.c_str(), "notepad.exe") == 0) pids.push_back(process.pid);
+      }
+      return pids;
+    };
+    const auto before = notepad_pids();
+    char edit_narrow[MAX_PATH * 2] = {0};
+    WideCharToMultiByte(CP_UTF8, 0, edit_path.c_str(), -1, edit_narrow, sizeof(edit_narrow),
+                        nullptr, nullptr);
+    assert(service.edit(edit_narrow).ok());
+    std::vector<std::uint32_t> editors;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    bool stable = false;
+    while (std::chrono::steady_clock::now() < deadline && !stable) {
+      const std::size_t seen = editors.size();
+      for (const auto pid_now : notepad_pids()) {
+        if (std::find(before.begin(), before.end(), pid_now) == before.end() &&
+            std::find(editors.begin(), editors.end(), pid_now) == editors.end()) {
+          editors.push_back(pid_now);
+        }
+      }
+      // Notepad can start a companion process alongside its window, so one
+      // extra quiet poll runs before anything is terminated.
+      stable = !editors.empty() && editors.size() == seen;
+      if (!stable) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (editors.empty()) {
+      std::vector<ProcessInfo> now_list;
+      if (service.list(now_list).ok()) {
+        for (const auto& process : now_list) {
+          std::fprintf(stderr, "edit probe: pid=%u name=%s\n", process.pid,
+                       process.name.c_str());
+        }
+      }
+    }
+    assert(!editors.empty() && "edit() must start a new editor process");
+    for (const auto editor : editors) {
+      assert(service.terminate(editor, 1).ok());
+      assert(wait_gone(service, editor, 5000ms));
+    }
+    assert(DeleteFileW(edit_path.c_str()) != 0);
+    // Empty and missing paths are contract errors, not launches.
+    assert(service.edit("").code == rime::core::Error::Code::InvalidContract);
+  }
 
   // A launched child is queryable, then disappears on its own.
   const std::wstring executable = self_path();

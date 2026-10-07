@@ -62,6 +62,8 @@ export interface ProcessBridge {
   list(options?: NativeActionOptions): Promise<ProcessInfo[]>;
   info(pid: ProcessId, options?: NativeActionOptions): Promise<ProcessInfo>;
   launch(options: LaunchOptions): Promise<{ pid: ProcessId }>;
+  /** Opens a file for editing (shell "edit" verb, notepad fallback). */
+  edit(path: string, options?: NativeActionOptions): Promise<{ path: string }>;
   terminate(pid: ProcessId, options?: NativeActionOptions): Promise<{ pid: ProcessId }>;
   /** Resolves `{pid}` once the process exists; `timeout` after deadlineMs (default 5000). */
   wait(pid: ProcessId, options?: NativeActionOptions): Promise<{ pid: ProcessId }>;
@@ -119,6 +121,15 @@ export const Process = {
     const { signal: _signal, ...fields } = request;
     return runAction(request, (native) =>
       processBridge().then((process) => process.launch({ ...fields, ...native })),
+    );
+  },
+  /**
+   * Opens a file for editing through the `process.edit` action pipeline.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
+  edit(path: string, options?: ActionOptions): Promise<{ path: string }> {
+    return runAction(options, (native) =>
+      processBridge().then((process) => process.edit(path, native)),
     );
   },
   /**

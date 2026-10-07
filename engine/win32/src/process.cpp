@@ -3,9 +3,11 @@
 #include "utf.hpp"
 
 #include <windows.h>
-// WIN32_LEAN_AND_MEAN keeps winreg.h (InitiateSystemShutdownExW) and reason.h
-// (SHTDN_REASON_*) out of windows.h, so both are pulled in explicitly here.
+// WIN32_LEAN_AND_MEAN keeps winreg.h (InitiateSystemShutdownExW), reason.h
+// (SHTDN_REASON_*) and shellapi.h (ShellExecuteExW) out of windows.h, so all
+// three are pulled in explicitly here.
 #include <reason.h>
+#include <shellapi.h>
 #include <tlhelp32.h>
 #include <winreg.h>
 
@@ -369,6 +371,42 @@ Error ProcessService::launch(const LaunchSpec& spec, std::uint32_t& pid) const {
   // launch_waitable() is the counterpart that keeps the handle instead.
   CloseHandle(process);
   return rime::core::Error::none();
+}
+
+Error ProcessService::edit(const std::string& path_utf8) const {
+  if (path_utf8.empty() || path_utf8.size() > 32767) {
+    return {Code::InvalidContract, "edit path must be 1..32767 UTF-8 bytes"};
+  }
+  const std::wstring path = from_utf8(path_utf8);
+  if (path.empty()) {
+    return {Code::InvalidContract, "edit path is not valid UTF-8"};
+  }
+  // Shell "edit" verb first (AHK ActionExec("Edit", ...) rule): the
+  // association may not exist, in which case ShellExecuteEx reports
+  // SE_ERR_NOASSOC and we fall back to notepad below.
+  SHELLEXECUTEINFOW info{};
+  info.cbSize = sizeof(info);
+  info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
+  info.lpVerb = L"edit";
+  info.lpFile = path.c_str();
+  info.nShow = SW_SHOWNORMAL;
+  if (ShellExecuteExW(&info) != FALSE) {
+    if (info.hProcess) CloseHandle(info.hProcess);
+    return Error::none();
+  }
+  const DWORD failure = GetLastError();
+  // Notepad fallback (AHK rule): quote the path and launch it the same way
+  // launch() would, so PATH search and quoting stay consistent.
+  LaunchSpec spec;
+  spec.executable = L"notepad.exe";
+  spec.arguments = L"\"" + path + L"\"";
+  std::uint32_t pid = 0;
+  if (const auto fallback = launch(spec, pid); !fallback.ok()) {
+    return {Code::ExecutionFailed,
+            "cannot edit " + path_utf8 + " (edit verb win32 error " +
+                std::to_string(failure) + "; notepad fallback: " + fallback.message + ")"};
+  }
+  return Error::none();
 }
 
 Error ProcessService::launch_waitable(const LaunchSpec& spec, std::uint32_t& pid,

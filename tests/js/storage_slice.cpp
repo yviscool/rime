@@ -19,6 +19,9 @@
 
 #include <windows.h>
 
+#include <objbase.h>
+#include <shobjidl.h>
+
 #include <atomic>
 #include <cassert>
 #include <chrono>
@@ -100,6 +103,10 @@ int main() {
   const std::string dir_json = json_string(fixture_u8);
   const std::string hello_json = json_string(fixture_u8 + "\\hello.txt");
   const std::string ini_json = json_string(fixture_u8 + "\\data.ini");
+  const std::string link_json = json_string(fixture_u8 + "\\links\\target.lnk");
+  wchar_t sys_dir[MAX_PATH] = {0};
+  assert(GetSystemDirectoryW(sys_dir, MAX_PATH) != 0);
+  const std::string kernel_json = json_string(to_utf8(sys_dir) + "\\kernel32.dll");
   const std::string never_json = json_string(fixture_u8 + "\\never.bin");
   const std::string denied_json = json_string(to_utf8(denied_fixture));
 
@@ -136,8 +143,8 @@ int main() {
   // rejection behind).
   check(runtime,
         "import { storage } from 'rime:storage';\n"
-        "const expected = ['readText','readBytes','stat','list','envGet','iniRead','driveGet',"
-        "'open','fileRead','fileSeek','fileStat','fileClose','write','encoding','setEncoding',"
+        "const expected = ['readText','readBytes','stat','shortcut','version','list','envGet','iniRead','driveGet',\n"
+        "'open','fileRead','fileSeek','fileStat','fileClose','write','encoding','setEncoding',\n"
         "'download','selectFile','selectDir'];\n"
         "globalThis.missingSurface = expected.filter(n => typeof storage[n] !== 'function');\n"
         "globalThis.extraSurface = Object.keys(storage).filter(n => expected.indexOf(n) < 0);\n"
@@ -260,6 +267,69 @@ int main() {
         "if (rt.envMissing !== '')\n"
         "  throw new Error('unset env must read back as an empty string');",
         "storage-roundtrip-check.mjs");
+
+  // Segment: shortcut() decodes the fixture link; version() reads a system
+  // binary; both reject shape mistakes synchronously. The .lnk is created
+  // here (not in setup) so the roundtrip listing above keeps asserting
+  // exactly 2 top-level entries.
+  {
+    const HRESULT co_init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    assert(co_init == S_OK || co_init == S_FALSE || co_init == RPC_E_CHANGED_MODE);
+    IShellLinkW* link = nullptr;
+    assert(SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                                      IID_IShellLinkW, reinterpret_cast<void**>(&link))));
+    IPersistFile* persist = nullptr;
+    assert(SUCCEEDED(
+        link->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&persist))));
+    wchar_t link_sys[MAX_PATH] = {0};
+    assert(GetSystemDirectoryW(link_sys, MAX_PATH) != 0);
+    const std::wstring target_exe = std::wstring(link_sys) + L"\\notepad.exe";
+    const std::wstring links_dir = fixture + L"\\links";
+    std::error_code link_dir_error;
+    std::filesystem::create_directories(links_dir, link_dir_error);
+    assert(!link_dir_error);
+    const std::wstring link_path = links_dir + L"\\target.lnk";
+    assert(SUCCEEDED(link->SetPath(target_exe.c_str())));
+    assert(SUCCEEDED(link->SetArguments(L"--slice")));
+    assert(SUCCEEDED(persist->Save(link_path.c_str(), TRUE)));
+    persist->Release();
+    link->Release();
+    CoUninitialize();
+  }
+  check(runtime,
+        "import { storage } from 'rime:storage';\n"
+        "globalThis.linkOut = null;\n"
+        "globalThis.verOut = null;\n"
+        "storage.shortcut(" +
+            link_json +
+            ").then(r => { globalThis.linkOut = r; }, e => { globalThis.linkOut = String(e); });\n"
+            "storage.version(" +
+            kernel_json +
+            ").then(r => { globalThis.verOut = r; }, e => { globalThis.verOut = String(e); });\n"
+            "globalThis.linkShape = false;\n"
+            "globalThis.verShape = false;\n"
+            "try { storage.shortcut(42); } catch (e) { globalThis.linkShape = e instanceof TypeError; }\n"
+            "try { storage.version(); } catch (e) { globalThis.verShape = e instanceof TypeError; }\n",
+        "storage-linkver.mjs");
+  assert(runtime.settle(10000ms).ok());
+  check(runtime,
+        "if (!globalThis.linkShape || !globalThis.verShape)\n"
+        "  throw new Error('shape mistakes must be TypeErrors');\n"
+        "if (typeof globalThis.linkOut === 'string') throw new Error(globalThis.linkOut);\n"
+        "if (!globalThis.linkOut || !globalThis.linkOut.target.endsWith('notepad.exe'))\n"
+        "  throw new Error('shortcut target mismatch: ' + JSON.stringify(globalThis.linkOut));\n"
+        "if (!globalThis.linkOut || globalThis.linkOut.args !== '--slice')\n"
+        "  throw new Error('shortcut args mismatch');\n"
+        "if (typeof globalThis.verOut === 'string') throw new Error(globalThis.verOut);\n"
+        "if (!globalThis.verOut || !/^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$/.test(globalThis.verOut.version))\n"
+        "  throw new Error('version shape mismatch: ' + JSON.stringify(globalThis.verOut));\n",
+        "storage-linkver-check.mjs");
+  assert(runtime.settle(10000ms).ok());
+  {
+    std::error_code links_cleanup_error;
+    std::filesystem::remove_all(fixture + L"\\links", links_cleanup_error);
+    assert(!links_cleanup_error);
+  }
   // Independent observation: the Action that set the variable is also visible
   // through the process environment, not only through the JS read.
   {

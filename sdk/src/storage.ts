@@ -130,6 +130,13 @@ export interface StorageBridge {
   readText(path: string, options?: NativeActionOptions): Promise<{ text: string }>;
   readBytes(path: string, options?: NativeActionOptions): Promise<{ bytes: number[] }>;
   stat(path: string, options?: NativeActionOptions): Promise<FileInfo>;
+  /** Decoded .lnk fields; unset fields read back empty. */
+  shortcut(
+    path: string,
+    options?: NativeActionOptions,
+  ): Promise<{ target: string; workingDir: string; args: string; icon: string }>;
+  /** File version resource as "M.m.b.r"; "" when the file carries none. */
+  version(path: string, options?: NativeActionOptions): Promise<{ version: string }>;
   list(path: string, options?: NativeActionOptions): Promise<{ entries: DirEntry[] }>;
   envGet(name: string, options?: NativeActionOptions): Promise<{ value: string }>;
   iniRead(
@@ -1115,6 +1122,29 @@ export const storage = {
   stat(path: string, options?: ActionOptions): Promise<FileInfo> {
     return runAction(options, (native) =>
       storageBridge().then((bridge) => bridge.stat(path, native)),
+    );
+  },
+
+  /**
+   * Reads a .lnk shortcut (target, working dir, args, icon).
+   * @throws ActionError with `capability_denied` / `execution_failed`.
+   */
+  shortcut(
+    path: string,
+    options?: ActionOptions,
+  ): Promise<{ target: string; workingDir: string; args: string; icon: string }> {
+    return runAction(options, (native) =>
+      storageBridge().then((bridge) => bridge.shortcut(path, native)),
+    );
+  },
+
+  /**
+   * Reads the file version resource ("M.m.b.r", "" when absent).
+   * @throws ActionError with `capability_denied` / `execution_failed`.
+   */
+  version(path: string, options?: ActionOptions): Promise<string> {
+    return runAction(options, (native) =>
+      storageBridge().then((bridge) => bridge.version(path, native).then((r) => r.version)),
     );
   },
 

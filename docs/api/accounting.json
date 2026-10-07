@@ -5,12 +5,12 @@
     {
       "ledger": "coverage",
       "denominator": 253,
-      "terminal": 236,
-      "remaining": 17,
+      "terminal": 239,
+      "remaining": 14,
       "breakdown": {
-        "implemented": 215,
+        "implemented": 218,
         "unsupported-by-policy": 10,
-        "contract-only": 17,
+        "contract-only": 14,
         "js-native": 11
       },
       "rule": "status in implemented | js-native | unsupported-by-policy"
@@ -54,9 +54,9 @@
   ],
   "total": {
     "denominator": 731,
-    "terminal": 390,
-    "remaining": 341,
-    "percent": 53.35
+    "terminal": 393,
+    "remaining": 338,
+    "percent": 53.76
   },
   "evidence_gaps": [
     {

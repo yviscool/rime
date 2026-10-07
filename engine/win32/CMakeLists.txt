@@ -49,3 +49,5 @@ target_link_libraries(rime_win32 PRIVATE winmm)
 # Storage service: WinHTTP download, shell recycle/shortcut/eject and the
 # dialog/shortcut GUIDs (CLSID_FileOpenDialog, CLSID_ShellLink, ...).
 target_link_libraries(rime_win32 PRIVATE winhttp shell32 ole32 uuid)
+# File version resources (GetFileVersionInfo/VerQueryValue).
+target_link_libraries(rime_win32 PRIVATE version)

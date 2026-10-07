@@ -75,6 +75,11 @@ class ProcessService final {
   [[nodiscard]] rime::core::Error info(std::uint32_t pid, ProcessInfo& out) const;
   [[nodiscard]] rime::core::Error launch(const LaunchSpec& spec, std::uint32_t& pid) const;
   [[nodiscard]] rime::core::Error terminate(std::uint32_t pid, int exit_code) const;
+  // Opens a file for editing (AHK Edit rule): the shell "edit" verb first,
+  // falling back to notepad with the quoted path. The already-open-window
+  // foregrounding AHK does is deferred (it needs editor-specific title
+  // matching, documented in docs/api/process-shell.md).
+  [[nodiscard]] rime::core::Error edit(const std::string& path_utf8) const;
 
   // Same path and same contract errors as launch(), but hProcess is kept in
   // the waitable table instead of being closed. The id that comes back is a

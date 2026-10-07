@@ -268,6 +268,27 @@ rime::action::Result ProcessExecutor::execute(const rime::action::Action& action
   if (action.type == "process.launch") {
     return run_launch(action, service_, cancellation);
   }
+  if (action.type == "process.edit") {
+    if (action.target.id != "new") {
+      return fail(action, Code::InvalidContract, "process.edit target id must be 'new'");
+    }
+    const auto payload = json::parse(action.payload);
+    if (const auto bad = contract::object_payload(action, payload, "process.edit payload ")) {
+      return *bad;
+    }
+    const rime::core::json::Value* path = payload.value->find("path");
+    if (!path || !path->is_string() || path->as_string().empty()) {
+      return fail(action, Code::InvalidContract,
+                  "process.edit payload requires a non-empty string path");
+    }
+    if (const auto edit_error = service_.edit(path->as_string()); !edit_error.ok()) {
+      return fail(action, edit_error.code, edit_error.message);
+    }
+    if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+    rime::core::json::Value value = rime::core::json::Value::object();
+    value.set("path", rime::core::json::Value::string(path->as_string()));
+    return {action.id, true, false, "opened for editing", {}, std::move(value)};
+  }
   if (action.type == "process.terminate") {
     return run_terminate(action, service_, cancellation);
   }

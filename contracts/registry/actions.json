@@ -342,6 +342,18 @@
       "status": "implemented"
     },
     {
+      "type": "process.edit",
+      "capability": "process.launch",
+      "target": { "kind": "process", "example": "new" },
+      "payloadSchema": "inline",
+      "validation": "engine/win32/src/process_executor.cpp:271",
+      "executor": "engine/win32/src/process_executor.cpp:271",
+      "module": "engine/win32/js/src/process_module.cpp:269",
+      "sdk": "sdk/src/process.ts:66",
+      "tests": ["tests/native/process_tests.cpp", "tests/js/breadth_slice.cpp"],
+      "status": "implemented"
+    },
+    {
       "type": "process.terminate",
       "capability": "process.terminate",
       "target": { "kind": "process", "example": "<pid>" },
@@ -960,7 +972,7 @@
       "status": "implemented",
       "declared": "engine/win32/js/src/process_module.cpp:162",
       "checked": ["engine/action/src/kernel.cpp:97"],
-      "actions": ["process.launch"]
+      "actions": ["process.launch", "process.edit"]
     },
     {
       "name": "process.terminate",

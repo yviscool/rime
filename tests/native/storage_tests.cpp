@@ -15,6 +15,9 @@
 #include <ws2tcpip.h>  // has to be included (and linked) before windows.h
 #include <windows.h>
 
+#include <objbase.h>
+#include <shobjidl.h>
+
 #include <cassert>
 #include <chrono>
 #include <cstddef>
@@ -1308,5 +1311,101 @@ int main() {
   assert(!cancelled_result.succeeded);
   assert(cancelled_result.cancelled);
   assert(cancelled_result.error.code == ErrorCode::Cancelled);
+
+  // Shortcut round trip: build a real .lnk through IShellLink in the test
+  // (independent observation, not the service under test), then read it back.
+  // Own temp directory (the main fixture is already deleted by this phase).
+  wchar_t shortcut_temp[MAX_PATH] = {0};
+  assert(GetTempPathW(MAX_PATH, shortcut_temp) != 0);
+  const std::wstring shortcut_dir =
+      std::wstring(shortcut_temp) + L"rime_shortcut_test_" + std::to_wstring(GetCurrentProcessId());
+  if (os_exists(shortcut_dir)) os_delete_tree(shortcut_dir);
+  assert(CreateDirectoryW(shortcut_dir.c_str(), nullptr) != 0);
+  char shortcut_narrow[MAX_PATH * 2] = {0};
+  assert(WideCharToMultiByte(CP_UTF8, 0, shortcut_dir.c_str(), -1, shortcut_narrow,
+                             sizeof(shortcut_narrow), nullptr, nullptr) != 0);
+  const std::string shortcut_dir_u8(shortcut_narrow);
+  {
+    const std::wstring shortcut_path = shortcut_dir + L"\\target.lnk";
+    const std::string shortcut_u8 = shortcut_dir_u8 + "\\target.lnk";
+    wchar_t sys_dir[MAX_PATH] = {0};
+    assert(GetSystemDirectoryW(sys_dir, MAX_PATH) != 0);
+    const HRESULT co_init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    assert(co_init == S_OK || co_init == S_FALSE || co_init == RPC_E_CHANGED_MODE);
+    bool made = false;
+    HRESULT step = S_OK;
+    const char* step_name = "none";
+    IShellLinkW* link = nullptr;
+    if (SUCCEEDED(step = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                                          IID_IShellLinkW,
+                                          reinterpret_cast<void**>(&link)))) {
+      IPersistFile* persist = nullptr;
+      if (SUCCEEDED(step = link->QueryInterface(
+                        IID_IPersistFile, reinterpret_cast<void**>(&persist)))) {
+        const std::wstring target_exe = std::wstring(sys_dir) + L"\\notepad.exe";
+        step_name = "SetPath";
+        if (SUCCEEDED(step = link->SetPath(target_exe.c_str()))) {
+          step_name = "SetWorkingDirectory";
+          if (SUCCEEDED(step = link->SetWorkingDirectory(shortcut_dir.c_str()))) {
+            step_name = "SetArguments";
+            if (SUCCEEDED(step = link->SetArguments(L"--rime-test"))) {
+              step_name = "Save";
+              if (SUCCEEDED(step = persist->Save(shortcut_path.c_str(), TRUE))) {
+                made = true;
+              }
+            }
+          }
+        }
+        persist->Release();
+      } else {
+        step_name = "QI";
+      }
+      link->Release();
+    } else {
+      step_name = "CoCreate";
+    }
+    CoUninitialize();
+    if (!made) {
+      std::fprintf(stderr, "shortcut fixture failed at %s (hr=0x%08lX)\n", step_name,
+                   static_cast<unsigned long>(step));
+    }
+    assert(made);
+    rime::win32::ShortcutInfo shortcut;
+    assert(service.read_shortcut(shortcut_u8, shortcut).ok());
+    assert(shortcut.target.size() >= 11 &&
+           shortcut.target.compare(shortcut.target.size() - 11, 11, "notepad.exe") == 0);
+    assert(shortcut.args == "--rime-test");
+    assert(!shortcut.working_dir.empty());
+    // A corrupt link fails instead of guessing.
+    assert(os_write_text(shortcut_dir + L"\\broken.lnk", "not a link"));
+    rime::win32::ShortcutInfo broken;
+    assert(!service.read_shortcut(shortcut_dir_u8 + "\\broken.lnk", broken).ok());
+    assert(!service.read_shortcut(shortcut_dir_u8 + "\\gone.lnk", broken).ok());
+  }
+
+  // Version resource: a system binary carries one, a plain text file reads
+  // back empty (AHK rule), a missing file errors.
+  {
+    wchar_t sys_dir2[MAX_PATH] = {0};
+    assert(GetSystemDirectoryW(sys_dir2, MAX_PATH) != 0);
+    std::string system_kernel32;
+    {
+      const std::wstring kernel_w = std::wstring(sys_dir2) + L"\\kernel32.dll";
+      char narrow[MAX_PATH * 2] = {0};
+      WideCharToMultiByte(CP_UTF8, 0, kernel_w.c_str(), -1, narrow, sizeof(narrow), nullptr,
+                          nullptr);
+      system_kernel32.assign(narrow);
+    }
+    std::string version;
+    assert(service.read_version(system_kernel32, version).ok());
+    assert(!version.empty() && version.find('.') != std::string::npos);
+    assert(os_write_text(shortcut_dir + L"\\plain.txt", "no version here"));
+    std::string plain_version = "x";
+    const std::string plain_u8 = shortcut_dir_u8 + "\\plain.txt";
+    assert(service.read_version(plain_u8, plain_version).ok() && plain_version.empty());
+    std::string missing_version;
+    assert(!service.read_version(shortcut_dir_u8 + "\\gone.dll", missing_version).ok());
+    assert(os_delete_tree(shortcut_dir));
+  }
   return 0;
 }

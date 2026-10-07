@@ -277,6 +277,75 @@ JSValue storage_stat(JSContext* context, JSValueConst, int argc, JSValueConst* a
       options.cancellation_id);
 }
 
+// FileGetShortcut: decoded .lnk fields (target, working dir, args, icon).
+// A read (capability filesystem.read); corrupt links fail, unset fields
+// read back empty.
+JSValue storage_shortcut(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                         void*) {
+  StorageModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:storage is not wired");
+  }
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "shortcut(path, options?)");
+  std::string path;
+  if (!required_string(context, argv[0], "shortcut(path): path", path)) return JS_EXCEPTION;
+  ActionOptions options;
+  if (argc == 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
+
+  rime::action::Kernel* kernel = binding->kernel;
+  StorageService* service = binding->service;
+  return start_async(
+      context,
+      [kernel, service, path = std::move(path)]() -> AsyncOutcome {
+        if (!kernel->allows(kStorageReadCapability)) {
+          return capability_denied(kStorageReadCapability);
+        }
+        ShortcutInfo info;
+        if (const auto error = service->read_shortcut(path, info); !error.ok()) {
+          return async_failure(error);
+        }
+        json::Value result = json::Value::object();
+        result.set("target", json::Value::string(info.target));
+        result.set("workingDir", json::Value::string(info.working_dir));
+        result.set("args", json::Value::string(info.args));
+        result.set("icon", json::Value::string(info.icon));
+        return async_success(json::stringify(result));
+      },
+      options.cancellation_id);
+}
+
+// FileGetVersion: "M.m.b.r" or "" when the file carries no version resource.
+JSValue storage_version(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                        void*) {
+  StorageModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:storage is not wired");
+  }
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "version(path, options?)");
+  std::string path;
+  if (!required_string(context, argv[0], "version(path): path", path)) return JS_EXCEPTION;
+  ActionOptions options;
+  if (argc == 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
+
+  rime::action::Kernel* kernel = binding->kernel;
+  StorageService* service = binding->service;
+  return start_async(
+      context,
+      [kernel, service, path = std::move(path)]() -> AsyncOutcome {
+        if (!kernel->allows(kStorageReadCapability)) {
+          return capability_denied(kStorageReadCapability);
+        }
+        std::string version;
+        if (const auto error = service->read_version(path, version); !error.ok()) {
+          return async_failure(error);
+        }
+        json::Value result = json::Value::object();
+        result.set("version", json::Value::string(version));
+        return async_success(json::stringify(result));
+      },
+      options.cancellation_id);
+}
+
 JSValue storage_list(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int, void*) {
   StorageModuleBinding* binding = binding_of(context);
   if (!binding || !binding->service || !binding->kernel) {
@@ -893,7 +962,8 @@ int storage_module_init(JSContext* context, JSModuleDef* module) {
     return true;
   };
   if (!add("readText", storage_read_text, 1) || !add("readBytes", storage_read_bytes, 1) ||
-      !add("stat", storage_stat, 1) || !add("list", storage_list, 1) ||
+      !add("stat", storage_stat, 1) || !add("shortcut", storage_shortcut, 1) ||
+      !add("version", storage_version, 1) || !add("list", storage_list, 1) ||
       !add("envGet", storage_env_get, 1) || !add("iniRead", storage_ini_read, 3) ||
       !add("driveGet", storage_drive_get, 1) || !add("open", storage_open, 2) ||
       !add("fileRead", storage_file_read, 2) || !add("fileSeek", storage_file_seek, 3) ||

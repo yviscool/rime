@@ -138,6 +138,8 @@ if (WIN32)
   # The download test serves bytes from an in-process loopback HTTP server,
   # so the test binary itself needs the Winsock library.
   target_link_libraries(rime_fs_tests PRIVATE ws2_32)
+  # The shortcut test builds a real .lnk through IShellLink in-process.
+  target_link_libraries(rime_fs_tests PRIVATE ole32)
   if (MINGW)
     target_link_options(rime_fs_tests PRIVATE -static-libstdc++ -static-libgcc)
   endif()

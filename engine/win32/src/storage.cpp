@@ -14,6 +14,7 @@
 #include <shobjidl.h>
 #include <winhttp.h>
 #include <winioctl.h>
+#include <winver.h>
 
 #include <algorithm>
 #include <chrono>
@@ -916,6 +917,76 @@ Error StorageService::read_text(const std::string& path, std::string& out) const
   Encoding encoding = Encoding::Utf8;
   (void)parse_encoding(current_encoding(), encoding);
   out = decode_text(bytes, encoding);
+  return Error::none();
+}
+
+Error StorageService::read_shortcut(const std::string& path, ShortcutInfo& out) const {
+  out = ShortcutInfo{};
+  std::wstring wide;
+  if (const Error path_error = wide_path(path, "path", wide); !path_error.ok()) return path_error;
+  ComApartment apartment(COINIT_APARTMENTTHREADED);
+  if (!apartment.ok()) return hresult_error("shortcut COM initialization", apartment.hr());
+
+  ComPtr<IShellLinkW> link;
+  HRESULT status = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                                    IID_IShellLinkW, reinterpret_cast<void**>(link.put()));
+  if (FAILED(status)) return hresult_error("shortcut create", status);
+  ComPtr<IPersistFile> persist;
+  status = link->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(persist.put()));
+  if (FAILED(status)) return hresult_error("shortcut persist", status);
+  status = persist->Load(wide.c_str(), STGM_READ);
+  if (FAILED(status)) return hresult_error(("shortcut load " + path).c_str(), status);
+  wchar_t target[MAX_PATH] = {0};
+  // SLGP_RAWPATH: read the stored path without resolution. UNCPRIORITY (and
+  // friends) walk shell folders and can hit the network or a broken handler
+  // (observed AV inside windows.storage.dll); the stored path is also what
+  // AHK reports for FileGetShortcut.
+  if (FAILED(link->GetPath(target, MAX_PATH, nullptr, SLGP_RAWPATH))) {
+    return hresult_error(("shortcut target of " + path).c_str(), status);
+  }
+  wchar_t working_dir[MAX_PATH] = {0};
+  (void)link->GetWorkingDirectory(working_dir, MAX_PATH);
+  wchar_t args[1024] = {0};
+  (void)link->GetArguments(args, 1024);
+  wchar_t icon[MAX_PATH] = {0};
+  int icon_index = 0;
+  (void)link->GetIconLocation(icon, MAX_PATH, &icon_index);
+  out.target = to_utf8(target);
+  out.working_dir = to_utf8(working_dir);
+  out.args = to_utf8(args);
+  out.icon = to_utf8(icon);
+  return Error::none();
+}
+
+Error StorageService::read_version(const std::string& path, std::string& out) const {
+  out.clear();
+  std::wstring wide;
+  if (const Error path_error = wide_path(path, "path", wide); !path_error.ok()) return path_error;
+  const DWORD bytes = GetFileVersionInfoSizeW(wide.c_str(), nullptr);
+  if (bytes == 0) {
+    // No version resource reads back as an empty string (AHK rule); a
+    // missing file is still an error, told apart via attributes.
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (!GetFileAttributesExW(wide.c_str(), GetFileExInfoStandard, &data)) {
+      return fs_error("version stat", path, GetLastError());
+    }
+    return Error::none();
+  }
+  std::vector<std::uint8_t> block(bytes, 0);
+  if (!GetFileVersionInfoW(wide.c_str(), 0, bytes, block.data())) {
+    return fs_error("version read", path, GetLastError());
+  }
+  VS_FIXEDFILEINFO* fixed = nullptr;
+  UINT fixed_bytes = 0;
+  if (!VerQueryValueW(block.data(), L"\\", reinterpret_cast<void**>(&fixed), &fixed_bytes) ||
+      !fixed || fixed_bytes < sizeof(VS_FIXEDFILEINFO)) {
+    return Error::none();
+  }
+  char text[64] = {0};
+  std::snprintf(text, sizeof(text), "%u.%u.%u.%u", HIWORD(fixed->dwFileVersionMS),
+                LOWORD(fixed->dwFileVersionMS), HIWORD(fixed->dwFileVersionLS),
+                LOWORD(fixed->dwFileVersionLS));
+  out.assign(text);
   return Error::none();
 }
 

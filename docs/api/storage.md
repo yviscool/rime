@@ -15,6 +15,8 @@
 | `env_get(env name)` | 未设置读回 `""` | `filesystem.read` | `EnvGet`（`functions.h:94`） |
 | `ini_read(path, section, key, out)` | 缺文件/缺节/缺键均为错误 | `filesystem.read` | `IniRead`（`functions.h:152`） |
 | `drive_get(field, letter, out)` | 9 字段查询 | `filesystem.read` | `DriveGet*`（`functions.h:71-79`） |
+| `read_shortcut(path, out)` | 解码 `.lnk`：target/工作目录/参数/图标，未设置字段读回 `""` | `filesystem.read` | `FileGetShortcut`（`functions.h:109`，实现在 `script_autoit.cpp:1184`） |
+| `read_version(path, out)` | 文件版本资源 `M.m.b.r`；无版本资源读回 `""`（缺文件仍是错误） | `filesystem.read` | `FileGetVersion`（`functions.h:114`，实现在 `script_autoit.cpp:1377`） |
 | `file_open`/`file_read`/`file_seek`/`file_stat`/`file_close` | 句柄族（服务持有 `HANDLE`，对外是单调 `uint64` id） | `r`→`filesystem.read`；`a`/`w`→`filesystem.write` | `FileOpen`（`script.cpp:61`）与 `File.*` |
 | `append_text` / `write_text` | 追加 / 覆盖写 | `filesystem.write` | `FileAppend`（`functions.h:100`） |
 | `file_copy`/`file_move`/`file_delete` | 文件复制/移动/删除 | `filesystem.write` | `FileCopy`/`FileMove`/`FileDelete` |
@@ -52,14 +54,14 @@ Target 恒为 `{"kind": "storage", "id": "fs"}`；成功 `detail` 为 `storage w
 | `driveLock` / `driveUnlock` / `driveEject` / `driveRetract` | `letter` | — | 同名方法 |
 | `handleWrite` | `handle`,`data` | — | `handle_write`（`data` 为 UTF-8 字符串或 `0..255` 数组） |
 
-`read`/`stat`/`list`/`drive_get`/`env_get`/`ini_read`/`download`/两个选择器**没有 op**：读路径归未来的 `rime:storage` 模块（`filesystem.read`），`download` 与选择器等模块落地后再定形。`handle` 必须是 `[1, 9223372036854775807]` 整数，`unixMs` 必须在 `[0, 253402300799999]`。
+`read`/`stat`/`list`/`drive_get`/`env_get`/`ini_read`/`read_shortcut`/`read_version`/`download`/两个选择器**没有 op**：它们由 `rime:storage` 模块直接落到 service——读族在 worker 体内校验 `filesystem.read`，`download` 校验 `filesystem.write`，选择器还需 `set_ui_thread`；只有写家族才经 `storage.write` 分派。`handle` 必须是 `[1, 9223372036854775807]` 整数，`unixMs` 必须在 `[0, 253402300799999]`。
 
 ## 源码证据
 
-- `functions.h:61-68`（`Dir*`、`Download`）、`:70-83`（`Drive*`）、`:94-95`（`Env*`）、`:100-122`（`File*`、`FileEncoding`、`FileSelect`、`FileSet*`）、`:151-153`（`Ini*`）、`:280`（`SplitPath`）；实现分散在 `source/lib/file.cpp`、`source/lib/drive.cpp`、`source/lib/env.cpp`；`FileOpen` 在 `source/script.cpp:61`；`Download` 实现（`InternetReadFileExA` 循环）在 `source/script_autoit.cpp:938`、`:1009`；`FileSelect` 实现在 `source/script2.cpp:1511`，`DirSelect` 在 `source/script_autoit.cpp:1065`（注册行 `functions.h:120`、`:66`）；属性字母格式化 `FileAttribToStr` 在 `source/util.cpp:1615`。
+- `functions.h:61-68`（`Dir*`、`Download`）、`:70-83`（`Drive*`）、`:94-95`（`Env*`）、`:100-122`（`File*`、`FileEncoding`、`FileSelect`、`FileSet*`）、`:151-153`（`Ini*`）、`:280`（`SplitPath`）；实现分散在 `source/lib/file.cpp`、`source/lib/drive.cpp`、`source/lib/env.cpp`；`FileOpen` 在 `source/script.cpp:61`；`Download` 实现（`InternetReadFileExA` 循环）在 `source/script_autoit.cpp:938`、`:1009`；`FileGetShortcut` 在 `source/script_autoit.cpp:1184`、`FileGetVersion` 在 `:1377`；`FileSelect` 实现在 `source/script2.cpp:1511`，`DirSelect` 在 `source/script_autoit.cpp:1065`（注册行 `functions.h:120`、`:66`）；属性字母格式化 `FileAttribToStr` 在 `source/util.cpp:1615`。
 - Rime 实现：`engine/win32/include/rime/win32/storage.hpp`、`storage_executor.hpp`；`engine/win32/src/storage.cpp`（service 与全部 Win32/COM 细节）、`engine/win32/src/storage_executor.cpp`（`storage.write`）。
-- Win32 表面：`CreateFileW`/`ReadFile`/`WriteFile`/`GetFileSizeEx`/`CopyFileW`/`MoveFileExW`/`DeleteFileW`/`RemoveDirectoryW`/`SetFileAttributesW`/`SetFileTime`、`GetDriveTypeW`/`GetDiskFreeSpaceExW`/`GetVolumeInformationW`、`GetEnvironmentVariableW`/`SetEnvironmentVariableW`、`GetPrivateProfileStringW`/`WritePrivateProfileStringW`/`GetPrivateProfileSectionNamesW`、`SHFileOperationW`（回收站）、`IShellLinkW`+`IPersistFile`（快捷方式）、`IFileOpenDialog`/`IFileDialog`（选择器）、`WinHttp*`（下载）。链接在 `engine/win32/CMakeLists.txt`：`winhttp shell32 ole32 uuid`（加在既有 `advapi32` 之后）。
-- 测试：`tests/native/storage_tests.cpp`（`rime_fs_tests`，链接 `rime_win32 rime_core rime_action rime_test_support` 与 `ws2_32`——回环下载夹具需要 winsock）。
+- Win32 表面：`CreateFileW`/`ReadFile`/`WriteFile`/`GetFileSizeEx`/`CopyFileW`/`MoveFileExW`/`DeleteFileW`/`RemoveDirectoryW`/`SetFileAttributesW`/`SetFileTime`、`GetDriveTypeW`/`GetDiskFreeSpaceExW`/`GetVolumeInformationW`、`GetEnvironmentVariableW`/`SetEnvironmentVariableW`/`GetPrivateProfileStringW`/`WritePrivateProfileStringW`/`GetPrivateProfileSectionNamesW`、`SHFileOperationW`（回收站）、`IShellLinkW`+`IPersistFile`（`.lnk` 创建与读取共用）、`GetFileVersionInfoSizeW`/`GetFileVersionInfoW`/`VerQueryValueW`（版本资源，读 `VS_FIXEDFILEINFO` 拼 `M.m.b.r`）、`IFileOpenDialog`/`IFileDialog`（选择器）、`WinHttp*`（下载）。链接在 `engine/win32/CMakeLists.txt`：`winhttp shell32 ole32 uuid version`（`version` 为版本资源新增，其余加在既有 `advapi32` 之后）。
+- 测试：`tests/native/storage_tests.cpp`（`rime_fs_tests`，链接 `rime_win32 rime_core rime_action rime_test_support` 与 `ws2_32`——回环下载夹具需要 winsock；`ole32` 让夹具自己 `IShellLinkW` 造 `.lnk`）、`tests/js/storage_slice.cpp`（`quickjs_storage_slice`，同样链接 `ole32`）。
 
 ## TS 类型
 
@@ -70,6 +72,8 @@ declare module "rime:storage" {
   const storage: {
     read(path: string, options?): Promise<string>;
     stat(path: string): Promise<FileInfo>;
+    shortcut(path: string, options?): Promise<{ target: string; workingDir: string; args: string; icon: string }>;
+    version(path: string, options?): Promise<string>;
     list(path: string): Promise<DirEntry[]>;
     write(payload: StorageWritePayload, options?): Promise<{ op: string }>;
     envGet(name: string): Promise<string>;
@@ -84,7 +88,7 @@ declare module "rime:storage" {
 }
 ```
 
-arity 与 `NativeActionOptions` 形态已按 `clipboard`/`registry` 门面的既有形态定稿（`setEncoding`/`encoding` 原生同步，SDK 门面因模块动态加载而 async）。
+arity 与 `NativeActionOptions` 形态已按 `clipboard`/`registry` 门面的既有形态定稿（`setEncoding`/`encoding` 原生同步，SDK 门面因模块动态加载而 async）。单字段 wire 结果在门面层解包（`read`←`{text}`、`envGet`←`{value}`、`download`←`{bytes}`、`selectFile`←`{paths}`、`version`←`{version}`），多字段保持对象（`stat`、`write`、`shortcut` 四字段）；模块侧原名只有 `readText`/`shortcut`/`version` 与门面不同，其余同名。
 
 ## 底层实现
 
@@ -148,12 +152,16 @@ executor 自身的 payload 错误统一加前缀 `storage.write payload `：`mus
 - **下载回环免代理**：`127.0.0.1` 不查系统代理，本地夹具与机器代理配置解耦；非回环仍走系统自动代理。
 - **选择器不设重入保护**：模态对话框在 UI 泵上天然串行，再加一层锁会掩盖"谁在弹窗"的诊断；代价是 headless 嵌入必须走 `InvalidState`（已在测试覆盖）。
 - **`list` 无 AHK 对应**：AHK v2 没有目录列举内建，`list` 是本域新增能力；它保持与其他读路径相同的 `filesystem.read` 门禁。
+- **`read_shortcut` 只回四个字段（已知缺口）**：AHK `FileGetShortcut` 还输出 `Description`/`IconNum`/`RunState`（分别来自 `IShellLinkW::GetDescription`、`GetIconLocation` 的序号、`GetShowCmd`），本实现暂未暴露，`icon` 只有路径没有序号；补齐要同步 `ShortcutInfo`、`rime:storage` 模块 JSON、门面类型与三层测试。
+- **`read_shortcut` 用 `SLGP_RAWPATH`**：AHK 取 target 用 `SLGP_UNCPRIORITY`，那条路会走 shell 文件夹解析、可能触发网络或杀软回调（在 `windows.storage.dll` 里观察到过）；本实现读链接中存的原样路径，理由写在 `engine/win32/src/storage.cpp` 的注释里。
+- **`read_version` 路径必填**：AHK `FileGetVersion` 的 `Path` 可选、缺省指"当前脚本"；Rime 没有脚本句柄，因此路径必填（与 `process.edit` 的 `Edit` 同一理由，见 `docs/api/process-shell.md`）。
 - **句柄 I/O 持锁**：读写同一句柄的顺序由 service 保证确定，换取"两个 worker 并发写同一文件"时的可预期结果；锁粒度是整个表，接受它作为 v1 的简单性换确定性。
 
 ## contract / native / stress 测试
 
 - `tests/native/storage_tests.cpp`（`rime_fs_tests` → `add_test NAME rime_win32_fs_service`，L5）：fixture `%TEMP%\rime_storage_test_<pid>`，**捕获 → 清理 → 断言** 三段（`assert` 中止会跳过析构，故先清理后断言）。覆盖：
-  - 读：`read_text` UTF-8/CJK/编码切换回读、BOM 读入、坏编码拒绝、目录当文本读（Win32 error 5）、`read_bytes` 上限前正常路径、`stat`/`list`/`env_get`（未设置读回 `""`）/`ini_read` 缺文件缺节缺键三错误、`drive_get` 9 字段逐项 **raw Win32 复核**（`GetDriveTypeW`/`GetVolumeInformationW`/`GetDiskFreeSpaceExW` 独立读回）与不存在盘符的 `target_gone`。
+  - 读：`read_text` UTF-8/CJK/编码切换回读、BOM 读入、坏编码拒绝、目录当文本读（Win32 error 5）、`read_bytes` 上限前正常路径、`stat`/`list`/`env_get`（未设置读回 `""`）/`ini_read` 缺文件缺节缺键三错误、`drive_get` 9 字段逐项 **raw Win32 复核**（`GetDriveTypeW`/`GetVolumeInformationW`/`GetDiskFreeSpaceExW` 独立读回）与不存在盘符的 `target_gone`、`read_shortcut`（夹具自造 `.lnk` 解码 target/工作目录/参数 + 损坏链接与不存在文件两路拒绝）、`read_version`（系统二进制读到带点的 `M.m.b.r`、纯文本文件读回 `""`、缺文件报错）。
+  - `.lnk` 与版本资源在 QuickJS 竖切里再走一遍：`tests/js/storage_slice.cpp` 自建 `IShellLinkW` 夹具 → `storage.shortcut()`/`storage.version()` 断言字段与 `M.m.b.r` 形状，`storage.shortcut(42)`/`storage.version()` 断言同步 `TypeError`；SDK 门面层由 `tests/sdk/storage.test.ts` 断言解包（`version`→`string`、`shortcut`→四字段对象）与 `ActionError` 升级。
   - 句柄：`r`/`a`/`w` 三模式、追加落尾、`file_seek` 三 whence、`file_stat` 位置与长度、`file_close` 幂等、陈旧 id 的 `invalid_state`。
   - 写：append/write/copy/move/delete/mkdir/rmdir（递归与非递归、非空拒绝）/dircopy/dirmove、目标已存在家族文案、`set_attrib` 字母增删 + raw `GetFileAttributesW` 复核、`set_time` 三个 which + raw `GetFileTime` 复核（`ManualClock` 不适用于文件时间戳，这里用 OS 观察值）、`env_set`/`ini_write`/`ini_delete`（键与节两级）+ raw profile API 复核、`file_install` 内容逐字节、`make_shortcut` `.lnk` 魔数复核、`recycle`（`SHFileOperationW` 可观察副作用，夹具内清理）。
   - 下载：进程内 winsock 回环服务器三连接（200 / 404 / deadline），断言成功落盘、HTTP 非 2xx 文案、deadline → `timeout`（半成品被删）、坏 URL 协议拒绝、`download()` 取消预检。
@@ -170,5 +178,5 @@ executor 自身的 payload 错误统一加前缀 `storage.write payload `：`mus
 1. `contracts/registry/actions.json`：action `storage.write` 与 capability `filesystem.read`/`filesystem.write` 行（`matrix:check` 扫描 `storage_executor.cpp` 的 dotted 字面量，`register_executors` 已有同名 literal）。
 2. `engine/win32/js/src/bootstrap.cpp`：`storage_service_`/`storage_binding_`、`register_storage_module`、`kernel_.register_executor("storage.write", ...)`、`production_capabilities()` 含 `filesystem.read`/`filesystem.write`、`start()` 在 window 服务起来后 `set_ui_thread(&window_service_.ui())`，`stop()` 先摘泵再 `storage_service_.stop()` 清扫残余句柄。
 3. `engine/win32/js/src/storage_module.cpp` + `sdk/src/storage.ts` + `sdk/src/modules.d.ts` 的 `declare module "rime:storage"`：读路径在 worker 体内校验 `filesystem.read`，`storage.write` 经 Action（capability 由 kernel 查）。
-4. `docs/api/compatibility-matrix.md`/`coverage.json` 逐函数回填：43 项翻 `implemented`；`FileGetShortcut`/`FileGetVersion` 保持 `contract-only`（service 未提供读取路径）。
-5. 构建登记：`engine/win32/CMakeLists.txt`（`src/storage.cpp`、`src/storage_executor.cpp`、`PRIVATE winhttp shell32 ole32 uuid`）、`tests/native/CMakeLists.txt`（`rime_fs_tests` → `add_test NAME rime_win32_fs_service`，链接 `ws2_32`）、`engine/win32/js/CMakeLists.txt`（`src/storage_module.cpp`）、`tests/js/CMakeLists.txt`（`rime_storage_slice` → `quickjs_storage_slice`）。
+4. `docs/api/compatibility-matrix.md`/`coverage.json` 逐函数回填：43 项翻 `implemented`；`FileGetShortcut`/`FileGetVersion` 在 `read_shortcut`/`read_version` 落地后同样翻 `implemented`（`contractTest` = `tests/native/storage_tests.cpp,tests/js/storage_slice.cpp`）。
+5. 构建登记：`engine/win32/CMakeLists.txt`（`src/storage.cpp`、`src/storage_executor.cpp`、`PRIVATE winhttp shell32 ole32 uuid version`——`version` 是版本资源的 `GetFileVersionInfo*`/`VerQueryValueW`）、`tests/native/CMakeLists.txt`（`rime_fs_tests` → `add_test NAME rime_win32_fs_service`，链接 `ws2_32 ole32`）、`engine/win32/js/CMakeLists.txt`（`src/storage_module.cpp`）、`tests/js/CMakeLists.txt`（`rime_storage_slice` → `quickjs_storage_slice`，链接 `ole32`）。

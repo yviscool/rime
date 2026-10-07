@@ -30,6 +30,15 @@ struct DirEntryInfo {
   bool is_dir{false};
 };
 
+// Decoded .lnk fields (AHK FileGetShortcut rule): empty strings when the
+// link leaves them unset, never an error for a well-formed link.
+struct ShortcutInfo {
+  std::string target;      // UTF-8 resolved path
+  std::string working_dir;  // UTF-8
+  std::string args;        // UTF-8 argument string
+  std::string icon;        // UTF-8 icon path, "" when the link sets none
+};
+
 // One field of DriveInfo is populated per drive_get() field; the rest keep
 // their defaults (empty / 0 / -1). `list` fills `list` with drive letters
 // spelled "A".."Z".
@@ -65,6 +74,12 @@ class StorageService final {
   // ---- reads (worker lane; the module gates capability filesystem.read) ----
   // Decodes the whole file with the session encoding into UTF-8.
   rime::core::Error read_text(const std::string& path, std::string& out) const;
+  // Reads a .lnk shortcut (target, working dir, args, icon). COM apartment
+  // is entered per call; a corrupt link fails instead of guessing.
+  rime::core::Error read_shortcut(const std::string& path, ShortcutInfo& out) const;
+  // File version resource as "M.m.b.r" (VS_FIXEDFILEINFO). A file without
+  // version info reads back as an empty string, not an error.
+  rime::core::Error read_version(const std::string& path, std::string& out) const;
   // Whole file as raw bytes, capped at 1 GiB per call.
   rime::core::Error read_bytes(const std::string& path, std::vector<std::uint8_t>& out) const;
   rime::core::Error stat(const std::string& path, FileStatInfo& out) const;

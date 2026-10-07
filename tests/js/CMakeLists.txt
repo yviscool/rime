@@ -157,7 +157,7 @@ if (WIN32 AND TARGET rime_win32_js)
   add_test(NAME quickjs_sound_slice COMMAND rime_sound_slice)
 
   add_executable(rime_storage_slice storage_slice.cpp)
-  target_link_libraries(rime_storage_slice PRIVATE rime_js rime_win32_js rime_test_support)
+  target_link_libraries(rime_storage_slice PRIVATE rime_js rime_win32_js rime_test_support ole32)
   target_compile_features(rime_storage_slice PRIVATE cxx_std_20)
   if (MINGW)
     target_link_options(rime_storage_slice PRIVATE -static-libstdc++ -static-libgcc)

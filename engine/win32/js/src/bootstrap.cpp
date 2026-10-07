@@ -198,7 +198,7 @@ rime::core::Error Bootstrap::register_executors() {
   const auto process_executor = std::make_shared<ProcessExecutor>(process_service_);
   for (const char* type :
        {"process.launch", "process.terminate", "process.set.priority", "process.runas",
-        "process.shutdown"}) {
+        "process.shutdown", "process.edit"}) {
     if (const auto error = kernel_.register_executor(type, process_executor); !error.ok()) {
       return error;
     }
