@@ -1,5 +1,6 @@
 #include "rime/win32/storage.hpp"
 
+#include "com_scope.hpp"
 #include "handle_guard.hpp"
 #include "utf.hpp"
 
@@ -408,61 +409,6 @@ class FindGuard final {
 
  private:
   HANDLE handle_{INVALID_HANDLE_VALUE};
-};
-
-template <typename T>
-class ComPtr final {
- public:
-  ComPtr() = default;
-  ComPtr(const ComPtr&) = delete;
-  ComPtr& operator=(const ComPtr&) = delete;
-  ~ComPtr() { reset(); }
-
-  [[nodiscard]] T* get() const { return ptr_; }
-  [[nodiscard]] T* operator->() const { return ptr_; }
-  [[nodiscard]] explicit operator bool() const { return ptr_ != nullptr; }
-
-  [[nodiscard]] T** put() {
-    reset();
-    return &ptr_;
-  }
-
-  void reset() {
-    if (ptr_ != nullptr) {
-      ptr_->Release();
-      ptr_ = nullptr;
-    }
-  }
-
- private:
-  T* ptr_{nullptr};
-};
-
-// Balances CoInitializeEx for the calling scope: a first-time or same-model
-// initialization is released on exit, while RPC_E_CHANGED_MODE (COM already
-// present in the other apartment) is adopted without an unbalance.
-class ComApartment final {
- public:
-  explicit ComApartment(const DWORD model) {
-    hr_ = CoInitializeEx(nullptr, model);
-    owns_ = (hr_ == S_OK || hr_ == S_FALSE);
-    available_ = SUCCEEDED(hr_) || hr_ == RPC_E_CHANGED_MODE;
-  }
-
-  ComApartment(const ComApartment&) = delete;
-  ComApartment& operator=(const ComApartment&) = delete;
-
-  ~ComApartment() {
-    if (owns_) CoUninitialize();
-  }
-
-  [[nodiscard]] bool ok() const { return available_; }
-  [[nodiscard]] HRESULT hr() const { return hr_; }
-
- private:
-  HRESULT hr_{S_OK};
-  bool owns_{false};
-  bool available_{false};
 };
 
 class WinHttpHandle final {

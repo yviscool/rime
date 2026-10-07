@@ -1,11 +1,13 @@
 #include "rime/win32/js_sound.hpp"
 
+#include "rime/core/json.hpp"
 #include "rime/js/host.hpp"
 #include "rime/js/runtime.hpp"
 
 #include "async_task.hpp"
 #include "quickjs.h"
 
+#include <cstdio>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -14,6 +16,8 @@
 
 namespace rime::win32 {
 namespace {
+
+namespace json = rime::core::json;
 
 SoundModuleBinding* binding_of(JSContext* context) {
   auto* host = static_cast<rime::js::Host*>(JS_GetContextOpaque(context));
@@ -41,6 +45,89 @@ bool optional_int_arg(JSContext* context, JSValueConst value, const char* what,
     return false;
   }
   out = static_cast<int>(raw);
+  return true;
+}
+
+// The trailing options object of the five endpoint calls (getVolume,
+// setVolume, getMute, setMute, getName): AHK's component and device
+// arguments plus the ActionOptions every native call shares. Omitted
+// entirely it is AHK's own default - the endpoint's master control on the
+// default render device - so an unqualified getVolume() is SoundGetVolume()
+// with no arguments. `component`/`device` keep AHK's string grammar (parse_*
+// in SoundService), so "", "2" and "Wave:2" mean exactly what they mean in a
+// script; anything that is not a string throws instead of being stringified.
+struct EndpointSpec {
+  SoundService::ComponentSpec component;
+  SoundService::DeviceSpec device;
+  ActionOptions action;
+};
+
+bool parse_string_spec(JSContext* context, JSValueConst object, const char* name,
+                       std::string& raw, bool& present) {
+  JSValue property = JS_GetPropertyStr(context, object, name);
+  if (JS_IsException(property)) return false;
+  present = false;
+  if (!JS_IsUndefined(property) && !JS_IsNull(property)) {
+    if (!JS_IsString(property)) {
+      JS_FreeValue(context, property);
+      JS_ThrowTypeError(context, "options.%s must be a string", name);
+      return false;
+    }
+    const char* text = JS_ToCString(context, property);
+    if (!text) {
+      JS_FreeValue(context, property);
+      return false;
+    }
+    raw = text;
+    present = true;
+    JS_FreeCString(context, text);
+  }
+  JS_FreeValue(context, property);
+  return true;
+}
+
+bool parse_endpoint_options(JSContext* context, JSValueConst value, EndpointSpec& out) {
+  if (JS_IsUndefined(value) || JS_IsNull(value)) return true;
+  if (!JS_IsObject(value)) {
+    JS_ThrowTypeError(context, "options must be an object");
+    return false;
+  }
+  std::string raw;
+  bool present = false;
+  if (!parse_string_spec(context, value, "component", raw, present)) return false;
+  if (present) out.component = SoundService::parse_component(raw);
+  if (!parse_string_spec(context, value, "device", raw, present)) return false;
+  if (present) out.device = SoundService::parse_device(raw);
+  return parse_action_options(context, value, out.action);
+}
+
+// AHK's first SoundSetVolume argument: a percentage number, or the setting
+// string itself. Both are handed to the same native parser the AHK path uses,
+// so JS can never accept a setting the script side rejects - and a negative
+// number stays relative for the same reason AHK's "-5" does: the stringified
+// first character is what decides (lib/sound.cpp:331-342).
+bool volume_setting_arg(JSContext* context, JSValueConst value, SoundService::VolumeSetting& out) {
+  std::string text;
+  if (JS_IsString(value)) {
+    const char* raw = JS_ToCString(context, value);
+    if (!raw) return false;
+    text.assign(raw);
+    JS_FreeCString(context, raw);
+  } else if (JS_IsNumber(value)) {
+    double number = 0;
+    if (JS_ToFloat64(context, &number, value)) return false;
+    char buffer[48];
+    std::snprintf(buffer, sizeof(buffer), "%.10g", number);
+    text = buffer;
+  } else {
+    JS_ThrowTypeError(context, "setVolume(value): value must be a number or a string");
+    return false;
+  }
+  if (!SoundService::parse_volume_setting(text, out)) {
+    JS_ThrowTypeError(context,
+                      "setVolume(value): value must be a percentage like 50, \"+5\" or \"-5\"");
+    return false;
+  }
   return true;
 }
 
@@ -229,6 +316,159 @@ JSValue sound_play(JSContext* context, JSValueConst, int argc, JSValueConst* arg
   return promise;
 }
 
+// AHK SoundGetVolume: getVolume(options?) resolves to the percentage AHK
+// returns (0..100, float32 round-trip so a read-back can differ in the last
+// bits). Capability media.sound is read inside the worker body, so a denied
+// call never opens an endpoint; no Action is built, so the trace stays empty.
+JSValue sound_get_volume(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                         void*) {
+  SoundModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:sound is not wired");
+  }
+  if (argc > 1) return JS_ThrowTypeError(context, "getVolume(options?)");
+  EndpointSpec spec;
+  if (argc >= 1 && !parse_endpoint_options(context, argv[0], spec)) return JS_EXCEPTION;
+  rime::action::Kernel* kernel = binding->kernel;
+  return start_async(
+      context,
+      [kernel, spec]() -> AsyncOutcome {
+        if (!kernel->allows(kMediaSoundCapability)) {
+          return capability_denied(kMediaSoundCapability);
+        }
+        double percent = 0;
+        if (const auto error = SoundService::get_volume(spec.component, spec.device, percent);
+            !error.ok()) {
+          return async_failure(error);
+        }
+        char text[48];
+        std::snprintf(text, sizeof(text), "%.10g", percent);
+        return async_success(text);
+      },
+      spec.action.cancellation_id);
+}
+
+// AHK SoundSetVolume: setVolume(value, options?). `value` is a percentage, or
+// "+5"/"-5" to adjust the current level - a negative number is treated as the
+// latter because AHK decides `adjust` from the first character of the
+// stringified argument (lib/sound.cpp:331-342). Unparseable input throws a
+// TypeError before any worker starts, matching how every numeric parameter
+// in these modules fails early.
+JSValue sound_set_volume(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                         void*) {
+  SoundModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:sound is not wired");
+  }
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "setVolume(value, options?)");
+  SoundService::VolumeSetting setting;
+  if (!volume_setting_arg(context, argv[0], setting)) return JS_EXCEPTION;
+  EndpointSpec spec;
+  if (argc >= 2 && !parse_endpoint_options(context, argv[1], spec)) return JS_EXCEPTION;
+  rime::action::Kernel* kernel = binding->kernel;
+  return start_async(
+      context,
+      [kernel, setting, spec]() -> AsyncOutcome {
+        if (!kernel->allows(kMediaSoundCapability)) {
+          return capability_denied(kMediaSoundCapability);
+        }
+        if (const auto error = SoundService::set_volume(setting, spec.component, spec.device);
+            !error.ok()) {
+          return async_failure(error);
+        }
+        return async_success("null");
+      },
+      spec.action.cancellation_id);
+}
+
+// AHK SoundGetMute: getMute(options?) resolves to a boolean, where AHK
+// reports 1/0.
+JSValue sound_get_mute(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int, void*) {
+  SoundModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:sound is not wired");
+  }
+  if (argc > 1) return JS_ThrowTypeError(context, "getMute(options?)");
+  EndpointSpec spec;
+  if (argc >= 1 && !parse_endpoint_options(context, argv[0], spec)) return JS_EXCEPTION;
+  rime::action::Kernel* kernel = binding->kernel;
+  return start_async(
+      context,
+      [kernel, spec]() -> AsyncOutcome {
+        if (!kernel->allows(kMediaSoundCapability)) {
+          return capability_denied(kMediaSoundCapability);
+        }
+        bool muted = false;
+        if (const auto error = SoundService::get_mute(spec.component, spec.device, muted);
+            !error.ok()) {
+          return async_failure(error);
+        }
+        return async_success(muted ? "true" : "false");
+      },
+      spec.action.cancellation_id);
+}
+
+// AHK SoundSetMute: setMute(muted, options?). AHK's relative form
+// (SoundSetMute("+1") toggles) is a string convention that has no honest
+// boolean spelling, so this API takes an absolute boolean and a caller who
+// wants a toggle writes setMute(!await getMute()) - the deviation is
+// recorded in docs/api/sound.md rather than smuggled into the type.
+JSValue sound_set_mute(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int, void*) {
+  SoundModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:sound is not wired");
+  }
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "setMute(muted, options?)");
+  if (!JS_IsBool(argv[0])) {
+    return JS_ThrowTypeError(context, "setMute(muted): muted must be a boolean");
+  }
+  const bool muted = JS_ToBool(context, argv[0]);
+  EndpointSpec spec;
+  if (argc >= 2 && !parse_endpoint_options(context, argv[1], spec)) return JS_EXCEPTION;
+  rime::action::Kernel* kernel = binding->kernel;
+  return start_async(
+      context,
+      [kernel, muted, spec]() -> AsyncOutcome {
+        if (!kernel->allows(kMediaSoundCapability)) {
+          return capability_denied(kMediaSoundCapability);
+        }
+        if (const auto error = SoundService::set_mute(muted, spec.component, spec.device);
+            !error.ok()) {
+          return async_failure(error);
+        }
+        return async_success("null");
+      },
+      spec.action.cancellation_id);
+}
+
+// AHK SoundGetName: getName(options?) resolves to the endpoint's friendly
+// name, JSON-stringified by the shared encoder so a name with a quote or a
+// backslash survives the trip instead of breaking the payload.
+JSValue sound_get_name(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int, void*) {
+  SoundModuleBinding* binding = binding_of(context);
+  if (!binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:sound is not wired");
+  }
+  if (argc > 1) return JS_ThrowTypeError(context, "getName(options?)");
+  EndpointSpec spec;
+  if (argc >= 1 && !parse_endpoint_options(context, argv[0], spec)) return JS_EXCEPTION;
+  rime::action::Kernel* kernel = binding->kernel;
+  return start_async(
+      context,
+      [kernel, spec]() -> AsyncOutcome {
+        if (!kernel->allows(kMediaSoundCapability)) {
+          return capability_denied(kMediaSoundCapability);
+        }
+        std::string name;
+        if (const auto error = SoundService::get_name(spec.component, spec.device, name);
+            !error.ok()) {
+          return async_failure(error);
+        }
+        return async_success(json::stringify(json::Value::string(name)));
+      },
+      spec.action.cancellation_id);
+}
+
 int sound_module_init(JSContext* context, JSModuleDef* module) {
   SoundModuleBinding* binding = binding_of(context);
   if (!binding || !binding->service || !binding->kernel) {
@@ -249,7 +489,10 @@ int sound_module_init(JSContext* context, JSModuleDef* module) {
     }
     return true;
   };
-  if (!add("beep", sound_beep, 0) || !add("play", sound_play, 1)) {
+  if (!add("beep", sound_beep, 0) || !add("play", sound_play, 1) ||
+      !add("getVolume", sound_get_volume, 0) || !add("setVolume", sound_set_volume, 1) ||
+      !add("getMute", sound_get_mute, 0) || !add("setMute", sound_set_mute, 1) ||
+      !add("getName", sound_get_name, 0)) {
     return -1;
   }
   return JS_SetModuleExport(context, module, "sound", sound);

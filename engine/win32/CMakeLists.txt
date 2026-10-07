@@ -23,6 +23,7 @@ add_library(rime_win32 STATIC
   src/screen.cpp
   src/screen_pixels.cpp
   src/sound.cpp
+  src/sound_endpoint.cpp
   src/screen_seam.cpp
   src/image_loader.cpp
   src/storage.cpp
