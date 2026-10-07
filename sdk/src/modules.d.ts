@@ -54,3 +54,8 @@ declare module "rime:registry" {
   const registry: import("./registry").RegistryBridge;
   export { registry };
 }
+
+declare module "rime:ui" {
+  const ui: import("./ui").UiBridge;
+  export { ui };
+}

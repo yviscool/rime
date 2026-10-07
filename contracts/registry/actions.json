@@ -1064,6 +1064,19 @@
       "actions": []
     },
     {
+      "name": "ui.create",
+      "status": "implemented",
+      "declared": "engine/win32/js/src/ui_module.cpp:31",
+      "checked": [
+        "engine/win32/js/src/ui_module.cpp:220",
+        "engine/win32/js/src/ui_module.cpp:283",
+        "engine/win32/js/src/ui_module.cpp:340",
+        "engine/win32/js/src/ui_module.cpp:401",
+        "engine/win32/js/src/ui_module.cpp:458"
+      ],
+      "actions": []
+    },
+    {
       "name": "probe.chord",
       "status": "test-only",
       "declared": "tests/js/input_slice.cpp:138",

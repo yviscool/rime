@@ -113,6 +113,7 @@ Bootstrap::Bootstrap(std::unordered_set<std::string> capabilities)
   registry_binding_ = {&registry_service_, &kernel_, &dispatcher_, &next_action_id_};
   screen_binding_ = {&screen_service_, &kernel_};
   sound_binding_ = {&sound_service_, &kernel_};
+  gui_binding_ = {&gui_service_, &kernel_};
 }
 
 Bootstrap::~Bootstrap() { (void)stop(); }
@@ -147,6 +148,9 @@ rime::core::Error Bootstrap::register_modules(rime::js::Runtime& runtime) {
   }
   if (const auto error = register_sound_module(runtime, &sound_binding_); !error.ok()) {
     return module_error("rime:sound", error);
+  }
+  if (const auto error = register_ui_module(runtime, &gui_binding_); !error.ok()) {
+    return module_error("rime:ui", error);
   }
   return rime::core::Error::none();
 }
@@ -256,10 +260,11 @@ rime::core::Error Bootstrap::start() {
     (void)input_service_.stop();
     return error;
   }
-  // The two file/dir selectors browse the window service's pump; attaching
-  // only after every service is up keeps a rolled-back start from leaving a
-  // dangling pump reference behind.
+  // The two file/dir selectors and the gui dialogs/tooltips browse the window
+  // service's pump; attaching only after every service is up keeps a
+  // rolled-back start from leaving a dangling pump reference behind.
   storage_service_.set_ui_thread(&window_service_.ui());
+  gui_service_.set_ui_thread(&window_service_.ui());
   started_ = true;
   return rime::core::Error::none();
 }
@@ -273,6 +278,11 @@ rime::core::Error Bootstrap::stop() {
   // references release before the threads they borrow go away.
   storage_service_.set_ui_thread(nullptr);
   (void)storage_service_.stop();
+  // The tray icon and the tooltip windows are destroyed on the pump, so the
+  // gui service is swept while the window service still owns its UI thread;
+  // only then is the borrowed pump dropped.
+  (void)gui_service_.stop();
+  gui_service_.set_ui_thread(nullptr);
   (void)process_service_.stop();
   if (const auto error = automation_service_.stop(); !error.ok()) first = error;
   if (const auto error = window_service_.stop(); !error.ok() && first.ok()) first = error;
@@ -294,7 +304,7 @@ std::unordered_set<std::string> production_capabilities() {
           "windows.automation.invoke", "windows.automation.control", "process.inspect", "process.launch",
           "process.terminate", "process.manage", "process.runas", "process.shutdown",
           "filesystem.read", "filesystem.write", "registry.read", "registry.write",
-          "screen.capture", "media.sound"};
+          "screen.capture", "media.sound", "ui.create"};
 }
 
 // Reload ceiling (AHK Reload itself has none): a script that asks for a

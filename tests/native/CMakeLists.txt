@@ -132,6 +132,18 @@ if (WIN32)
   endif()
   add_test(NAME rime_win32_sound_topology COMMAND rime_sound_topology_tests)
 
+  # M6 batch 1: GuiService - real modal dialogs (DialogBoxIndirectParamW with
+  # WM_TIMER), real TOOLTIPS_CLASS windows and the real tray icon. The
+  # interactive dialogs are driven by a watcher thread posting clicks, so the
+  # suite needs the same interactive desktop as the window/screen tests.
+  add_executable(rime_gui_tests gui_tests.cpp)
+  target_link_libraries(rime_gui_tests PRIVATE rime_win32 rime_core rime_test_support)
+  target_compile_features(rime_gui_tests PRIVATE cxx_std_20)
+  if (MINGW)
+    target_link_options(rime_gui_tests PRIVATE -static-libstdc++ -static-libgcc)
+  endif()
+  add_test(NAME rime_win32_gui_service COMMAND rime_gui_tests)
+
   add_executable(rime_fs_tests storage_tests.cpp)
   target_link_libraries(rime_fs_tests PRIVATE rime_win32 rime_core rime_action rime_test_support)
   target_compile_features(rime_fs_tests PRIVATE cxx_std_20)

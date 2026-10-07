@@ -1629,7 +1629,7 @@
         "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/gui-menu",
+      "tsModule": "@rime/ui",
       "status": "contract-only",
       "async": "async",
       "capability": "ui.create",
@@ -1644,7 +1644,7 @@
         "rime-research/AutoHotkey-alpha/source/script_gui.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/gui-menu",
+      "tsModule": "@rime/ui",
       "status": "contract-only",
       "async": "async",
       "capability": "ui.create",
@@ -1782,7 +1782,7 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/gui-menu",
+      "tsModule": "@rime/ui",
       "status": "contract-only",
       "async": "async",
       "capability": "ui.create",
@@ -1799,7 +1799,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/Gui.ListView.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/Gui.TreeView.cpp"
       ],
-      "tsModule": "@rime/gui-menu",
+      "tsModule": "@rime/ui",
       "status": "contract-only",
       "async": "async",
       "capability": "ui.create",
@@ -1814,7 +1814,7 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/gui-menu",
+      "tsModule": "@rime/ui",
       "status": "contract-only",
       "async": "async",
       "capability": "ui.create",
@@ -1893,11 +1893,11 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/InputBox.cpp"
       ],
-      "tsModule": "@rime/gui-menu",
-      "status": "contract-only",
+      "tsModule": "@rime/ui",
+      "status": "implemented",
       "async": "async",
       "capability": "ui.create",
-      "contractTest": "missing",
+      "contractTest": "tests/native/gui_tests.cpp,tests/js/ui_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2071,7 +2071,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h",
         "rime-research/AutoHotkey-alpha/source/lib/Gui.StatusBar.cpp"
       ],
-      "tsModule": "@rime/gui-menu",
+      "tsModule": "@rime/ui",
       "status": "contract-only",
       "async": "async",
       "capability": "ui.create",
@@ -2086,7 +2086,7 @@
         "rime-research/AutoHotkey-alpha/source/script2.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/gui-menu",
+      "tsModule": "@rime/ui",
       "status": "contract-only",
       "async": "async",
       "capability": "ui.create",
@@ -2102,7 +2102,7 @@
         "rime-research/AutoHotkey-alpha/source/script_menu.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/gui-menu",
+      "tsModule": "@rime/ui",
       "status": "contract-only",
       "async": "async",
       "capability": "ui.create",
@@ -2266,11 +2266,11 @@
         "rime-research/AutoHotkey-alpha/source/hotkey.cpp",
         "rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp"
       ],
-      "tsModule": "@rime/gui-menu",
-      "status": "contract-only",
+      "tsModule": "@rime/ui",
+      "status": "implemented",
       "async": "async",
       "capability": "ui.create",
-      "contractTest": "missing",
+      "contractTest": "tests/native/gui_tests.cpp,tests/js/ui_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3342,11 +3342,11 @@
         "rime-research/AutoHotkey-alpha/source/util.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/gui-menu",
-      "status": "contract-only",
+      "tsModule": "@rime/ui",
+      "status": "implemented",
       "async": "async",
       "capability": "ui.create",
-      "contractTest": "missing",
+      "contractTest": "tests/native/gui_tests.cpp,tests/js/ui_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3357,11 +3357,11 @@
         "rime-research/AutoHotkey-alpha/source/script.cpp",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/gui-menu",
-      "status": "contract-only",
+      "tsModule": "@rime/ui",
+      "status": "implemented",
       "async": "async",
       "capability": "ui.create",
-      "contractTest": "missing",
+      "contractTest": "tests/native/gui_tests.cpp,tests/js/ui_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -3373,11 +3373,11 @@
         "rime-research/AutoHotkey-alpha/source/stdafx.h",
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
-      "tsModule": "@rime/gui-menu",
-      "status": "contract-only",
+      "tsModule": "@rime/ui",
+      "status": "implemented",
       "async": "async",
       "capability": "ui.create",
-      "contractTest": "missing",
+      "contractTest": "tests/native/gui_tests.cpp,tests/js/ui_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },

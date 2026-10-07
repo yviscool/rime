@@ -1,6 +1,6 @@
 # Object、GUI、COM 与宿主对象模型
 
-状态：`contract-only`（GUI/COM 等 M6+ 实现）；语言核心 59 成员已定档为 `js-native`（42）、`unsupported-by-policy`（16）与 `contract-only`（1，`Map.CaseSense`），见下。
+状态：GUI/COM 等大对象 M6+；M6 第一批五项对话框/托盘动词（`MsgBox`/`InputBox`/`ToolTip`/`TraySetIcon`/`TrayTip`）已实现于 `@rime/ui`（见 [`gui-menu.md`](./gui-menu.md)）；语言核心 59 成员已定档为 `js-native`（42）、`unsupported-by-policy`（16）与 `contract-only`（1，`Map.CaseSense`），见下。
 
 ## TS 边界
 

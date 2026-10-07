@@ -12,7 +12,8 @@ const result = await Bun.build({
   target: "browser",
   format: "esm",
   external: ["rime:runtime", "rime:window", "rime:input", "rime:process", "rime:clipboard",
-           "rime:screen", "rime:sound", "rime:automation", "rime:control", "rime:storage", "rime:registry"],
+           "rime:screen", "rime:sound", "rime:automation", "rime:control", "rime:storage",
+           "rime:registry", "rime:ui"],
   minify: false,
   sourcemap: "none",
 });

@@ -47,6 +47,7 @@ import { control } from "rime:control";
 import { sound } from "rime:sound";
 import { storage } from "rime:storage";
 import { registry } from "rime:registry";
+import { ui } from "rime:ui";
 
 const refused = [
   // core-builtins + coverage (stdlib.md §5)
@@ -110,6 +111,7 @@ const surfaces = {
   sound,
   storage,
   registry,
+  ui,
 };
 
 // Every name a script can reach: globals, module bindings, and the methods

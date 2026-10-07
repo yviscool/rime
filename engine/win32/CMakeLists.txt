@@ -28,6 +28,7 @@ add_library(rime_win32 STATIC
   src/image_loader.cpp
   src/storage.cpp
   src/storage_executor.cpp
+  src/gui.cpp
 )
 target_include_directories(rime_win32 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(rime_win32 PUBLIC rime_core rime_action)
@@ -51,3 +52,6 @@ target_link_libraries(rime_win32 PRIVATE winmm)
 target_link_libraries(rime_win32 PRIVATE winhttp shell32 ole32 uuid)
 # File version resources (GetFileVersionInfo/VerQueryValue).
 target_link_libraries(rime_win32 PRIVATE version)
+# ToolTip windows (TOOLTIPS_CLASS) live in comctl32; the tray icon and the
+# modal dialogs come from shell32/user32 above.
+target_link_libraries(rime_win32 PRIVATE comctl32)

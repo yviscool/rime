@@ -54,6 +54,12 @@ if (WIN32 AND TARGET rime_win32_js)
   add_test(NAME quickjs_policy_refusal
            COMMAND rime_js_bundle --production
                    ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/policy-refusal.mjs)
+  # M6 batch 1 grant: production_capabilities() must really carry ui.create,
+  # proved by a real (invisible) rime:ui call under --production. Same
+  # desktop env as the bundle tests above.
+  add_test(NAME quickjs_ui_grant
+           COMMAND rime_js_bundle --production
+                   ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/ui-grant.mjs)
   # Reload (AHK Reload): the harness returns the code the reloaded pass
   # asked for, so the expected code proves the host loop re-read the file and
   # evaluated it a second time in a fresh runtime (count carried across).
@@ -164,6 +170,18 @@ if (WIN32 AND TARGET rime_win32_js)
     target_link_options(rime_sound_slice PRIVATE -static-libstdc++ -static-libgcc)
   endif()
   add_test(NAME quickjs_sound_slice COMMAND rime_sound_slice)
+
+  # M6 batch 1: the rime:ui module through the JS promise pipeline. Real
+  # modal dialogs (watcher proves the #32770 window appeared), real
+  # tooltip windows and the real tray icon, plus the capability-less gate.
+  # Needs the same interactive desktop as the bundle/window tests.
+  add_executable(rime_ui_slice ui_slice.cpp)
+  target_link_libraries(rime_ui_slice PRIVATE rime_js rime_win32_js rime_test_support)
+  target_compile_features(rime_ui_slice PRIVATE cxx_std_20)
+  if (MINGW)
+    target_link_options(rime_ui_slice PRIVATE -static-libstdc++ -static-libgcc)
+  endif()
+  add_test(NAME quickjs_ui_slice COMMAND rime_ui_slice)
 
   add_executable(rime_storage_slice storage_slice.cpp)
   target_link_libraries(rime_storage_slice PRIVATE rime_js rime_win32_js rime_test_support ole32)

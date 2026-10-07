@@ -105,5 +105,6 @@ export * from "./automation";
 export * from "./control";
 export * from "./storage";
 export * from "./registry";
+export * from "./ui";
 export * from "./contracts";
 export * from "./runtime-language";

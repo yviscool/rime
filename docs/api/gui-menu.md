@@ -1,6 +1,6 @@
 # GUI, Menu, Tray and Dialog API
 
-状态：`SoundGetVolume` / `SoundSetVolume` / `SoundGetMute` / `SoundSetMute` / `SoundGetName` 已实现（实现归属 `@rime/sound`，见 [`sound.md`](./sound.md)），`SoundGetInterface` 为 `unsupported-by-policy`；本域其余 13 项（`GuiCtrlFromHwnd` / `GuiFromHwnd` / `MsgBox` / `InputBox` / `ToolTip` / `TraySetIcon` / `TrayTip` / `MenuSelect` / `MenuFromHandle` / `LoadPicture` / `IL_Create` / `IL_Add` / `IL_Destroy`）为 `contract-only`：目标模块 `@rime/gui-menu`、计划阶段 M6（计划 §M6「GUI / Menu / 对话框」）已定，实现未落。
+状态：`SoundGetVolume` / `SoundSetVolume` / `SoundGetMute` / `SoundSetMute` / `SoundGetName` 已实现（实现归属 `@rime/sound`，见 [`sound.md`](./sound.md)），`SoundGetInterface` 为 `unsupported-by-policy`；本批 `MsgBox` / `InputBox` / `ToolTip` / `TraySetIcon` / `TrayTip` 已实现（实现归属 `@rime/ui`，capability `ui.create`，native 测试 `tests/native/gui_tests.cpp` + JS 切片 `tests/js/ui_slice.cpp` + 生产授予 `tests/js/fixtures/ui-grant.mjs`）；其余 8 项（`GuiCtrlFromHwnd` / `GuiFromHwnd` / `MenuSelect` / `MenuFromHandle` / `LoadPicture` / `IL_Create` / `IL_Add` / `IL_Destroy`）为 `contract-only`：目标模块 `@rime/ui`、计划阶段 M6（计划 §M6「GUI / Menu / 对话框」）已定，实现未落。
 
 源码证据：`functions.h` 的 `Gui*`、`Menu*`、`Tray*`、`ToolTip`、`MsgBox`、`InputBox`、`Sound*`、`LoadPicture`、`IL_*`；`source/script_gui.cpp`、`source/script_menu.cpp`、`source/lib/sound.cpp`。
 
@@ -15,6 +15,15 @@ GUI、菜单、托盘和模态对话框对象必须由 UI Thread 所有，以稳
 5. **若重造 AHK 的 TS 标准库，这一族在哪** —— AHK 的 GUI 是「隐式单例 + 事件标签 + 全局变量回传结果」；TS 侧复刻其能力而非其形态：对象 + `Subscription` + 显式 dispose，对象生命周期遵守 GC / 关闭 / shutdown 三路径且无泄漏（M6 验收含队列满载、嵌套泵、取消竞态、重入）。`MsgBox`/`InputBox` 的「等用户」在 TS 里只能是 `await`。
 6. **若 TS 是 Windows automation language，Windows 怎么建模** —— GUI 是**本进程拥有的窗口树**（`GuiId`/`ControlId` 与窗口 id 同一 id 空间，`control.md` §1），托盘与菜单是 shell 资源，同样以稳定 id 引用；它们与「别人的窗口」（`windows.*` 查询/变更族）的区别是所有权与权限，不是 API 形状。句柄是实现细节，不进模型。
 
-## 2. 测试承诺（M6 落地时补齐）
+## 2. M6 第一批（已实现五项）的实现状态
 
-13 项现在 `contractTest: "missing"` 是 `contract-only` 的正常状态（过渡态不计终态，`matrix:check` 只把终态行的 `missing` 判为证据缺口）。M6 完成定义（计划 §M6 DoD）要求：对应条目转终态并填 `contractTest`/`compatibilityTest` 路径，验收含队列满载/嵌套泵/取消竞态/重入与对象三路径无泄漏（AGENTS：UI、Hook、Timer、COM 回调与 JS 引用可取消、可观察），领域文档「实现状态」同步。在此之前，本域**没有任何**「已实现」的暗示——实现状态以 `coverage.json` 为准。
+- **入口**：`rime:ui` 模块导出 `ui` 命名空间（`ui.msgBox` / `ui.inputBox` / `ui.toolTip` / `ui.traySetIcon` / `ui.trayTip`），SDK 侧 `sdk/src/ui.ts`（`@rime/ui`）。五项全部 `async`、返回 Promise，无一构建 Action（capability 读取即审计面，Action Trace 保持为空），capability `ui.create` 在 worker body 内读取（`engine/win32/js/src/ui_module.cpp`），授予名单 `production_capabilities()`。
+- **线程与所有权**：对话框、`TOOLTIPS_CLASS` 窗口与托盘图标全部由 UiThread（窗口服务的唯一消息泵，不启动第二泵）所有；`GuiService` 公开方法经 `UiThread::call` 编组，模态对话框以 `DialogBoxIndirectParamW` + 内存容器模板 + `WM_TIMER` 在泵上运行。
+- **取消与超时**：`deadlineMs`/`signal` 只约束排队阶段与窗口出现前的阶段；**已打开的模态不被外部取消打断**，由自身的 AHK T 选项（`timeout` 秒）关闭并返回 `"Timeout"`——与 AHK 的阻塞语义一一对应，区别只是阻塞变成了 `await`。
+- **不暴露**：裸 `HWND`（`toolTip` 不返回句柄）、第二套脚本消息泵、`A_Icon*` 隐式可变态；`freeze` 的"是否给出"以属性存在性区分（`freeze: false` 是显式解冻）。
+- **平台注记**：宿主没有 comctl32 v6 manifest，进程加载 v5.82；`TOOLINFO.cbSize` 必须给 v2 尺寸（64 字节），现代 SDK 的 `sizeof(TOOLINFO)`（72 字节）会被 `TTM_ADDTOOL` 拒绝。
+- **测试分级**：`gui_tests.cpp`（L5，服务层：按钮词、X/ESC、点击、InputBox 往返、tooltip 枚举、托盘 shell 探针、stop 可重复）；`ui_slice.cpp`（L5，JS 承诺管线： watcher 证明对话框真的出现、Timeout 词与 `value` 回传、tooltip/tray 的 OS 独立观测、五项 capability 拒绝、Trace 为空）；`ui.test.ts`（L3，SDK 门面的选项拆分）；`ui-grant.mjs`（L6，生产装配授予 `ui.create`）。
+
+## 3. 测试承诺（M6 落地时补齐）
+
+8 项 `contract-only` 现在 `contractTest: "missing"` 是过渡态（过渡态不计终态，`matrix:check` 只把终态行的 `missing` 判为证据缺口）；已实现 5 项的 `contractTest` 指向 `tests/native/gui_tests.cpp,tests/js/ui_slice.cpp`。M6 完成定义（计划 §M6 DoD）要求剩余条目转终态并填 `contractTest`/`compatibilityTest` 路径，验收含队列满载/嵌套泵/取消竞态/重入与对象三路径无泄漏（AGENTS：UI、Hook、Timer、COM 回调与 JS 引用可取消、可观察），领域文档「实现状态」同步。在此之前，未实现项**没有任何**「已实现」的暗示——实现状态以 `coverage.json` 为准。
