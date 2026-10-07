@@ -259,6 +259,8 @@ std::wstring widen_ascii(const char* text) {
   return out;
 }
 
+std::wstring widen_ascii(const std::string& text) { return widen_ascii(text.c_str()); }
+
 int lv_child_main(const char* ready_name, const char* stop_name) {
   INITCOMMONCONTROLSEX common{};
   common.dwSize = sizeof(common);
@@ -743,6 +745,16 @@ int main(int argc, char** argv) {
   assert(style_restore.succeeded);
   std::uint32_t style_back = 0;
   assert(windows.control_get_style(button_id, style_back).ok() && style_back == style_before);
+  std::uint32_t ex_before = 0;
+  assert(windows.control_get_ex_style(button_id, ex_before).ok());
+  Result ex_flip = run("control.set.exstyle", button, "{\"op\": \"^\", \"bits\": 4}");
+  assert(ex_flip.succeeded);
+  std::uint32_t ex_after = 0;
+  assert(windows.control_get_ex_style(button_id, ex_after).ok() && ex_after == (ex_before ^ 4u));
+  Result ex_back = run("control.set.exstyle", button, "{\"op\": \"^\", \"bits\": 4}");
+  assert(ex_back.succeeded);
+  std::uint32_t ex_restored = 0;
+  assert(windows.control_get_ex_style(button_id, ex_restored).ok() && ex_restored == ex_before);
   Result style_bad_op = run("control.set.style", button, "{\"op\": \"?\", \"bits\": 1}");
   assert(!style_bad_op.succeeded && style_bad_op.error.code == Code::InvalidContract);
   Result style_bad_bits = run("control.set.style", button, "{\"op\": \"+\", \"bits\": -1}");
