@@ -16,6 +16,35 @@
 5. **CI 不做自动复跑**。复跑由人工按本协议执行并登记。
 6. 交互式 slice 文件头声明 `Needs an interactive desktop, exclusive run`，
    复跑前必须使用空闲桌面（前台无抢夺者、输入法处于预期状态）。
+   空闲判定用版本化的探针（P2-6 fixture 库，见下）：
+   ```text
+   powershell -NoProfile -ExecutionPolicy Bypass -File tools/fg-check.ps1
+   ```
+   首行命名本方窗口才允许复跑。历史台账行引用的 `build/fg-check.ps1`
+   是同一探针的未跟踪副本，保留原文不改写。
+
+## Fixture 库（P2-6；演进 fixture，不建 CreateDesktop 大实验室）
+
+`CreateDesktop()` 隔离经评估否决：UIA 跨桌面、tray/shell、IME、CI 无头、
+hook 可见性全是坑，投入产出比远低于继续做 fixture + 前台探针 +
+deadline 轮询。以下四件是版本化资产，新增交互测试必须复用，不得另起：
+
+1. 前台探针 `tools/fg-check.ps1`：首行 foreground，余下为 contender
+   列表。复跑前置条件（本文件协议第 6 条）的判定工具。
+2. Deadline 轮询（禁 sleep 当同步的执行细则）：`poll_region_box`
+   （`tests/native/win32_tests.cpp:1022`，2s 双向轮询）、`poll_true`
+   （`tests/native/control_tests.cpp:248`、`tests/js/control_slice.cpp:181`）、
+   `wait_js`（`tests/js/events_slice.cpp:153`）、invoke 落地 5s 轮询
+   （`tests/js/automation_slice.cpp:280-283`、`tests/native/automation_tests.cpp:163-166`）。
+   真时钟 + 有界轮询只用于真窗口 fixture；`ManualClock` 仅用于 timer/
+   clock/core/trace 纯单测。
+3. 剪贴板存取恢复：bench（`tests/native/bench.cpp:906,943-944,1060-1166`
+   `save_all/restore_all`）、`tests/native/clipboard_tests.cpp:2`、
+   `tests/js/breadth_slice.cpp:378-392`。L5 测试改剪贴板必须恢复。
+4. 窗口/进程自建自毁：fixture 窗口（`tests/native/bench.cpp:683-780`
+   `l4_fixture`）、automation TargetWindow（`tests/js/automation_slice.cpp:45-118`、
+   `tests/native/automation_tests.cpp:32-108`）。禁止依赖 Chrome/微信/
+   Explorer/用户当前窗口。
 
 判定标准：
 

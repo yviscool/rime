@@ -979,9 +979,24 @@ int run_l4_uia(const int iters) {
   std::vector<std::int64_t> find_ns;
   std::vector<std::int64_t> invoke_ns;
   std::vector<std::int64_t> total_ns;
+  std::vector<std::int64_t> find_scoped_ns;
   find_ns.reserve(static_cast<std::size_t>(iters));
   invoke_ns.reserve(static_cast<std::size_t>(iters));
   total_ns.reserve(static_cast<std::size_t>(iters));
+  find_scoped_ns.reserve(static_cast<std::size_t>(iters));
+  // One-time scope resolution (untimed): the fixture window element becomes
+  // the subtree root for the scoped series. If it goes stale mid-run the
+  // scoped sample is skipped and re-resolved, never failed.
+  std::uint64_t window_element_id = 0;
+  {
+    FindQuery scope_query;
+    scope_query.name = fixture.title;
+    scope_query.max_results = 8;
+    std::vector<ElementSnapshot> scope_found;
+    if (service.find(scope_query, scope_found).ok() && !scope_found.empty()) {
+      window_element_id = scope_found.front().id;
+    }
+  }
   const std::int64_t run_started = now_ns();
   for (int index = 0; index < iters && status == 0; ++index) {
     const std::size_t clicks_before = fixture.clicks.load();
@@ -1016,6 +1031,31 @@ int run_l4_uia(const int iters) {
     find_ns.push_back(t1 - t0);
     invoke_ns.push_back(t2 - t1);
     total_ns.push_back(t2 - t0);
+    // P0-3 scoped contrast: same button, subtree rooted at the fixture
+    // window element. A stale scope is re-resolved outside the timed
+    // section; iterations without a scope simply contribute no sample.
+    if (window_element_id != 0) {
+      FindQuery scoped;
+      scoped.name = fixture.button_name;
+      scoped.control_type = "button";
+      scoped.max_results = 8;
+      scoped.from_id = window_element_id;
+      std::vector<ElementSnapshot> scoped_found;
+      const std::int64_t t3 = now_ns();
+      if (service.find(scoped, scoped_found).ok() && !scoped_found.empty()) {
+        find_scoped_ns.push_back(now_ns() - t3);
+        (void)service.release(scoped_found.front().id);
+      } else {
+        window_element_id = 0;
+        FindQuery re_scope;
+        re_scope.name = fixture.title;
+        re_scope.max_results = 8;
+        std::vector<ElementSnapshot> re_found;
+        if (service.find(re_scope, re_found).ok() && !re_found.empty()) {
+          window_element_id = re_found.front().id;
+        }
+      }
+    }
   }
   (void)service.stop();
   fixture.finish();
@@ -1027,6 +1067,13 @@ int run_l4_uia(const int iters) {
          compute_stats(std::move(invoke_ns), run_total));
   report("l4.uia.find+invoke", static_cast<std::size_t>(iters),
          compute_stats(std::move(total_ns), run_total));
+  if (!find_scoped_ns.empty()) {
+    // Hoisted: argument evaluation order is unspecified, so size() must be
+    // read before the move below empties the vector.
+    const std::size_t scoped_n = find_scoped_ns.size();
+    report("l4.uia.find_scoped", scoped_n,
+           compute_stats(std::move(find_scoped_ns), run_total));
+  }
   return 0;
 }
 
@@ -1133,6 +1180,7 @@ int run_l4_workflow(const int iters) {
   query.title = fixture.title;
   query.title_match_mode = TitleMatchMode::Exact;
   const std::int64_t wf_started = now_ns();
+  std::string last_wid;
   for (int index = 0; index < iters && status == 0; ++index) {
     const std::int64_t t0 = now_ns();
     std::vector<WindowInfo> windows_found;
@@ -1141,6 +1189,7 @@ int run_l4_workflow(const int iters) {
       break;
     }
     const std::string wid = std::to_string(windows_found.front().id);
+    last_wid = wid;
     const std::int64_t t_resolve = now_ns();
     std::int64_t dt_write = 0;
     std::int64_t dt_focus = 0;
@@ -1158,6 +1207,65 @@ int run_l4_workflow(const int iters) {
     focus_ns.push_back(dt_focus);
     move_ns.push_back(dt_move);
     total_ns.push_back(dt_write + dt_focus + dt_move + (t_resolve - t0));
+  }
+  // P0-2 layered breakdown: the same window.focus action timed at each seam
+  // (dispatcher.submit | dispatcher.pump | kernel.execute direct |
+  // WindowService::focus direct). Same fixture, same lane, same build — the
+  // four medians must bracket l4wf.window.focus above; no attribution by
+  // subtraction across harnesses.
+  std::vector<std::int64_t> focus_submit_ns;
+  std::vector<std::int64_t> focus_pump_ns;
+  std::vector<std::int64_t> focus_kernel_ns;
+  std::vector<std::int64_t> focus_service_ns;
+  focus_submit_ns.reserve(static_cast<std::size_t>(iters));
+  focus_pump_ns.reserve(static_cast<std::size_t>(iters));
+  focus_kernel_ns.reserve(static_cast<std::size_t>(iters));
+  focus_service_ns.reserve(static_cast<std::size_t>(iters));
+  if (status == 0 && !last_wid.empty()) {
+    const std::uint64_t wid_num = std::stoull(last_wid);
+    for (int index = 0; index < iters && status == 0; ++index) {
+      Action action;
+      action.id = next_id++;
+      action.schema_version = 1;
+      action.source = {"bench", "rime_bench"};
+      action.type = "window.focus";
+      action.capability = "windows.window.write";
+      action.target = {"window", last_wid};
+      action.deadline_unix_ms = static_cast<std::uint64_t>(unix_ms_now() + 60'000);
+      action.payload = "{}";
+      const std::int64_t t0 = now_ns();
+      if (dispatcher.submit(action) != rime::action::DispatchStatus::Accepted) {
+        status = fail("focus breakdown submit refused");
+        break;
+      }
+      const std::int64_t t1 = now_ns();
+      const std::vector<Result> results = dispatcher.pump(1);
+      const std::int64_t t2 = now_ns();
+      if (results.size() != 1 || !results.front().succeeded) {
+        status = fail("focus breakdown mediated action failed");
+        break;
+      }
+      focus_submit_ns.push_back(t1 - t0);
+      focus_pump_ns.push_back(t2 - t1);
+      Action direct = action;
+      direct.id = next_id++;
+      const std::int64_t t3 = now_ns();
+      const Result kres = kernel.execute(direct);
+      const std::int64_t t4 = now_ns();
+      if (!kres.succeeded) {
+        status = fail("focus breakdown kernel.execute failed");
+        break;
+      }
+      focus_kernel_ns.push_back(t4 - t3);
+      const std::int64_t t5 = now_ns();
+      const rime::core::Error serr = windows.focus(wid_num);
+      const std::int64_t t6 = now_ns();
+      if (!serr.ok()) {
+        status = fail("focus breakdown service.focus failed");
+        break;
+      }
+      focus_service_ns.push_back(t6 - t5);
+    }
   }
   std::string back;
   const bool roundtrip_ok = clipboard.read_text(back).ok() && back == payload_text;
@@ -1181,6 +1289,17 @@ int run_l4_workflow(const int iters) {
   report("l4wf.window.move", static_cast<std::size_t>(iters),
          compute_stats(std::move(move_ns), wf_total));
   report("l4wf.task", static_cast<std::size_t>(iters), compute_stats(std::move(total_ns), wf_total));
+  // Hoisted: argument evaluation order is unspecified, so size() must be
+  // read before the moves below empty the vectors.
+  const std::size_t breakdown_n = focus_submit_ns.size();
+  report("l4wf.focus.submit", breakdown_n,
+         compute_stats(std::move(focus_submit_ns), wf_total));
+  report("l4wf.focus.pump", breakdown_n,
+         compute_stats(std::move(focus_pump_ns), wf_total));
+  report("l4wf.focus.kernel_direct", breakdown_n,
+         compute_stats(std::move(focus_kernel_ns), wf_total));
+  report("l4wf.focus.service_direct", breakdown_n,
+         compute_stats(std::move(focus_service_ns), wf_total));
   return 0;
 }
 

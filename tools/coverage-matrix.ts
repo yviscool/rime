@@ -427,6 +427,28 @@ const ACCOUNTING_END = "<!-- accounting:end -->";
 
 async function checkAccounting(write: boolean): Promise<void> {
   const accounting = await computeAccounting();
+  // Denominator freeze (M0+): 747 = coverage 253 + core-builtins 101 +
+  // builtins 134 + objects 259. Only status transitions are allowed; any
+  // ledger growth/shrinkage (new rows, exclusions, recounts) must fail here
+  // and be reviewed as a contract change, never silently absorbed.
+  const FROZEN_LEDGERS = [
+    { ledger: "coverage", denominator: 253 },
+    { ledger: "core-builtins", denominator: 101 },
+    { ledger: "builtins", denominator: 134 },
+    { ledger: "objects", denominator: 259 },
+  ];
+  for (const frozen of FROZEN_LEDGERS) {
+    const row = accounting.ledgers.find((r) => r.ledger === frozen.ledger);
+    if (!row) throw new Error(`matrix check failed: accounting lost ledger ${frozen.ledger}; denominator is frozen`);
+    if (row.denominator !== frozen.denominator) {
+      throw new Error(
+        `matrix check failed: accounting ledger ${frozen.ledger} denominator ${row.denominator} != frozen ${frozen.denominator}; only status transitions allowed`,
+      );
+    }
+  }
+  if (accounting.total.denominator !== 747) {
+    throw new Error(`matrix check failed: accounting total denominator ${accounting.total.denominator} != frozen 747`);
+  }
   const json_path = resolve(root, "docs/api/accounting.json");
   const doc_path = resolve(root, "docs/AHK99-IMPLEMENTATION-PLAN.md");
   const expected_json = `${JSON.stringify(accounting, null, 2)}\n`;
@@ -497,6 +519,10 @@ async function checkActionRegistry(
       sdk: string;
       payloadSchema: string;
       validation?: string;
+      native?: string;
+      contractTest?: string;
+      e2eTest?: string;
+      performance?: string;
     }>;
     capabilities: Array<{
       name: string;
@@ -551,6 +577,19 @@ async function checkActionRegistry(
         await stat(resolve(root, file));
       } catch {
         fail(`actions.json ${action.type} references missing file: ${file}`);
+      }
+    }
+    // Evidence fields (native/contractTest/e2eTest/performance) are optional,
+    // but when present every referenced file must exist. The performance
+    // value may carry a parenthesised benchmark scope after the path.
+    for (const key of ["native", "contractTest", "e2eTest", "performance"] as const) {
+      const ref = action[key];
+      if (!ref) continue;
+      const file = ref.split(" (")[0].split(/[:#]/).slice(0, -1).join(":").replace(/:\d+$/, "") || ref.split(" (")[0];
+      try {
+        await stat(resolve(root, file));
+      } catch {
+        fail(`actions.json ${action.type} ${key} references missing file: ${file}`);
       }
     }
   }

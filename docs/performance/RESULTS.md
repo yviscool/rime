@@ -51,14 +51,19 @@ js.1M-calls             65ns/call（仅引用）
 --l4-activate 200:  query p50=155us / focus p50=15us / confirmed p50=252~584us
 --l4-clipboard 100: write 124us + read 143us = roundtrip 269us（自洽）
 --l4-uia 10:        find ~143ms（桌面根遍历，主导一切）/ invoke ~0.3ms
+                    + find_scoped（同按钮窗口子树对照，P0-3 新增；以实测
+                    两列之比为准，禁止以外推倍数当结论）
 --l4-workflow 30:   resolve 250 + write 54 + focus 468 + move 437 = task 1211us
 --pressure 2000x2:  achieved 3867/s, received=2000, dropped=0,
                     inject->callback p50=363us p99=817us
 ```
 
 注意：Action 管线 mediated 的 focus（468us）比直调服务（15us）贵约
-400us——差额在 JSON payload 解析 + Trace + 调度，不在 Win32 本体。
-这是 L4 粒度的架构税答案（Debug 会更大）。
+400us——此前差额按“JSON payload 解析 + Trace + 调度”定性记录，未经
+同次分解验证。现 `--l4-workflow` 每次运行附带同动作四层分解
+（`l4wf.focus.submit / .pump / .kernel_direct / .service_direct`，见
+`tests/native/bench.cpp run_l4_workflow` 末尾的 breakdown 段）：以该
+四列为准重写此结论，禁止跨 harness 相减归因（SPEC.md §4.7）。
 
 ## Run 2026-10-06-E（AHK L6 首场景）
 
@@ -80,6 +85,27 @@ ahk.activate  p50=111ms  p99=120ms  success=200/200
 - MSVC Release 基线（本地无 cl，以 CI `bench` workflow artifact 为准）。
 - Gesture/launcher 路径（仓库尚无对应能力）。
 - 趋势：夜间 workflow 落盘 artifact 后，在此追加。
+
+## Run 2026-10-08-A（新分层列首光，非基线）
+
+- 机器：与 Run F 同机（Core 5 120U / Win11，loaded：StatsBall/IME/微信等并存）
+- 构建：MinGW gcc Debug（`build/seamcheck`，`RIME_WARNINGS_AS_ERRORS=OFF`），
+  仅证新分层列能跑通；**禁止与 Release 记录对比**（SPEC §5.2）。
+- 命令：`rime_bench --l4-workflow 10`、`rime_bench --l4-uia 5`
+
+```
+l4wf.window.focus  p50=328us | submit 3.2 + pump 142 = 145us mediated
+l4wf.focus.kernel_direct p50=135us | service_direct p50=16us
+l4.uia.find        p50=77ms  (桌面根，loaded)
+l4.uia.find_scoped p50=4.1ms (同按钮窗口子树，约 19x)
+```
+
+- 读法：pump ≈ kernel_direct（队列本身只占 ~7us）；kernel_direct 与
+  service_direct 之间 ~119us 才是 executor + Trace + payload 的真实区间，
+  旧 "400us 差额在 JSON+Trace+调度" 定性被收窄为可度量项。
+- 主循环 mediated focus（328）与 breakdown 内 submit+pump（145）的差值是
+  相位效应（前台初建 vs 已稳），不是第二次架构税——同 harness 内对比才
+  有效，跨段相减仍禁止。
 
 ## Run 2026-10-06-F（发键延迟双边）
 

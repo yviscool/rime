@@ -6,6 +6,16 @@
 
 Runtime 不把 AHK 的 C++ 对象、`IUnknown*`、`HMENU`、`HGLOBAL`、缓冲区裸指针或内部对象地址交给 QuickJS。上层得到的是 Runtime-owned opaque ID、不可变快照和显式 `Subscription`。拥有状态的对象只能在所属 lane 操作。
 
+### Window 对象模型（P1-4，已完成替换）
+
+`sdk/src/window.ts` 的唯一窗口表面是 `Window` 类（以 `Control` 类为模板；
+函数命名空间与 `ActiveWindowRequest` 已删除，不保留向后兼容）。
+`Window` 只持有稳定 `WindowId` + 上次不可变快照，每个动词经 service
+重解析 id 并用返回快照更新缓存；窗口死亡一律表现为 service 的标准
+`target_gone` ActionError，不新增客户端错误种类。`list/find/active/
+fromSnapshot/refresh/isAlive` 见 `tests/sdk/windows.test.ts` 与
+`tests/sdk/window-handle.test.ts`（L3）。
+
 ## AHK 对象到 TS 的映射
 
 | AHK 类型 | TS 方向 | 所属 lane | 关键问题 |

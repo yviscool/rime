@@ -68,7 +68,7 @@ tools/    Bun 构建、测试、诊断和开发工具
 优先验证系统成立性，而不是只验证展示效果：
 
 - QuickJS 能加载 Native 模块并确定性退出。
-- `Window.active().move("left")` 能通过公开 API 执行。
+- `(await Window.active())?.move("left")` 能通过公开 API 执行。
 - UIA、Win32 和 COM 资源没有泄漏或跨 Apartment 错误。
 - UI Thread、JS Thread 和 Automation MTA 的边界可被测试。
 - Action Trace 能记录输入、Context、执行器、结果和错误。

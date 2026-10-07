@@ -306,37 +306,50 @@ test("settings exposes the synchronous bridge with return-previous setters", asy
   expect(bridge.detectHiddenText).toBe(true);
 });
 
-test("Window.active().move routes through the window bridge", async () => {
+test("Window.active() resolves the foreground handle, verbs carry its id", async () => {
   calls.length = 0;
-  const handle = await Window.active().move("left");
-  expect(calls).toEqual([{ method: "move", target: "active", position: "left", options: undefined }]);
+  const active = await Window.active();
+  expect(active?.id as number).toBe(7);
+  const handle = await active!.move("left");
+  expect(calls).toEqual([
+    { method: "list", target: 0, options: { active: true } },
+    { method: "move", target: 7, position: "left", options: undefined },
+  ]);
   expect(handle).toEqual(movedHandle);
 });
 
-test("Window.move passes the window id through", async () => {
+test("handle.move passes the bound id through and adopts the snapshot", async () => {
   calls.length = 0;
-  const handle = await Window.move(7 as WindowId, "right");
+  const win = Window.fromSnapshot({ ...movedHandle, id: 7 as WindowId });
+  const handle = await win.move("right");
   expect(calls).toEqual([{ method: "move", target: 7, position: "right", options: undefined }]);
   expect(handle.id as number).toBe(7);
 });
 
-test("Window.zorder passes target and placement through", async () => {
+test("zorder passes target and placement through", async () => {
   calls.length = 0;
-  const handle = await Window.zorder(7 as WindowId, "bottom");
+  const win = Window.fromSnapshot({ ...movedHandle, id: 7 as WindowId });
+  const handle = await win.zorder("bottom");
   expect(calls).toEqual([{ method: "zorder", target: 7, placement: "bottom", options: undefined }]);
   expect(handle).toEqual(movedHandle);
   calls.length = 0;
-  await Window.active().zorder("top");
-  expect(calls).toEqual([{ method: "zorder", target: "active", placement: "top", options: undefined }]);
+  await (await Window.active())!.zorder("top");
+  expect(calls).toEqual([
+    { method: "list", target: 0, options: { active: true } },
+    { method: "zorder", target: 7, placement: "top", options: undefined },
+  ]);
 });
 
 test("kill and redraw route through the window bridge", async () => {
   calls.length = 0;
-  await Window.kill(7 as WindowId);
+  await Window.fromSnapshot({ ...movedHandle, id: 7 as WindowId }).kill();
   expect(calls).toEqual([{ method: "kill", target: 7, options: undefined }]);
   calls.length = 0;
-  await Window.active().redraw();
-  expect(calls).toEqual([{ method: "redraw", target: "active", options: undefined }]);
+  await (await Window.active())!.redraw();
+  expect(calls).toEqual([
+    { method: "list", target: 0, options: { active: true } },
+    { method: "redraw", target: 7, options: undefined },
+  ]);
 });
 
 test("minimizeAll and minimizeAllUndo route through the window bridge", async () => {
@@ -350,15 +363,16 @@ test("minimizeAll and minimizeAllUndo route through the window bridge", async ()
 
 test("setTitle, setEnabled and setAlwaysOnTop route through the window bridge", async () => {
   calls.length = 0;
-  await Window.setTitle(7 as WindowId, "Renamed");
+  const win = Window.fromSnapshot({ ...movedHandle, id: 7 as WindowId });
+  await win.setTitle("Renamed");
   expect(calls).toEqual([{ method: "setTitle", target: 7, title: "Renamed", options: undefined }]);
   calls.length = 0;
-  await Window.setEnabled(7 as WindowId, -1, { deadlineMs: 100 });
+  await win.setEnabled(-1, { deadlineMs: 100 });
   expect(calls).toEqual([
     { method: "setEnabled", target: 7, value: -1, options: { deadlineMs: 100 } },
   ]);
   calls.length = 0;
-  await Window.setAlwaysOnTop(7 as WindowId);
+  await win.setAlwaysOnTop();
   expect(calls).toEqual([
     { method: "setAlwaysOnTop", target: 7, value: undefined, options: undefined },
   ]);
@@ -366,22 +380,23 @@ test("setTitle, setEnabled and setAlwaysOnTop route through the window bridge", 
 
 test("setStyle, setExStyle, setTransparent and setTransColor route through the window bridge", async () => {
   calls.length = 0;
-  await Window.setStyle(7 as WindowId, "+0x02000000");
+  const win = Window.fromSnapshot({ ...movedHandle, id: 7 as WindowId });
+  await win.setStyle("+0x02000000");
   expect(calls).toEqual([
     { method: "setStyle", target: 7, value: "+0x02000000", options: undefined },
   ]);
   calls.length = 0;
-  await Window.setExStyle(7 as WindowId, "-0x08000000", { deadlineMs: 100 });
+  await win.setExStyle("-0x08000000", { deadlineMs: 100 });
   expect(calls).toEqual([
     { method: "setExStyle", target: 7, value: "-0x08000000", options: { deadlineMs: 100 } },
   ]);
   calls.length = 0;
-  await Window.setTransparent(7 as WindowId, 0x80);
+  await win.setTransparent(0x80);
   expect(calls).toEqual([
     { method: "setTransparent", target: 7, value: 128, options: undefined },
   ]);
   calls.length = 0;
-  await Window.setTransColor(7 as WindowId, "0xFF0000 128");
+  await win.setTransColor("0xFF0000 128");
   expect(calls).toEqual([
     { method: "setTransColor", target: 7, value: "0xFF0000 128", options: undefined },
   ]);
@@ -389,12 +404,13 @@ test("setStyle, setExStyle, setTransparent and setTransColor route through the w
 
 test("setRegion routes through the window bridge with the restore default", async () => {
   calls.length = 0;
-  await Window.setRegion(7 as WindowId, "10-10 W100 H50");
+  const win = Window.fromSnapshot({ ...movedHandle, id: 7 as WindowId });
+  await win.setRegion("10-10 W100 H50");
   expect(calls).toEqual([
     { method: "setRegion", target: 7, value: "10-10 W100 H50", options: undefined },
   ]);
   calls.length = 0;
-  await Window.setRegion(7 as WindowId, undefined, { deadlineMs: 100 });
+  await win.setRegion(undefined, { deadlineMs: 100 });
   expect(calls).toEqual([
     { method: "setRegion", target: 7, value: "", options: { deadlineMs: 100 } },
   ]);
@@ -403,25 +419,30 @@ test("setRegion routes through the window bridge with the restore default", asyn
 test("bridge rejections propagate to the caller", async () => {
   calls.length = 0;
   rejectNext = true;
-  await expect(Window.move(9 as WindowId, "left")).rejects.toThrow("window no longer exists");
+  const win = Window.fromSnapshot({ ...movedHandle, id: 9 as WindowId });
+  await expect(win.move("left")).rejects.toThrow("window no longer exists");
   expect(calls).toEqual([{ method: "move", target: 9, position: "left", options: undefined }]);
 });
 
-test("Window.list and Window.info forward to the bridge", async () => {
+test("Window.list resolves handles and refresh re-reads by id", async () => {
   const list = await Window.list();
-  expect(list).toEqual([movedHandle]);
-  const info = await Window.info(3 as WindowId);
+  expect(list.map((win) => win.id as number)).toEqual([7]);
+  const info = await Window.fromSnapshot({ ...movedHandle, id: 3 as WindowId }).refresh();
   expect(info.id as number).toBe(3);
 });
 
 test("state mutations route target and native options", async () => {
   calls.length = 0;
-  await Window.active().close({ deadlineMs: 250 });
+  await (await Window.active())!.close({ deadlineMs: 250 });
   expect(calls).toEqual([
-    { method: "close", target: "active", options: { deadlineMs: 250 } },
+    { method: "list", target: 0, options: { active: true } },
+    { method: "close", target: 7, options: { deadlineMs: 250 } },
   ]);
   calls.length = 0;
-  await Window.hide(11 as WindowId, { deadlineMs: 100, parentActionId: 3 });
+  await Window.fromSnapshot({ ...movedHandle, id: 11 as WindowId }).hide({
+    deadlineMs: 100,
+    parentActionId: 3,
+  });
   expect(calls).toEqual([
     { method: "hide", target: 11, options: { deadlineMs: 100, parentActionId: 3 } },
   ]);
@@ -433,11 +454,12 @@ test("list queries reach the wire without the signal field", async () => {
   expect(calls[0]?.options).toEqual({ title: "Notepad", matchMode: "exact", deadlineMs: 75 });
 });
 
-test("Window.controls and Window.text forward reads to the bridge", async () => {
+test("Window.controls and text forward reads to the bridge", async () => {
   calls.length = 0;
-  const controls = await Window.controls(7 as WindowId, { deadlineMs: 30 });
+  const win = Window.fromSnapshot({ ...movedHandle, id: 7 as WindowId });
+  const controls = await win.controls({ deadlineMs: 30 });
   expect(controls[0]?.classNN).toBe("Edit1");
-  const text = await Window.text(7 as WindowId);
+  const text = await win.text();
   expect(text).toBe("Rime Slice Control\r\n");
   expect(calls).toEqual([
     { method: "controls", target: 7, options: { deadlineMs: 30 } },
@@ -481,14 +503,15 @@ test("signal binds a cancellation id on the wire and releases it", async () => {
   runtimeIds.released.length = 0;
   calls.length = 0;
   const signal = new FakeSignal();
-  const handle = await Window.move(7 as WindowId, "left", { signal });
+  const win = Window.fromSnapshot({ ...movedHandle, id: 7 as WindowId });
+  const handle = await win.move("left", { signal });
   expect(handle).toEqual(movedHandle);
   const wiredId = calls[0]?.options?.cancellationId ?? 0;
   expect(wiredId).toBeGreaterThan(0);
   expect(runtimeIds.released).toContain(wiredId);
 });
 
-test("active/info forward native options", async () => {
+test("list with active:true forwards native options, refresh re-reads by id", async () => {
   calls.length = 0;
   await Window.list({ active: true, deadlineMs: 50 });
   expect(calls[0]).toEqual({
@@ -497,7 +520,10 @@ test("active/info forward native options", async () => {
     options: { active: true, deadlineMs: 50 },
   });
   calls.length = 0;
-  const info = await Window.info(5 as WindowId, { deadlineMs: 60, parentActionId: 2 });
+  const info = await Window.fromSnapshot({ ...movedHandle, id: 5 as WindowId }).refresh({
+    deadlineMs: 60,
+    parentActionId: 2,
+  });
   expect(info.id as number).toBe(5);
   expect(calls).toEqual([
     { method: "info", target: 5, options: { deadlineMs: 60, parentActionId: 2 } },

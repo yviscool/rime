@@ -1,4 +1,4 @@
-import { runAction, type ActionOptions, type NativeActionOptions } from "./action";
+import { ActionError, runAction, type ActionOptions, type NativeActionOptions } from "./action";
 import type { ProcessId } from "./process";
 import { Control, focusedControl, type ControlClickOptions, type ControlSpec } from "./control";
 
@@ -394,354 +394,282 @@ export async function groups(): Promise<WindowGroups> {
   };
 }
 
-export interface ActiveWindowRequest {
-  /** Moves the foreground window through the `window.move` action pipeline. */
-  move(position: WindowPlacement | WindowMoveRect, options?: ActionOptions): Promise<WindowSnapshot>;
-  /** Reorders the foreground window through the `window.zorder` pipeline. */
-  zorder(placement: WindowZorder, options?: ActionOptions): Promise<WindowSnapshot>;
-  focus(options?: ActionOptions): Promise<WindowSnapshot>;
-  kill(options?: ActionOptions): Promise<WindowSnapshot>;
-  redraw(options?: ActionOptions): Promise<WindowSnapshot>;
-  close(options?: ActionOptions): Promise<WindowSnapshot>;
-  hide(options?: ActionOptions): Promise<WindowSnapshot>;
-  show(options?: ActionOptions): Promise<WindowSnapshot>;
-  minimize(options?: ActionOptions): Promise<WindowSnapshot>;
-  maximize(options?: ActionOptions): Promise<WindowSnapshot>;
-  restore(options?: ActionOptions): Promise<WindowSnapshot>;
-}
+/**
+ * A resolved window (P1-4 object model, modelled on `Control`).
+ *
+ * Ownership: the native `WindowService` on the UI lane owns the HWND; this
+ * object holds only the stable `WindowId` plus the last immutable
+ * `WindowSnapshot`. Every verb re-resolves the id through the service
+ * (capability `windows.window.write`, cancellable, traced) and refreshes
+ * the cached snapshot from the result — no raw handle is ever cached, and
+ * a dead window surfaces as the standard `target_gone` ActionError from the
+ * service, never as a new client-side error kind. This class is the only
+ * window surface: resolve via `Window.list` / `find` / `active`, then act
+ * on the handle (`win.focus()`, `win.controls()`).
+ */
+export class Window {
+  private current: WindowSnapshot;
 
-function mutation(
-  pick: (bridge: WindowsBridge) => (target: WindowId | "active", options?: NativeActionOptions) => Promise<WindowSnapshot>,
-): (target: WindowId, options?: ActionOptions) => Promise<WindowSnapshot> {
-  return (target, options) =>
-    runAction(options, (native) => windowBridge().then((windows) => pick(windows)(target, native)));
-}
+  constructor(snapshot: WindowSnapshot) {
+    this.current = snapshot;
+  }
 
-export const Window = {
-  /** Lazy handle on the foreground window; resolves when the operation runs. */
-  active(): ActiveWindowRequest {
-    return {
-      move: (position, options) =>
-        runAction(options, (native) =>
-          windowBridge().then((windows) => windows.move("active", position, native)),
-        ),
-      zorder: (placement, options) =>
-        runAction(options, (native) =>
-          windowBridge().then((windows) => windows.zorder("active", placement, native)),
-        ),
-      focus: (options) =>
-        runAction(options, (native) =>
-          windowBridge().then((windows) => windows.focus("active", native)),
-        ),
-      kill: (options) =>
-        runAction(options, (native) =>
-          windowBridge().then((windows) => windows.kill("active", native)),
-        ),
-      redraw: (options) =>
-        runAction(options, (native) =>
-          windowBridge().then((windows) => windows.redraw("active", native)),
-        ),
-      close: (options) =>
-        runAction(options, (native) =>
-          windowBridge().then((windows) => windows.close("active", native)),
-        ),
-      hide: (options) =>
-        runAction(options, (native) =>
-          windowBridge().then((windows) => windows.hide("active", native)),
-        ),
-      show: (options) =>
-        runAction(options, (native) =>
-          windowBridge().then((windows) => windows.show("active", native)),
-        ),
-      minimize: (options) =>
-        runAction(options, (native) =>
-          windowBridge().then((windows) => windows.minimize("active", native)),
-        ),
-      maximize: (options) =>
-        runAction(options, (native) =>
-          windowBridge().then((windows) => windows.maximize("active", native)),
-        ),
-      restore: (options) =>
-        runAction(options, (native) =>
-          windowBridge().then((windows) => windows.restore("active", native)),
-        ),
-    };
-  },
-  /**
-   * Moves a window through the `window.move` action pipeline: either a
-   * named placement (left half etc.) or a coordinate rect
-   * ({x?, y?, w?, h?}, AHK WinMove X/Y/Width/Height) where omitted fields
-   * keep the current value.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   * @throws TypeError synchronously when the rect object is malformed.
-   */
-  move(windowId: WindowId, position: WindowPlacement | WindowMoveRect, options?: ActionOptions): Promise<WindowSnapshot> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.move(windowId, position, native)),
-    );
-  },
-  /**
-   * Moves a window to the top/bottom of the z-order without activating it
-   * (`window.zorder`; AHK WinMoveTop/WinMoveBottom).
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  zorder(windowId: WindowId, placement: WindowZorder, options?: ActionOptions): Promise<WindowSnapshot> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.zorder(windowId, placement, native)),
-    );
-  },
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
-  focus: mutation((windows) => windows.focus),
-  /** Force close via `window.kill`; resolves with the pre-close snapshot. */
-  kill: mutation((windows) => windows.kill),
-  /** Invalidate via `window.redraw` (AHK WinRedraw). */
-  redraw: mutation((windows) => windows.redraw),
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
-  close: mutation((windows) => windows.close),
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
-  hide: mutation((windows) => windows.hide),
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
-  show: mutation((windows) => windows.show),
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
-  minimize: mutation((windows) => windows.minimize),
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
-  maximize: mutation((windows) => windows.maximize),
-  /** @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`. */
-  restore: mutation((windows) => windows.restore),
-  /**
-   * WinSetTitle: sets the window title (the empty string clears it)
-   * through the `window.set.title` action pipeline.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  setTitle(windowId: WindowId, title: string, options?: ActionOptions): Promise<WindowSnapshot> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.setTitle(windowId, title, native)),
-    );
-  },
-  /**
-   * WinSetEnabled: 1 enables, 0 disables, -1 toggles through the
-   * `window.set.enabled` action pipeline.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  setEnabled(
-    windowId: WindowId,
-    value: boolean | -1 | 0 | 1,
-    options?: ActionOptions,
-  ): Promise<WindowSnapshot> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.setEnabled(windowId, value, native)),
-    );
-  },
-  /**
-   * WinSetAlwaysOnTop: sets the topmost state through the
-   * `window.set.alwaysontop` action pipeline; absent value means topmost.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  setAlwaysOnTop(
-    windowId: WindowId,
-    value?: boolean | -1 | 0 | 1,
-    options?: ActionOptions,
-  ): Promise<WindowSnapshot> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.setAlwaysOnTop(windowId, value, native)),
-    );
-  },
-  /**
-   * WinSetStyle: '+N' adds, '-N' removes, '^N' toggles, a bare number
-   * replaces the whole style; a malformed string throws before enqueue.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  setStyle(windowId: WindowId, value: string, options?: ActionOptions): Promise<WindowSnapshot> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.setStyle(windowId, value, native)),
-    );
-  },
-  /**
-   * WinSetExStyle: the WinSetStyle change-string grammar against the
-   * extended style.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  setExStyle(windowId: WindowId, value: string, options?: ActionOptions): Promise<WindowSnapshot> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.setExStyle(windowId, value, native)),
-    );
-  },
-  /**
-   * WinSetTransparent: 0..255 sets the layered alpha, -1 turns transparency
-   * off (the OS forgets the alpha and color key with WS_EX_LAYERED).
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  setTransparent(windowId: WindowId, value: number, options?: ActionOptions): Promise<WindowSnapshot> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.setTransparent(windowId, value, native)),
-    );
-  },
-  /**
-   * WinSetTransColor: ''/'off' clears the color key, 'RRGGBB'/'0xRRGGBB'
-   * sets it (hex only), an optional ' <0-255>' suffix sets alpha alongside.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  setTransColor(windowId: WindowId, value: string, options?: ActionOptions): Promise<WindowSnapshot> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.setTransColor(windowId, value, native)),
-    );
-  },
-  /**
-   * WinSetRegion: the AHK options string ('<x>-<y>' coordinate pairs plus
-   * E / R[<rrw>-<rrh>] / W[<width>]/Wind / H[<height>] letter options);
-   * '' restores the normal window region.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  setRegion(windowId: WindowId, value = "", options?: ActionOptions): Promise<WindowSnapshot> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.setRegion(windowId, value, native)),
-    );
-  },
-  /**
-   * WinMinimizeAll: minimizes every window on the desktop through the
-   * `window.minimizeall` action pipeline (fire-and-forget shell tray
-   * command; observe the effect through `info`).
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
-   */
-  minimizeAll(options?: ActionOptions): Promise<void> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.minimizeAll(native)),
-    );
-  },
-  /**
-   * WinMinimizeAllUndo: undoes `minimizeAll` through the
-   * `window.minimizeall.undo` action pipeline (same fire-and-forget contract).
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
-   */
-  minimizeAllUndo(options?: ActionOptions): Promise<void> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.minimizeAllUndo(native)),
-    );
-  },
-  /**
-   * Lists windows matching the query (window-v1 query; `schemaVersion` stays
-   * in the vocabulary and never goes on the wire).
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
-   */
-  list(query?: WindowQuery & ActionOptions): Promise<WindowSnapshot[]> {
+  /** Resolves every window matching the query (window-v1 query). */
+  static async list(query?: WindowQuery & ActionOptions): Promise<Window[]> {
     // `signal` never reaches the wire; it is converted to a cancellation id.
     const { signal: _signal, ...fields } = query ?? {};
-    return runAction(query, (native) =>
+    const snapshots = await runAction(query, (native) =>
       windowBridge().then((windows) => windows.list({ ...fields, ...native })),
     );
-  },
-  /**
-   * Reads one window snapshot by id.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  info(windowId: WindowId, options?: ActionOptions): Promise<WindowSnapshot> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.info(windowId, native)),
-    );
-  },
-  /**
-   * WinGetControls/WinGetControlsHwnd: child controls with stable ids and
-   * AHK ClassNN names, in z-order (hidden controls included).
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  controls(windowId: WindowId, options?: ActionOptions): Promise<WindowControl[]> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.controls(windowId, native)),
-    );
-  },
-  /**
-   * Resolves a control spec against a window (@rime/control Phase 1).
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  control(windowId: WindowId, spec: ControlSpec, options?: ActionOptions): Promise<Control> {
-    return Control.resolve(windowId, spec, options);
-  },
-  /**
-   * One-shot control click: resolve + click in a single call.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  clickControl(
-    windowId: WindowId,
-    spec: ControlSpec,
-    opts?: ControlClickOptions,
-    options?: ActionOptions,
-  ): Promise<{ clicks: number }> {
-    return Control.resolve(windowId, spec, options).then((control) => control.click(opts, options));
-  },
-  /**
-   * One-shot control setText: resolve + WM_SETTEXT in a single call.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  setControlText(
-    windowId: WindowId,
-    spec: ControlSpec,
-    text: string,
-    options?: ActionOptions,
-  ): Promise<{ text: string }> {
-    return Control.resolve(windowId, spec, options).then((control) =>
-      control.setText(text, options),
-    );
-  },
-  /**
-   * One-shot control getText: resolve + WM_GETTEXT in a single call.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  getControlText(
-    windowId: WindowId,
-    spec: ControlSpec,
-    options?: ActionOptions,
-  ): Promise<{ text: string }> {
-    return Control.resolve(windowId, spec, options).then((control) => control.getText(options));
-  },
-  /**
-   * Focused child control of a window, or 0 when nothing inside holds focus
-   * (AHK ControlGetFocus rule). Synchronous.
-   */
-  focusedControl(windowId: WindowId): number {
-    return focusedControl(windowId);
-  },
-  /**
-   * WinGetText: concatenated control text ("\r\n"-separated); hidden controls
-   * are skipped while DetectHiddenText is off.
-   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
-   */
-  text(windowId: WindowId, options?: ActionOptions): Promise<string> {
-    return runAction(options, (native) =>
-      windowBridge().then((windows) => windows.text(windowId, native)),
-    );
-  },
+    return snapshots.map((snapshot) => new Window(snapshot));
+  }
+
+  /** Resolves the first match, or null when nothing matches. */
+  static async find(query?: WindowQuery & ActionOptions): Promise<Window | null> {
+    const [first] = await Window.list(query);
+    return first ?? null;
+  }
+
+  /** Resolves the foreground window, or null when none holds it. */
+  static async active(options?: ActionOptions): Promise<Window | null> {
+    const [first] = await Window.list({ ...options, active: true });
+    return first ?? null;
+  }
+
+  /** Wraps an already-resolved snapshot without a round trip. */
+  static fromSnapshot(snapshot: WindowSnapshot): Window {
+    return new Window(snapshot);
+  }
+
   /**
    * WinExist: true when at least one window matches the query.
    * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
    */
-  exists(query?: WindowQuery & ActionOptions): Promise<boolean> {
+  static exists(query?: WindowQuery & ActionOptions): Promise<boolean> {
     const { signal: _signal, ...fields } = query ?? {};
     return runAction(query, (native) =>
       windowBridge().then((windows) => windows.exists({ ...fields, ...native })),
     );
-  },
+  }
+
   /**
    * WinActive: true when the foreground window matches the query.
    * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
    */
-  isActive(query?: WindowQuery & ActionOptions): Promise<boolean> {
+  static isActive(query?: WindowQuery & ActionOptions): Promise<boolean> {
     const { signal: _signal, ...fields } = query ?? {};
     return runAction(query, (native) =>
       windowBridge().then((windows) => windows.isActive({ ...fields, ...native })),
     );
-  },
+  }
+
   /**
    * WinWait/WinWaitActive/WinWaitClose/WinWaitNotActive: polls until `until`
    * is satisfied without blocking a thread. Resolves with the target
    * snapshot (exists/active) or null (closed/notActive).
    * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
    */
-  wait(
+  static wait(
     query?: WindowQuery & { until?: WindowWaitUntil } & ActionOptions,
   ): Promise<WindowSnapshot | null> {
     const { signal: _signal, ...fields } = query ?? {};
     return runAction(query, (native) =>
       windowBridge().then((windows) => windows.wait({ ...fields, ...native })),
     );
-  },
-};
+  }
+
+  /**
+   * WinMinimizeAll: minimizes every window on the desktop (fire-and-forget
+   * shell tray command; observe the effect through `refresh`).
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
+  static minimizeAll(options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.minimizeAll(native)),
+    );
+  }
+
+  /**
+   * WinMinimizeAllUndo: undoes `minimizeAll` (same fire-and-forget contract).
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied`.
+   */
+  static minimizeAllUndo(options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.minimizeAllUndo(native)),
+    );
+  }
+
+  get id(): WindowId {
+    return this.current.id;
+  }
+
+  /** Last observed snapshot; refreshed by every verb and `refresh()`. */
+  get snapshot(): WindowSnapshot {
+    return this.current;
+  }
+
+  /**
+   * Re-reads the window; resolves with the new snapshot.
+   * @throws ActionError with `timeout` / `cancelled` / `capability_denied` / `target_gone`.
+   */
+  async refresh(options?: ActionOptions): Promise<WindowSnapshot> {
+    this.current = await runAction(options, (native) =>
+      windowBridge().then((windows) => windows.info(this.id, native)),
+    );
+    return this.current;
+  }
+
+  /** True when the window still resolves; false only on `target_gone`. */
+  async isAlive(): Promise<boolean> {
+    try {
+      await this.refresh();
+      return true;
+    } catch (error) {
+      if (error instanceof ActionError && error.code === "target_gone") return false;
+      throw error;
+    }
+  }
+
+  private adopt(snapshot: WindowSnapshot): WindowSnapshot {
+    this.current = snapshot;
+    return snapshot;
+  }
+
+  private mutate(
+    pick: (bridge: WindowsBridge, native: NativeActionOptions | undefined) => Promise<WindowSnapshot>,
+    options?: ActionOptions,
+  ): Promise<WindowSnapshot> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => pick(windows, native)),
+    ).then((snapshot) => this.adopt(snapshot));
+  }
+
+  /** Restores when minimized and requests foreground activation. */
+  focus(options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.focus(this.id, native), options);
+  }
+  /** Moves/resizes: named placement or coordinate rect (omitted fields keep). */
+  move(
+    position: WindowPlacement | WindowMoveRect,
+    options?: ActionOptions,
+  ): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.move(this.id, position, native), options);
+  }
+  /** Reorders to the top/bottom without activating (WinMoveTop/Bottom). */
+  zorder(placement: WindowZorder, options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.zorder(this.id, placement, native), options);
+  }
+  /** Graceful close; resolves with the pre-close snapshot. */
+  close(options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.close(this.id, native), options);
+  }
+  hide(options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.hide(this.id, native), options);
+  }
+  show(options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.show(this.id, native), options);
+  }
+  minimize(options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.minimize(this.id, native), options);
+  }
+  maximize(options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.maximize(this.id, native), options);
+  }
+  restore(options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.restore(this.id, native), options);
+  }
+  /** Force close (WinKill); resolves with the pre-close snapshot. */
+  kill(options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.kill(this.id, native), options);
+  }
+  /** Invalidates the window (WinRedraw). */
+  redraw(options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.redraw(this.id, native), options);
+  }
+  /** WinSetTitle: the empty string clears the title. */
+  setTitle(title: string, options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.setTitle(this.id, title, native), options);
+  }
+  /** WinSetEnabled: 1 enables, 0 disables, -1 toggles. */
+  setEnabled(value: boolean | -1 | 0 | 1, options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.setEnabled(this.id, value, native), options);
+  }
+  /** WinSetAlwaysOnTop: absent value means topmost. */
+  setAlwaysOnTop(value?: boolean | -1 | 0 | 1, options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate(
+      (windows, native) => windows.setAlwaysOnTop(this.id, value, native),
+      options,
+    );
+  }
+  /** WinSetStyle: '+N' adds, '-N' removes, '^N' toggles, bare N replaces. */
+  setStyle(value: string, options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.setStyle(this.id, value, native), options);
+  }
+  /** WinSetExStyle: same change-string grammar against the extended style. */
+  setExStyle(value: string, options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.setExStyle(this.id, value, native), options);
+  }
+  /** WinSetTransparent: 0..255 alpha, -1 turns transparency off. */
+  setTransparent(value: number, options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate(
+      (windows, native) => windows.setTransparent(this.id, value, native),
+      options,
+    );
+  }
+  /** WinSetTransColor: ''/'off' clears, hex sets, optional ' <0-255>' alpha. */
+  setTransColor(value: string, options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate(
+      (windows, native) => windows.setTransColor(this.id, value, native),
+      options,
+    );
+  }
+  /** WinSetRegion: '' restores the normal region. */
+  setRegion(value = "", options?: ActionOptions): Promise<WindowSnapshot> {
+    return this.mutate((windows, native) => windows.setRegion(this.id, value, native), options);
+  }
+  /** WinGetControls/WinGetControlsHwnd: child controls in z-order. */
+  controls(options?: ActionOptions): Promise<WindowControl[]> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.controls(this.id, native)),
+    );
+  }
+  /** WinGetText: concatenated control text. */
+  text(options?: ActionOptions): Promise<string> {
+    return runAction(options, (native) =>
+      windowBridge().then((windows) => windows.text(this.id, native)),
+    );
+  }
+  /** Resolves a control spec against this window (@rime/control Phase 1). */
+  control(spec: ControlSpec, options?: ActionOptions): Promise<Control> {
+    return Control.resolve(this.id, spec, options);
+  }
+  /** One-shot control click: resolve + click in a single call. */
+  clickControl(
+    spec: ControlSpec,
+    opts?: ControlClickOptions,
+    options?: ActionOptions,
+  ): Promise<{ clicks: number }> {
+    return Control.resolve(this.id, spec, options).then((control) =>
+      control.click(opts, options),
+    );
+  }
+  /** One-shot control setText: resolve + WM_SETTEXT in a single call. */
+  setControlText(spec: ControlSpec, text: string, options?: ActionOptions): Promise<{ text: string }> {
+    return Control.resolve(this.id, spec, options).then((control) =>
+      control.setText(text, options),
+    );
+  }
+  /** One-shot control getText: resolve + WM_GETTEXT in a single call. */
+  getControlText(spec: ControlSpec, options?: ActionOptions): Promise<{ text: string }> {
+    return Control.resolve(this.id, spec, options).then((control) =>
+      control.getText(options),
+    );
+  }
+  /**
+   * Focused child control of this window, or 0 when nothing inside holds
+   * focus (AHK ControlGetFocus rule). Synchronous.
+   */
+  focusedControl(): number {
+    return focusedControl(this.id);
+  }
+}

@@ -1,3 +1,4 @@
+import { automation as nativeAutomation } from "rime:automation";
 import type { NativeActionOptions } from "./action";
 
 /** One element from `find`/`read`: a stable id plus a value snapshot. */
@@ -24,6 +25,15 @@ export interface FindQuery {
   fromId?: number;
   /** 1..64, default 8. */
   maxResults?: number;
+  /**
+   * Explicit opt-in for whole-desktop search (P0-3). When `fromId` is absent
+   * and this is not `true`, `automation.find` still runs but logs a one-time
+   * `console.warn`: desktop-root traversal costs ~143ms (see
+   * `docs/performance/RESULTS.md` l4-uia) and is almost never what a scoped
+   * automation wants. Pass `fromId` (e.g. from a resolved window element) or
+   * set this to `true` to silence the warning. Never forwarded to native.
+   */
+  allowDesktopRoot?: boolean;
 }
 
 /** Bridge of the `rime:automation` module (Windows UI Automation). */
@@ -42,4 +52,38 @@ export interface AutomationBridge {
   release(elementId: number): boolean;
 }
 
-export { automation } from "rime:automation";
+/**
+ * Scoped facade over the native `rime:automation` bridge (P0-3). Read and
+ * invoke pass through untouched; `find` strips the SDK-only
+ * `allowDesktopRoot` key before crossing the bridge and warns once per
+ * process when the caller searches the whole desktop without opting in.
+ */
+let desktopRootWarned = false;
+
+export const automation: AutomationBridge = {
+  find(
+    query: FindQuery,
+    options?: NativeActionOptions,
+  ): Promise<{ elements: AutomationElement[] }> {
+    const { allowDesktopRoot, ...bridgeQuery } = query;
+    if (bridgeQuery.fromId === undefined && allowDesktopRoot !== true && !desktopRootWarned) {
+      desktopRootWarned = true;
+      console.warn(
+        "[rime] automation.find without fromId searches the whole desktop " +
+          "(~143ms, see docs/performance/RESULTS.md l4-uia). Pass fromId to scope " +
+          "the search to a window subtree, or set allowDesktopRoot: true to silence this warning.",
+      );
+    }
+    return nativeAutomation.find(bridgeQuery, options);
+  },
+  read(elementId: number, options?: NativeActionOptions): Promise<AutomationElement> {
+    return nativeAutomation.read(elementId, options);
+  },
+  invoke(elementId: number, options?: NativeActionOptions): Promise<{ invoked: true }> {
+    return nativeAutomation.invoke(elementId, options);
+  },
+  release(elementId: number): boolean {
+    return nativeAutomation.release(elementId);
+  },
+};
+

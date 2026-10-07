@@ -1,6 +1,7 @@
 #include "rime/win32/window.hpp"
 
 #include "rime/core/lane.hpp"
+#include "rime/win32/window_seam.hpp"
 
 #include "handle_guard.hpp"
 #include "utf.hpp"
@@ -167,6 +168,7 @@ rime::core::Error WindowService::list(std::vector<WindowInfo>& out,
 rime::core::Error WindowService::query(const WindowQuery& query, std::vector<WindowInfo>& out,
                                        const std::chrono::milliseconds timeout) {
   if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  if (rime::core::Error injected; window_seam::consume("query", injected)) return injected;
   // Resolved on the caller thread: regex compilation touches no HWND, and a
   // bad pattern fails the call without queueing UI work.
   ResolvedQuery resolved;
@@ -338,6 +340,7 @@ rime::core::Error WindowService::evaluate_wait(const WindowQuery& query, WaitCon
 rime::core::Error WindowService::info(const std::uint64_t id, WindowInfo& out,
                                       const std::chrono::milliseconds timeout) {
   if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  if (rime::core::Error injected; window_seam::consume("info", injected)) return injected;
   rime::core::Error result = rime::core::Error::none();
   WindowInfo info;
   const auto call_error = impl_->ui.call(
@@ -491,6 +494,7 @@ rime::core::Error resolve_named_placement(const HWND window, const std::string& 
 rime::core::Error WindowService::move(const std::uint64_t id, const std::string_view placement,
                                       const std::chrono::milliseconds timeout) {
   if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  if (rime::core::Error injected; window_seam::consume("move", injected)) return injected;
   const std::string placement_text(placement);
   rime::core::Error result = rime::core::Error::none();
   const auto call_error = impl_->ui.call(
@@ -524,6 +528,7 @@ rime::core::Error WindowService::move(const std::uint64_t id, const std::string_
 rime::core::Error WindowService::move_rect(const std::uint64_t id, const RectMove& move,
                                            const std::chrono::milliseconds timeout) {
   if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  if (rime::core::Error injected; window_seam::consume("move_rect", injected)) return injected;
   // Defense in depth: the executor validates the wire payload too, but a
   // direct caller must not ask for a degenerate frame or an edge that does
   // not fit the 32-bit screen coordinates SetWindowPos takes.
@@ -574,6 +579,7 @@ rime::core::Error WindowService::move_rect(const std::uint64_t id, const RectMov
 rime::core::Error WindowService::focus(const std::uint64_t id,
                                        const std::chrono::milliseconds timeout) {
   if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  if (rime::core::Error injected; window_seam::consume("focus", injected)) return injected;
   rime::core::Error result = rime::core::Error::none();
   const auto call_error = impl_->ui.call(
       [&] {
@@ -647,6 +653,7 @@ lane::Error show_window_op(WindowRegistry& registry, const std::uint64_t id, con
 rime::core::Error WindowService::close(const std::uint64_t id,
                                        const std::chrono::milliseconds timeout) {
   if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();
+  if (rime::core::Error injected; window_seam::consume("close", injected)) return injected;
   rime::core::Error result = rime::core::Error::none();
   // Absolute deadline: ui.call() already spends part of `timeout` while queued,
   // so recompute the remainder inside the lane instead of reusing the full

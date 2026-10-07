@@ -23,7 +23,7 @@
 | L3 动作管线 | `action.submit` / `action.pump` / `kernel.allows` / `executor.noop` | `rime_bench` | 已有 |
 | L3 冷启动代理 | `runtime.create+start+stop`、`worker.start+stop`、`js.host.create+destroy`、`js.host.eval-trivial`、`js.1M-calls`（仅引用） | `rime_bench`（JS 行需 `quickjs` 预设） | 已有 |
 | L4 端到端任务 | Notepad 激活 / 剪贴板往返 / 窗口搜索激活 | 待建（fixture 窗口 + 双实现） | 计划 |
-| L4 首批 | `l4.query/focus/confirmed`、`l4.clipboard.*`、`l4.uia.*` | `rime_bench --l4-*`（交互桌面，手动） | 已有 |
+| L4 首批 | `l4.query/focus/confirmed`、`l4.clipboard.*`、`l4.uia.*`、`l4wf.focus.submit/pump/kernel_direct/service_direct`（同动作四层分解） | `rime_bench --l4-*`（交互桌面，手动） | 已有 |
 | L5 桌面压力 | 10k events/s mouse-move：CPU、队列深度、丢弃率、GC | 待建 | 计划 |
 | L5 首批 | `pressure.mouse-blast` + `inject->callback`（真实 SendInput） | `rime_bench --pressure`（交互桌面，手动） | 已有 |
 | L6 AHK 对照 | 同一 scenario.json，AHK 与 Rime 双实现，统一采集 | 待建 | 计划 |
@@ -47,6 +47,22 @@ L0（纯语言循环对比）只作参考，不作结论：Rime 用 QuickJS，
 3. 复杂场景（调度 + 合并 + 缓存）：利用架构优势明显领先。
 4. 快、稳、省三角：latency、throughput、resources 三项同时报告，
    不接受以内存换延迟的单项胜利。
+5. 输入延迟回归线（P0-2）：`input.inject->hook` 与 AHK `send->hook`
+   同机双跑并记录差距；当前 Rime 约慢 10 倍（串行化 + marker +
+   hook 排队三道工序），任何使差距扩大的改动必须在评审中解释。
+6. 冷启动下限线（P0-2）：进程内 `js.abi.load+execute` 是 host 进程级
+   启动时间的下限，禁止与 AHK 进程数直接对照；每次报告同时给出
+   `js.abi.load+execute` 与 `quickjs.new+free` / `host.create+destroy`
+   分解。
+7. 架构税分解线（P0-2）：`l4wf.window.focus` 必须附带同次运行的
+   `l4wf.focus.submit / .pump / .kernel_direct / .service_direct`
+   四列；禁止跨 harness 相减归因（例如拿 workflow 的 focus 减
+   activate 的 focus 当作“JSON 税”）。
+8. UIA 作用域回归线（P0-3）：每次 `--l4-uia` 必须同时报告
+   `l4.uia.find`（桌面根）与 `l4.uia.find_scoped`（窗口子树）；
+   只报前者、不报后者的数字视为不完整。SDK 侧全桌面搜索须显式
+   `allowDesktopRoot: true`（`sdk/src/automation.ts`），默认无参
+   `find` 触发一次性 `console.warn`。
 
 ## 5. 反作弊（与 AGENTS.md 测试九条同级）
 

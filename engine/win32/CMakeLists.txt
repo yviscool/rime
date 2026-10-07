@@ -10,6 +10,7 @@ add_library(rime_win32 STATIC
   src/window_match.cpp
   src/window_executor.cpp
   src/window_control.cpp
+  src/window_seam.cpp
   src/control_executor.cpp
   src/input.cpp
   src/input_executor.cpp

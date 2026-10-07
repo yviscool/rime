@@ -4,7 +4,7 @@
   "status": "contract-only",
   "envelopeSchema": "contracts/schema/action-v1.schema.json",
   "resultSchema": "contracts/schema/result-v1.schema.json",
-  "note": "Single source of truth for dispatchable action types. matrix:check fails when the executor-side type literals and this registry disagree; add new types here first.",
+  "note": "Single source of truth for dispatchable action types. matrix:check fails when the executor-side type literals and this registry disagree; add new types here first. Denominator policy: the 747 terminal denominator (coverage 253 + core-builtins 101 + builtins 134 + objects 259) is frozen after M0; only status transitions (unset -> implemented/js-native/unsupported-by-policy/contract-only) are allowed, never new ledger rows. Evidence fields (native/contractTest/e2eTest/performance) are optional per action; when present, matrix:check verifies every referenced file exists.",
   "actions": [
     {
       "type": "window.move",
@@ -13,7 +13,11 @@
       "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/movePayload",
       "executor": "engine/win32/src/window_executor.cpp:115",
       "module": "engine/win32/js/src/window_module.cpp:374",
-      "sdk": "sdk/src/window.ts:141",
+      "sdk": "sdk/src/window.ts:552",
+      "native": "engine/win32/include/rime/win32/window.hpp:482 (WindowService::move)",
+      "contractTest": "contracts/golden/window.move.json",
+      "e2eTest": "tests/js/vertical_slice.cpp",
+      "performance": "docs/performance/RESULTS.md (l4-workflow window.move)",
       "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
       "status": "implemented"
     },
@@ -24,7 +28,11 @@
       "payloadSchema": "contracts/schema/window-v1.schema.json#/$defs/emptyPayload",
       "executor": "engine/win32/src/window_executor.cpp:154",
       "module": "engine/win32/js/src/window_module.cpp:379",
-      "sdk": "sdk/src/window.ts:147",
+      "sdk": "sdk/src/window.ts:548",
+      "native": "engine/win32/include/rime/win32/window.hpp:492 (WindowService::focus)",
+      "contractTest": "contracts/golden/window.focus.json",
+      "e2eTest": "tests/js/vertical_slice.cpp",
+      "performance": "docs/performance/RESULTS.md (l4-activate l4.focus vs l4-workflow window.focus)",
       "tests": ["tests/native/win32_tests.cpp", "tests/js/vertical_slice.cpp"],
       "status": "implemented"
     },
@@ -290,6 +298,10 @@
       "executor": "engine/win32/src/input_executor.cpp:189",
       "module": "engine/win32/js/src/input_module.cpp:718",
       "sdk": "sdk/src/send/parse.ts:697",
+      "native": "engine/win32/include/rime/win32/input.hpp:212 (InputService::send)",
+      "contractTest": "contracts/golden/input.send.json",
+      "e2eTest": "tests/js/input_slice.cpp",
+      "performance": "docs/performance/RESULTS.md (input-latency inject->hook)",
       "tests": ["tests/js/input_slice.cpp", "tests/sdk/send.test.ts"],
       "status": "implemented"
     },
@@ -314,6 +326,10 @@
       "executor": "engine/win32/src/clipboard_executor.cpp:21",
       "module": "engine/win32/js/src/clipboard_module.cpp:80",
       "sdk": "sdk/src/clipboard.ts:33",
+      "native": "engine/win32/include/rime/win32/clipboard.hpp:30 (ClipboardService::write_text)",
+      "contractTest": "contracts/golden/clipboard.write.json",
+      "e2eTest": "tests/js/breadth_slice.cpp",
+      "performance": "docs/performance/RESULTS.md (l4-clipboard roundtrip)",
       "tests": ["tests/native/clipboard_tests.cpp", "tests/js/breadth_slice.cpp"],
       "status": "implemented"
     },
@@ -374,6 +390,9 @@
       "executor": "engine/automation/src/uia_executor.cpp:83",
       "module": "engine/win32/js/src/automation_module.cpp:177",
       "sdk": "sdk/src/automation.ts:36",
+      "native": "engine/automation/src/uia_service.cpp:612 (UiaService::find)",
+      "e2eTest": "tests/js/automation_slice.cpp",
+      "performance": "docs/performance/RESULTS.md (l4-uia find/invoke)",
       "tests": ["tests/js/automation_slice.cpp"],
       "status": "implemented"
     },
