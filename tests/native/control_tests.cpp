@@ -918,10 +918,10 @@ int main(int argc, char** argv) {
     Result x_items = run("control.listview.items", child_lv_text, "{\"limit\": 10}");
     assert(x_items.succeeded);
     {
-      const auto* items = x_items.value.find("items");
-      assert(items && items->is_array() && items->size() == 2);
-      assert(items->as_array()[0].find("c1")->as_string() == "X1");
-      assert(items->as_array()[1].find("c2")->as_string() == "X2C1");
+      const auto* x_rows = x_items.value.find("items");
+      assert(x_rows && x_rows->is_array() && x_rows->size() == 2);
+      assert(x_rows->as_array()[0].find("c1")->as_string() == "X1");
+      assert(x_rows->as_array()[1].find("c2")->as_string() == "X2C1");
     }
     SetEvent(stop);
     assert(WaitForSingleObject(child.hProcess, 10000) == WAIT_OBJECT_0);
