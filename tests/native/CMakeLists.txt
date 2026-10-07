@@ -121,6 +121,17 @@ if (WIN32)
   endif()
   add_test(NAME rime_win32_sound_service COMMAND rime_sound_tests)
 
+  # L3 twin of the sound suite: walk_parts() against a synthetic IPart tree,
+  # so it is safe to run anywhere - no audio device, no volume, no mute.
+  add_executable(rime_sound_topology_tests sound_topology_tests.cpp)
+  target_include_directories(rime_sound_topology_tests PRIVATE ${CMAKE_SOURCE_DIR}/engine/win32/src)
+  target_link_libraries(rime_sound_topology_tests PRIVATE rime_win32 rime_core rime_test_support)
+  target_compile_features(rime_sound_topology_tests PRIVATE cxx_std_20)
+  if (MINGW)
+    target_link_options(rime_sound_topology_tests PRIVATE -static-libstdc++ -static-libgcc)
+  endif()
+  add_test(NAME rime_win32_sound_topology COMMAND rime_sound_topology_tests)
+
   add_executable(rime_fs_tests storage_tests.cpp)
   target_link_libraries(rime_fs_tests PRIVATE rime_win32 rime_core rime_action rime_test_support)
   target_compile_features(rime_fs_tests PRIVATE cxx_std_20)

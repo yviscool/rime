@@ -1,6 +1,6 @@
 import { beforeEach, expect, mock, test } from "bun:test";
 import { ActionError, type NativeActionOptions } from "../../sdk/src/action";
-import type { SoundPlayOptions } from "../../sdk/src/sound";
+import type { SoundEndpointOptions, SoundPlayOptions } from "../../sdk/src/sound";
 
 // Realism: L3 - the real sdk/src/sound.ts facade runs against an
 // instrumented rime:sound bridge; the native module is the environment, never
@@ -15,19 +15,40 @@ const codedError = ({ code, message }: CodedRejection) =>
 
 type BeepCall = [number | undefined, number | undefined, NativeActionOptions | undefined];
 type PlayCall = [string, (NativeActionOptions & { wait?: boolean }) | undefined];
+type TargetOptions = NativeActionOptions & { component?: string; device?: string };
+type EndpointCall = [unknown, TargetOptions];
 
 let beepCalls: BeepCall[] = [];
 let playCalls: PlayCall[] = [];
+let volumeCalls: EndpointCall[] = [];
+let endpointRejection: CodedRejection | null = null;
 let beepRejection: CodedRejection | null = null;
 let beepRaw: unknown = null;
 let playRejection: CodedRejection | null = null;
+let volumeResult: number = 50;
+let muteResult: boolean = false;
+let nameResult: string = "Speakers (Realtek(R) Audio)";
 
 function reset(): void {
   beepCalls = [];
   playCalls = [];
+  volumeCalls = [];
+  endpointRejection = null;
   beepRejection = null;
   beepRaw = null;
   playRejection = null;
+  volumeResult = 50;
+  muteResult = false;
+  nameResult = "Speakers (Realtek(R) Audio)";
+}
+
+// The endpoint calls share one recorder: `value` is the argument they were
+// given (the first argument for setVolume/setMute, undefined for the reads),
+// so a facade that drops or reorders the value and the target cannot hide
+// behind an object that happens to match.
+function record(value: unknown, options: TargetOptions): TargetOptions {
+  volumeCalls.push([value, options]);
+  return options;
 }
 
 const bridge = {
@@ -41,6 +62,31 @@ const bridge = {
     playCalls.push([file, options]);
     if (playRejection) throw codedError(playRejection);
     return null;
+  },
+  async getVolume(options?: TargetOptions) {
+    record(undefined, options ?? {});
+    if (endpointRejection) throw codedError(endpointRejection);
+    return volumeResult;
+  },
+  async setVolume(value: number | string, options?: TargetOptions) {
+    record(value, options ?? {});
+    if (endpointRejection) throw codedError(endpointRejection);
+    return null;
+  },
+  async getMute(options?: TargetOptions) {
+    record(undefined, options ?? {});
+    if (endpointRejection) throw codedError(endpointRejection);
+    return muteResult;
+  },
+  async setMute(muted: boolean, options?: TargetOptions) {
+    record(muted, options ?? {});
+    if (endpointRejection) throw codedError(endpointRejection);
+    return null;
+  },
+  async getName(options?: TargetOptions) {
+    record(undefined, options ?? {});
+    if (endpointRejection) throw codedError(endpointRejection);
+    return nameResult;
   },
 };
 
@@ -109,4 +155,75 @@ test("a coded bridge rejection becomes an ActionError with that code", async () 
 test("a rejection without a code is rethrown unchanged", async () => {
   beepRaw = new Error("bridge exploded");
   await expect(sound.beep()).rejects.toBe(beepRaw);
+});
+
+test("getVolume resolves the native percentage and forwards no options by default", async () => {
+  volumeResult = 37.5;
+  await expect(sound.getVolume()).resolves.toBe(37.5);
+  // toStrictEqual: no component/device/deadline keys may appear when the
+  // caller passed nothing, so a facade that always writes the target cannot
+  // claim it stayed silent.
+  expect(volumeCalls).toEqual([[undefined, {}]]);
+});
+
+test("getVolume forwards the AHK target strings and the action options", async () => {
+  const options: SoundEndpointOptions = { component: "Wave", device: "2", deadlineMs: 40 };
+  await sound.getVolume(options);
+  expect(volumeCalls).toEqual([[undefined, { deadlineMs: 40, component: "Wave", device: "2" }]]);
+  // The caller's object survives the split untouched.
+  expect(options).toStrictEqual({ component: "Wave", device: "2", deadlineMs: 40 });
+});
+
+test("an explicitly undefined component stays an absent key", async () => {
+  await sound.getVolume({ component: undefined, device: undefined });
+  expect(volumeCalls[0][1]).toStrictEqual({});
+});
+
+test("an explicit empty component is forwarded: it is AHK's master control", async () => {
+  await sound.getVolume({ component: "" });
+  expect(volumeCalls[0][1]).toStrictEqual({ component: "" });
+});
+
+test("setVolume passes a percentage and an adjustment through unchanged", async () => {
+  await expect(sound.setVolume(42)).resolves.toBe(undefined);
+  await expect(sound.setVolume("+5")).resolves.toBe(undefined);
+  await expect(sound.setVolume(-5)).resolves.toBe(undefined);
+  // The value is forwarded verbatim - no TS-side scaling, rounding or sign
+  // rule; the parser that decides absolute vs relative is the native one.
+  expect(volumeCalls).toEqual([
+    [42, {}],
+    ["+5", {}],
+    [-5, {}],
+  ]);
+});
+
+test("setVolume keeps component/device behind the value argument", async () => {
+  await sound.setVolume("+1", { component: "Master Volume", device: "Speakers", parentActionId: 7 });
+  expect(volumeCalls).toEqual([
+    ["+1", { parentActionId: 7, component: "Master Volume", device: "Speakers" }],
+  ]);
+});
+
+test("getMute and setMute carry the boolean, not 1/0", async () => {
+  muteResult = true;
+  await expect(sound.getMute()).resolves.toBe(true);
+  await expect(sound.setMute(true)).resolves.toBe(undefined);
+  await expect(sound.setMute(false)).resolves.toBe(undefined);
+  expect(volumeCalls).toEqual([[undefined, {}], [true, {}], [false, {}]]);
+});
+
+test("getName resolves the endpoint's friendly name", async () => {
+  nameResult = "Headphones (JBL)";
+  await expect(sound.getName({ device: "1" })).resolves.toBe("Headphones (JBL)");
+  expect(volumeCalls).toEqual([[undefined, { device: "1" }]]);
+});
+
+test("a coded endpoint rejection becomes an ActionError with that code", async () => {
+  endpointRejection = { code: "target_gone", message: "Device not found" };
+  await expect(sound.getVolume()).rejects.toBeInstanceOf(ActionError);
+  await expect(sound.getVolume()).rejects.toMatchObject({
+    code: "target_gone",
+    message: "Device not found",
+  });
+  await expect(sound.setMute(true)).rejects.toMatchObject({ code: "target_gone" });
 });
