@@ -247,7 +247,98 @@ bool poll_true(std::chrono::milliseconds budget, const std::function<bool()>& pr
 
 }  // namespace
 
-int main() {
+// Cross-process ListView fixture: this same binary re-executed as a child
+// owns a top-level window with a 2x2 report ListView, signals readiness,
+// pumps until told to stop, then exits. The parent drives it from another
+// process, which is the only configuration that executes the
+// VirtualAllocEx remote-read path (same-process fixtures take the fast
+// stack-buffer path by design).
+std::wstring widen_ascii(const char* text) {
+  std::wstring out;
+  for (; *text; ++text) out.push_back(static_cast<wchar_t>(*text));
+  return out;
+}
+
+int lv_child_main(const char* ready_name, const char* stop_name) {
+  INITCOMMONCONTROLSEX common{};
+  common.dwSize = sizeof(common);
+  common.dwICC = ICC_LISTVIEW_CLASSES;
+  InitCommonControlsEx(&common);
+
+  static const wchar_t* k_class = L"RimeControlLvChild";
+  WNDCLASSW window_class{};
+  window_class.lpfnWndProc = DefWindowProcW;
+  window_class.hInstance = GetModuleHandleW(nullptr);
+  window_class.lpszClassName = k_class;
+  if (RegisterClassW(&window_class) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+    return 1;
+  }
+  HWND window = CreateWindowExW(0, k_class, L"Rime Control LV Child", WS_OVERLAPPEDWINDOW,
+                                CW_USEDEFAULT, CW_USEDEFAULT, 400, 300, nullptr, nullptr,
+                                window_class.hInstance, nullptr);
+  if (!window) return 1;
+  HWND listview = CreateWindowExW(0, WC_LISTVIEWW, L"", WS_CHILD | WS_VISIBLE | LVS_REPORT, 10,
+                                  10, 360, 240, window, nullptr, window_class.hInstance, nullptr);
+  if (!listview) {
+    DestroyWindow(window);
+    return 1;
+  }
+  for (int col = 0; col < 2; ++col) {
+    LVCOLUMNW column{};
+    column.mask = LVCF_TEXT;
+    wchar_t header[8] = {0};
+    header[0] = static_cast<wchar_t>(L'H' + col);
+    column.pszText = header;
+    ListView_InsertColumn(listview, col, &column);
+  }
+  for (int row = 0; row < 2; ++row) {
+    LVITEMW item{};
+    item.mask = LVIF_TEXT;
+    item.iItem = row;
+    wchar_t cell[8] = {0};
+    cell[0] = L'X';
+    cell[1] = static_cast<wchar_t>(L'1' + row);
+    item.pszText = cell;
+    ListView_InsertItem(listview, &item);
+    for (int col = 1; col < 2; ++col) {
+      wchar_t sub[8] = {0};
+      sub[0] = L'X';
+      sub[1] = static_cast<wchar_t>(L'1' + row);
+      sub[2] = L'C';
+      sub[3] = static_cast<wchar_t>(L'0' + col);
+      ListView_SetItemText(listview, row, col, sub);
+    }
+  }
+  ShowWindow(window, SW_SHOW);
+  UpdateWindow(window);
+
+  HANDLE ready = OpenEventW(EVENT_MODIFY_STATE, FALSE, widen_ascii(ready_name).c_str());
+  if (ready) {
+    SetEvent(ready);
+    CloseHandle(ready);
+  }
+  HANDLE stop = OpenEventW(SYNCHRONIZE, FALSE, widen_ascii(stop_name).c_str());
+  MSG message{};
+  while (true) {
+    const DWORD wait =
+        MsgWaitForMultipleObjects(stop ? 1 : 0, &stop, FALSE, INFINITE, QS_ALLINPUT);
+    if (wait == WAIT_OBJECT_0) break;
+    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+      if (message.message == WM_QUIT) break;
+      TranslateMessage(&message);
+      DispatchMessageW(&message);
+    }
+    if (message.message == WM_QUIT) break;
+  }
+  if (stop) CloseHandle(stop);
+  DestroyWindow(window);
+  return 0;
+}
+
+int main(int argc, char** argv) {
+  if (argc == 4 && std::string(argv[1]) == "--lv-child") {
+    return lv_child_main(argv[2], argv[3]);
+  }
   TargetWindow target;
   assert(target.start());
 
@@ -720,10 +811,13 @@ int main() {
   Result lv_items = run("control.listview.items", listview, "{\"limit\": 10}");
   assert(lv_items.succeeded);
   {
-    const auto* items = lv_items.value.find("items");
-    assert(items && items->is_array() && items->size() == 3);
-    const auto* r0 = items->as_array()[0].find("c1");
-    const auto* r2c3 = items->as_array()[2].find("c3");
+    // Named `rows`, not `items`: the outer `Result items` from the combo-box
+    // section is still in scope and MSVC /W4 turns that shadowing (C4456)
+    // into an error under /WX.
+    const auto* rows = lv_items.value.find("items");
+    assert(rows && rows->is_array() && rows->size() == 3);
+    const auto* r0 = rows->as_array()[0].find("c1");
+    const auto* r2c3 = rows->as_array()[2].find("c3");
     assert(r0 && r0->as_string() == "R1");
     assert(r2c3 && r2c3->as_string() == "R3C2");
   }
@@ -758,6 +852,72 @@ int main() {
   assert(windows.control_alive(button_id, alive).ok() && alive);
   bool dead_alive = true;
   assert(windows.control_alive(999999, dead_alive).ok() && !dead_alive);
+
+  // ---- Cross-process ListView: the VirtualAllocEx path ----------------------
+  // Same binary re-executed as a child owns the window; the parent reads it
+  // from another process, which is the only way to execute the remote-buffer
+  // round trip (same-process fixtures take the stack fast path).
+  {
+    const std::string token = std::to_string(GetCurrentProcessId()) + "." +
+                              std::to_string(
+                                  std::chrono::steady_clock::now().time_since_epoch().count());
+    const std::string ready_name = "RimeControlLvReady-" + token;
+    const std::string stop_name = "RimeControlLvStop-" + token;
+    HANDLE ready = CreateEventW(nullptr, FALSE, FALSE, widen_ascii(ready_name).c_str());
+    HANDLE stop = CreateEventW(nullptr, FALSE, FALSE, widen_ascii(stop_name).c_str());
+    assert(ready && stop);
+    wchar_t self[MAX_PATH] = {0};
+    assert(GetModuleFileNameW(nullptr, self, MAX_PATH) != 0);
+    std::wstring command = L"\"";
+    command += self;
+    command += L"\" --lv-child ";
+    command += widen_ascii(ready_name.c_str());
+    command += L" ";
+    command += widen_ascii(stop_name.c_str());
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION child{};
+    assert(CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr,
+                          &startup, &child) != FALSE);
+    CloseHandle(child.hThread);
+    const DWORD ready_wait = WaitForSingleObject(ready, 10000);
+    CloseHandle(ready);
+    assert(ready_wait == WAIT_OBJECT_0);
+    rime::win32::WindowQuery child_query;
+    child_query.title = "Rime Control LV Child";
+    child_query.title_match_mode = rime::win32::TitleMatchMode::Exact;
+    std::vector<rime::win32::WindowInfo> child_windows;
+    assert(poll_true(5s, [&] {
+      child_windows.clear();
+      return windows.query(child_query, child_windows).ok() && child_windows.size() == 1;
+    }));
+    std::vector<ControlInfo> child_controls;
+    assert(windows.controls(child_windows.front().id, child_controls).ok());
+    std::uint64_t child_lv = 0;
+    for (const auto& control : child_controls) {
+      if (control.class_nn == "SysListView321") child_lv = control.id;
+    }
+    assert(child_lv != 0);
+    const std::string child_lv_text = std::to_string(child_lv);
+    Result x_count = run("control.listview.count", child_lv_text, "{}");
+    assert(x_count.succeeded && x_count.value.find("rows")->as_number() == 2.0);
+    Result x_cell = run("control.listview.text", child_lv_text, "{\"row\": 2, \"col\": 2}");
+    assert(x_cell.succeeded && x_cell.value.find("text")->as_string() == "X2C1");
+    Result x_items = run("control.listview.items", child_lv_text, "{\"limit\": 10}");
+    assert(x_items.succeeded);
+    {
+      const auto* items = x_items.value.find("items");
+      assert(items && items->is_array() && items->size() == 2);
+      assert(items->as_array()[0].find("c1")->as_string() == "X1");
+      assert(items->as_array()[1].find("c2")->as_string() == "X2C1");
+    }
+    SetEvent(stop);
+    assert(WaitForSingleObject(child.hProcess, 10000) == WAIT_OBJECT_0);
+    DWORD child_code = 0;
+    assert(GetExitCodeProcess(child.hProcess, &child_code) && child_code == 0);
+    CloseHandle(child.hProcess);
+    CloseHandle(stop);
+  }
 
   assert(windows.stop().ok());
   target.stop();
