@@ -406,24 +406,40 @@ test("setStyle, setExStyle, setTransparent and setTransColor route through the w
     { method: "setTransparent", target: 7, value: -1, options: undefined },
   ]);
   calls.length = 0;
-  await win.setTransColor("0xFF0000 128");
+  await win.setTransColor({ color: "0xFF0000", alpha: 128 });
   expect(calls).toEqual([
-    { method: "setTransColor", target: 7, value: "0xFF0000 128", options: undefined },
+    { method: "setTransColor", target: 7, value: "FF0000 128", options: undefined },
+  ]);
+  calls.length = 0;
+  await win.setTransColor(null);
+  expect(calls).toEqual([
+    { method: "setTransColor", target: 7, value: "", options: undefined },
   ]);
 });
 
-test("setRegion routes through the window bridge with the restore default", async () => {
+test("setRegion compiles shapes and null restores", async () => {
   calls.length = 0;
   const win = Window.fromSnapshot({ ...movedHandle, id: 7 as WindowId });
-  await win.setRegion("10-10 W100 H50");
+  await win.setRegion({ kind: "rect", x: 10, y: 10, w: 100, h: 50 });
   expect(calls).toEqual([
     { method: "setRegion", target: 7, value: "10-10 W100 H50", options: undefined },
   ]);
   calls.length = 0;
-  await win.setRegion(undefined, { deadlineMs: 100 });
+  await win.setRegion(null, { deadlineMs: 100 });
   expect(calls).toEqual([
     { method: "setRegion", target: 7, value: "", options: { deadlineMs: 100 } },
   ]);
+});
+
+test("compileRegion/compileTransColor reject malformed shapes first", async () => {
+  calls.length = 0;
+  const win = Window.fromSnapshot({ ...movedHandle, id: 7 as WindowId });
+  expect(() =>
+    win.setRegion({ kind: "polygon", points: [{ x: 0, y: 0 }] }),
+  ).toThrow(TypeError);
+  expect(() => win.setTransColor({ color: "red" })).toThrow(TypeError);
+  expect(() => win.setTransColor({})).toThrow(TypeError);
+  expect(calls).toEqual([]);
 });
 
 test("bridge rejections propagate to the caller", async () => {

@@ -443,6 +443,84 @@ function requireAlpha(value: number, fn: string): number {
   return value;
 }
 
+/** Window region shapes (compiled to the wire option string at the boundary). */
+export type WindowRegion =
+  | { kind: "rect"; x: number; y: number; w: number; h: number }
+  | { kind: "ellipse"; x: number; y: number; w: number; h: number }
+  | { kind: "round"; x: number; y: number; w: number; h: number; ew?: number; eh?: number }
+  | { kind: "polygon"; points: Array<{ x: number; y: number }>; winding?: boolean };
+
+/** Transparency color key (compiled to the wire option string at the boundary). */
+export interface TransColorSpec {
+  /** Six hex digits (`RRGGBB`, `0x` prefix tolerated and normalized). */
+  color?: string;
+  /** Layered alpha alongside the key, 0..255. */
+  alpha?: number;
+}
+
+function requireRegionInt(value: number, fn: string, field: string): number {
+  if (!Number.isInteger(value)) {
+    throw new TypeError(`${fn}: ${field} must be an integer, got ${String(value)}`);
+  }
+  return value;
+}
+
+/** Compiles a region object to the wire `<x>-<y> …` option string. */
+export function compileRegion(region: WindowRegion, fn = "setRegion"): string {
+  const pair = (x: number, y: number): string =>
+    `${requireRegionInt(x, fn, "x")}-${requireRegionInt(y, fn, "y")}`;
+  const size = (w: number, h: number): string => {
+    requireRegionInt(w, fn, "w");
+    requireRegionInt(h, fn, "h");
+    if (w < 1 || h < 1) throw new TypeError(`${fn}: w/h must be >= 1, got ${w}/${h}`);
+    return `W${w} H${h}`;
+  };
+  switch (region.kind) {
+    case "rect":
+      return `${pair(region.x, region.y)} ${size(region.w, region.h)}`;
+    case "ellipse":
+      return `${pair(region.x, region.y)} ${size(region.w, region.h)} E`;
+    case "round": {
+      const ew = region.ew ?? 30;
+      const eh = region.eh ?? 30;
+      requireRegionInt(ew, fn, "ew");
+      requireRegionInt(eh, fn, "eh");
+      const round = ew === 30 && eh === 30 ? "R" : `R${ew}-${eh}`;
+      return `${pair(region.x, region.y)} ${size(region.w, region.h)} ${round}`;
+    }
+    case "polygon": {
+      if (region.points.length < 3) {
+        throw new TypeError(`${fn}: polygon needs at least 3 points, got ${region.points.length}`);
+      }
+      const points = region.points.map((p) => pair(p.x, p.y)).join(" ");
+      return region.winding === true ? `${points} Wind` : points;
+    }
+    default:
+      throw new TypeError(`${fn}: unknown region kind ${JSON.stringify((region as { kind: unknown }).kind)}`);
+  }
+}
+
+/** Compiles a color-key spec to the wire option string (`""` clears). */
+export function compileTransColor(spec: TransColorSpec, fn = "setTransColor"): string {
+  if (spec.alpha !== undefined) {
+    requireRegionInt(spec.alpha, fn, "alpha");
+    if (spec.alpha < 0 || spec.alpha > 255) {
+      throw new TypeError(`${fn}: alpha must be 0..255, got ${spec.alpha}`);
+    }
+  }
+  if (spec.color === undefined) {
+    if (spec.alpha === undefined) throw new TypeError(`${fn}: color and alpha cannot both be absent`);
+    return ` ${spec.alpha}`;
+  }
+  let digits = spec.color;
+  if (digits.startsWith("0x") || digits.startsWith("0X")) digits = digits.slice(2);
+  if (!/^[0-9a-fA-F]{6}$/.test(digits)) {
+    throw new TypeError(`${fn}: color must be 6 hex digits, got ${JSON.stringify(spec.color)}`);
+  }
+  const hex = digits.toUpperCase();
+  return spec.alpha === undefined ? hex : `${hex} ${spec.alpha}`;
+}
+
 export class Window {
   private current: WindowSnapshot;
 
@@ -673,19 +751,24 @@ export class Window {
       options,
     );
   }
-  /** WinSetTransColor: ''/'off' clears, hex sets, optional ' <0-255>' alpha.
-   * The option-string grammar is frozen legacy (a Region/Color object model
-   * will replace it); new code should prefer setTransparent. */
-  setTransColor(value: string, options?: ActionOptions): Promise<WindowSnapshot> {
+  /**
+   * WinSetTransColor: color key with optional layered alpha; `null`
+   * clears. Color is six hex digits, alpha 0..255.
+   */
+  setTransColor(value: TransColorSpec | null, options?: ActionOptions): Promise<WindowSnapshot> {
+    const wire = value === null ? "" : compileTransColor(value, "setTransColor");
     return this.mutate(
-      (windows, native) => windows.setTransColor(this.id, value, native),
+      (windows, native) => windows.setTransColor(this.id, wire, native),
       options,
     );
   }
-  /** WinSetRegion: '' restores the normal region. The option-string grammar
-   * is frozen legacy (a Region object model will replace it). */
-  setRegion(value = "", options?: ActionOptions): Promise<WindowSnapshot> {
-    return this.mutate((windows, native) => windows.setRegion(this.id, value, native), options);
+  /**
+   * WinSetRegion: rect/ellipse/round/polygon shapes; `null` restores the
+   * normal region.
+   */
+  setRegion(value: WindowRegion | null, options?: ActionOptions): Promise<WindowSnapshot> {
+    const wire = value === null ? "" : compileRegion(value, "setRegion");
+    return this.mutate((windows, native) => windows.setRegion(this.id, wire, native), options);
   }
   /** WinGetControls/WinGetControlsHwnd: child controls in z-order. */
   controls(options?: ActionOptions): Promise<WindowControl[]> {

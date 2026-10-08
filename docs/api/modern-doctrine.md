@@ -72,7 +72,7 @@
 | Send DSL 解析器（`^+!#`、`{}` 文法、修饰符时序） | `sdk/src/send/` | 迁移工具需要时才动；`press()` 已覆盖新需求 |
 | `runtime-language` 方言垫片（`Format` 方言、ATOF/ATOI、`Sort` 旗、PCRE 旗翻译） | `sdk/src/runtime-language/` | 整文件重写（TEXT/Binary 量级），不接受添补 |
 | `setTransColor`/`setRegion` 选项串文法 | `sdk/src/window.ts` | Region/Color 对象模型落地 |
-| sound 设备编号（native 1-based；另有两处与实现矛盾的 L2 期望待查） | `sound_endpoint.cpp` + `sound_tests.cpp` | 连测试疑案一起修，需 owner 排期 |
+| sound 设备编号（native 1-based） | `sound_endpoint.cpp` + `sound_tests.cpp` | 线规保留：疑似矛盾的两处期望经复查系误读（`Wave:x` 是 component 行），实现与测试一致；改编号需 owner 连测试一起排期 |
 | `ClassNN` 查询键、各桥 1-based 线规 | `control.ts` 桥接口、`screen`/`ui` 桥 | 桥只做线规记录，不向应用层泄漏即视为合规 |
 | `object-model.md` Round5 对照表、AHK 覆盖矩阵数字 | docs | 冻结的迁移参照/雷达；测试不再断言怪癖（已执行） |
 
