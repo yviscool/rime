@@ -30,7 +30,6 @@ capability 模型装不下、安全边界（重入/生命周期/裸句柄）、O
 台账状态 + `checkObjectsLedger`，沿 §4.7 的 16 条先例）。
 
 ## 三片实例化
-
 - **3a**：16 构造器（ComboBox、DateTime、DDL、DropDownList、Hotkey、Link、
   ListBox、ListView、MonthCal、Pic、Slider、StatusBar、Tab、Tab2、TreeView、
   UpDown）+ 3 verdict（AddActiveX、AddTab3、AddCustom，见 `gui-menu.md` §4.8）。
@@ -43,3 +42,10 @@ capability 模型装不下、安全边界（重入/生命周期/裸句柄）、O
   自有 HWND 表，未知值 `target_gone` + 审计）+ `LoadPicture`/`IL_Create`/
   `IL_Add`/`IL_Destroy`（ImageList 不透明 id）；`MenuSelect`→批4，
   `MenuFromHandle`→批4 与 Menu 模型一并判。
+
+## SDK 车道（已落地批2表面）
+
+`sdk/src/gui.ts`：`Gui`（`create/add/addButton…/show/hide/destroy/submit/
+onEvent/getPos`）与 `GuiControl`（同步 `name/type/classNN`，其余 Promise），
+`tests/sdk/gui.test.ts`（L3 mock 桥）。3a 的 16 个构造器 native 落地后，
+门面按同形状追加 `addComboBox…`（SDK 不超前于 native，不做 mock 戏）。

@@ -57,5 +57,6 @@ declare module "rime:registry" {
 
 declare module "rime:ui" {
   const ui: import("./ui").UiBridge;
-  export { ui };
+  function createGui(options?: string, title?: string, eventObj?: object): Promise<import("./gui").GuiNative>;
+  export { ui, createGui };
 }
