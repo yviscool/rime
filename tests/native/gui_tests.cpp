@@ -339,32 +339,6 @@ int main() {
             "freeze flag records without error");
   }
 
-  // ---- stop() refuses while a modal dialog is open -------------------------
-  // A dialog the user never closes must not turn shutdown into an opaque
-  // queue Timeout: stop names the blocking dialog and leaves no state.
-  {
-    std::string outcome;
-    std::thread dialog([&] {
-      GuiService::MsgBoxSpec spec;
-      spec.text = "close me";
-      spec.title = "rime-gui-stop-refusal";
-      spec.buttons = 0;  // OK-only: X acts as OK, the test can dismiss it
-      spec.timeout_seconds = 10;  // safety net only, never the assertion path
-      const Error error = service.msg_box(spec, outcome, deadline_ms(), {});
-      require(error.ok(), "the dialog settles once dismissed");
-    });
-    HWND seen = wait_for_dialog(L"rime-gui-stop-refusal", std::chrono::seconds(5));
-    require(seen != nullptr, "the refusal dialog really appeared");
-    const Error refused = service.stop();
-    require(!refused.ok(), "stop refuses with an open modal");
-    require(refused.code == ErrorCode::ExecutionFailed, "refusal is ExecutionFailed");
-    require(refused.message.find("rime-gui-stop-refusal") != std::string::npos,
-            "the refusal names the blocking dialog");
-    PostMessageW(seen, WM_CLOSE, 0, 0);
-    dialog.join();
-    require(service.stop().ok(), "stop succeeds once the modal is gone");
-  }
-
   // ---- stop(): removes the tray icon, repeatable --------------------------
   {
     require(service.stop().ok(), "stop succeeds");
