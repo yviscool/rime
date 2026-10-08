@@ -25,11 +25,6 @@ GuiModuleBinding* binding_of(JSContext* context) {
   return static_cast<GuiModuleBinding*>(host->module_data("rime:ui"));
 }
 
-// Capability name checked by this module. Pointed at from
-// contracts/registry/actions.json (capabilities.ui.create), so the literal
-// lives here at the top of the file rather than inline in the bodies.
-constexpr const char* kUiCreateCapability = "ui.create";
-
 // Optional integer option (buttons, icon, width, ...): missing leaves the
 // spec default, a fraction/non-finite/out-of-range value throws the same
 // no-silent-truncation TypeError every numeric parameter in these modules
@@ -493,6 +488,11 @@ int ui_module_init(JSContext* context, JSModuleDef* module) {
   if (!add("msgBox", ui_msg_box, 1) || !add("inputBox", ui_input_box, 1) ||
       !add("toolTip", ui_tool_tip, 1) || !add("traySetIcon", ui_tray_set_icon, 1) ||
       !add("trayTip", ui_tray_tip, 1)) {
+    return -1;
+  }
+  // Batch 2: the Gui/GuiControl object family hangs off the same namespace.
+  if (!install_gui_family(context, ui, binding)) {
+    JS_FreeValue(context, ui);
     return -1;
   }
   return JS_SetModuleExport(context, module, "ui", ui);

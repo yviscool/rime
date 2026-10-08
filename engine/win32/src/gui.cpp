@@ -1,4 +1,4 @@
-#include "rime/win32/gui.hpp"
+#include "gui_impl.hpp"
 
 #include "utf.hpp"
 
@@ -10,8 +10,10 @@
 #include <shellapi.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -21,10 +23,35 @@ namespace {
 using Error = rime::core::Error;
 using Code = rime::core::Error::Code;
 
-// Stable English failure texts (the tests and docs match on these).
-constexpr const char* kNoUiThread = "gui service has no UI thread";
-constexpr const char* kCancelledBeforeStart = "gui call was cancelled before it started";
-constexpr const char* kDeadlinePassed = "gui call deadline passed before it could start";
+// Open modal dialogs (MsgBox/InputBox run DialogBoxIndirectParamW on the
+// pump and block it until dismissed). stop() refuses while any is open
+// instead of queueing behind it: a modal the user never closes would
+// otherwise turn shutdown into an opaque queue Timeout. TU-local: dialogs
+// are pump-global and a single GuiService owns the pump.
+std::atomic<int>& open_dialog_count() {
+  static std::atomic<int> count{0};
+  return count;
+}
+std::mutex& open_dialog_mutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+std::string& open_dialog_title() {
+  static std::string title;
+  return title;
+}
+
+struct ModalGuard {
+  explicit ModalGuard(const std::string& title) {
+    open_dialog_count().fetch_add(1, std::memory_order_acq_rel);
+    std::lock_guard lock(open_dialog_mutex());
+    open_dialog_title() = title;
+  }
+  ~ModalGuard() { open_dialog_count().fetch_sub(1, std::memory_order_acq_rel); }
+};
+
+// using Error/Code: declared below; the shared failure texts and budget
+// helpers live in gui_impl.hpp (shared with gui_window.cpp).
 
 // EndDialog result AHK uses for a timed-out box (defines.h:699). MessageBox
 // sometimes drops it on the floor (window.cpp:1076-1085), but this dialog
@@ -35,10 +62,6 @@ constexpr INT_PTR kTimeoutResult = -2;
 // AHK allows ToolTip indices 1..20 (script2.cpp:1089-1091 maps the check to
 // MAX_TOOLTIPS; docs ToolTip documents the same range).
 constexpr int kMaxTooltips = 20;
-
-// The queued-phase cap when the caller passes no deadline (0): the same
-// 30-second queue bound StorageService::select_file uses.
-constexpr std::chrono::seconds kQueueDefault{30};
 
 // Layout constants, pixels at 96 DPI (the dialog is not DPI-scaled in
 // batch 1; AHK's DPIScale equivalent is a documented follow-up).
@@ -51,28 +74,6 @@ constexpr int kIconSize = 32;
 constexpr int kEditH = 24;
 constexpr int kMinMsgBoxW = 160;
 constexpr int kDefaultPromptMaxW = 360;
-
-std::int64_t system_unix_ms() {
-  return std::chrono::duration_cast<std::chrono::milliseconds>(
-             std::chrono::system_clock::now().time_since_epoch())
-      .count();
-}
-
-// Budget for UiThread::call's queued phase: remaining time until the
-// caller's absolute deadline, kQueueDefault when there is none, and a
-// sentinel "already expired" the caller turns into a Timeout before even
-// queueing. Once the pump claims the task the modal runs unbounded (the
-// dialog's own T timeout closes it) - UiThread::call documents that split.
-std::chrono::milliseconds queue_budget(std::int64_t deadline_unix_ms, bool& expired) {
-  expired = false;
-  if (deadline_unix_ms <= 0) return kQueueDefault;
-  const std::int64_t remaining = deadline_unix_ms - system_unix_ms();
-  if (remaining <= 0) {
-    expired = true;
-    return std::chrono::milliseconds(0);
-  }
-  return std::chrono::milliseconds(remaining);
-}
 
 // AHK's T option clamp (window.cpp:1063-1066): a negative timeout becomes
 // 0.1s so a bad value still closes quickly, a huge one saturates at the
@@ -451,6 +452,7 @@ INT_PTR CALLBACK msgbox_dlg_proc(HWND dialog, UINT message, WPARAM wparam, LPARA
 }
 
 Error run_msgbox_dialog(const GuiService::MsgBoxSpec& spec, std::string& result_out) {
+  const ModalGuard guard(spec.title);
   const std::vector<BYTE> template_data = make_container_template(from_utf8(spec.title));
   DialogCtx ctx{&spec};
   const INT_PTR result = DialogBoxIndirectParamW(
@@ -604,6 +606,7 @@ INT_PTR CALLBACK inputbox_dlg_proc(HWND dialog, UINT message, WPARAM wparam, LPA
 }
 
 Error run_inputbox_dialog(const GuiService::InputBoxSpec& spec, GuiService::InputBoxResult& out) {
+  const ModalGuard guard(spec.title);
   const std::vector<BYTE> template_data = make_container_template(from_utf8(spec.title));
   InputDialogCtx ctx{&spec, nullptr, std::wstring()};
   const INT_PTR result = DialogBoxIndirectParamW(
@@ -692,14 +695,8 @@ Error tray_modify_icon(HWND owner, HICON icon) {
 
 // ---- service -------------------------------------------------------------
 
-struct GuiService::Impl {
-  UiThread* ui{nullptr};
-  bool tray_added{false};
-  bool tray_frozen{false};
-  bool comctl_ready{false};
-  HICON custom_icon{nullptr};
-  HWND tooltips[kMaxTooltips]{};
-};
+// GuiService::Impl (now with the batch-2 Gui records) lives in gui_impl.hpp
+// so gui_window.cpp shares one definition.
 
 GuiService::GuiService() : impl_(std::make_unique<Impl>()) {}
 
@@ -707,16 +704,7 @@ GuiService::~GuiService() { (void)stop(); }
 
 void GuiService::set_ui_thread(UiThread* ui) { impl_->ui = ui; }
 
-namespace {
-
-// Everything below runs either on the worker (argument checks, budget) or
-// marshaled onto the pump (all HWND work). The macro-free shape keeps the
-// worker/queue split visible at every call site.
-Error no_ui_error() { return {Code::InvalidState, kNoUiThread}; }
-
-Error expired_error() { return {Code::Timeout, kDeadlinePassed}; }
-
-}  // namespace
+void GuiService::set_event_sink(EventSink sink) { impl_->event_sink = std::move(sink); }
 
 Error GuiService::msg_box(const MsgBoxSpec& spec, std::string& result_out,
                           const std::int64_t deadline_unix_ms,
@@ -988,6 +976,16 @@ Error GuiService::stop() {
   UiThread* ui = impl_->ui;
   if (!ui) return Error::none();
   if (ui->state() != UiThreadState::Running) return Error::none();
+  if (open_dialog_count().load(std::memory_order_acquire) > 0) {
+    std::string title;
+    {
+      std::lock_guard lock(open_dialog_mutex());
+      title = open_dialog_title();
+    }
+    return {Code::ExecutionFailed,
+            "cannot stop: modal dialog '" + title +
+                "' is open; close it or wait for its timeout"};
+  }
   Error task_error = Error::none();
   Impl* impl = impl_.get();
   const Error call_error = ui->call(
@@ -1008,6 +1006,9 @@ Error GuiService::stop() {
           if (tip && IsWindow(tip)) DestroyWindow(tip);
           tip = nullptr;
         }
+        // Batch 2: destroy every script-created Gui window and free the
+        // records' fonts/brushes/pictures on the pump (gui_window.cpp).
+        stop_pump_sweep();
       },
       std::chrono::seconds(5));
   if (!call_error.ok()) return call_error;

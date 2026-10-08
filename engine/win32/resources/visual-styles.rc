@@ -1,0 +1,6 @@
+// Embeds visual-styles.manifest as resource id 1 (RT_MANIFEST).
+//
+// The type id is written as 24 on purpose: windres pre-processes with its
+// own include set and RT_MANIFEST is not always visible there, while the
+// number has been 24 since manifests were introduced.
+1 24 "visual-styles.manifest"

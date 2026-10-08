@@ -1,4 +1,9 @@
 add_executable(rime_host src/main.cpp src/host.cpp)
+# ComCtl32 v6: without this manifest in the host process EM_SETCUEBANNER is
+# refused by Windows and GuiControl.SetCue silently drops the cue. It also
+# turns the themed common controls on, which is what AutoHotkey's own
+# executable ships.
+rime_embed_comctl32_v6(rime_host)
 target_include_directories(rime_host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(rime_host PRIVATE rime_action rime_core)
 target_compile_features(rime_host PRIVATE cxx_std_20)

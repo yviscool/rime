@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  ComCtl32 v6 for every process that embeds the runtime.
+
+  Windows only honours EM_SETCUEBANNER (GuiControl.SetCue) when the host
+  declares Microsoft.Windows.Common-Controls 6.0; without it SendMessageW
+  answers FALSE and the cue is silently dropped. The same dependency turns
+  the themed common controls on, which is what AutoHotkey's own executable
+  ships, so a Rim/AHK window rendered from this runtime matches the source
+  contract instead of falling back to the v5.82 look.
+
+  This file is embedded with resource id 1 (RT_MANIFEST) by visual-styles.rc.
+  It deliberately carries nothing else: DPI awareness and compatibility stay
+  the platform defaults for a process that did not declare them before.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls"
+                        version="6.0.0.0" processorArchitecture="*"
+                        publicKeyToken="6595b64144ccf1df" language="*"/>
+    </dependentAssembly>
+  </dependency>
+  <!--
+    asInvoker, spelled out because this file replaces whatever the linker
+    generated: mt.exe writes resource 1 wholesale, and a manifest without
+    requestedExecutionLevel leaves installer-detection heuristics in charge.
+    asInvoker is the default everywhere else, so this changes nothing.
+  -->
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+</assembly>

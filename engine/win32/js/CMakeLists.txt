@@ -10,6 +10,7 @@ add_library(rime_win32_js STATIC
   src/sound_module.cpp
   src/storage_module.cpp
   src/ui_module.cpp
+  src/gui_object.cpp
   src/automation_module.cpp
   src/bootstrap.cpp
 )

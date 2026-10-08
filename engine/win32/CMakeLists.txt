@@ -31,6 +31,7 @@ add_library(rime_win32 STATIC
   src/storage.cpp
   src/storage_executor.cpp
   src/gui.cpp
+  src/gui_window.cpp
 )
 target_include_directories(rime_win32 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(rime_win32 PUBLIC rime_core rime_action)
