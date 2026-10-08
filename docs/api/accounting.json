@@ -42,22 +42,22 @@
     {
       "ledger": "objects",
       "denominator": 259,
-      "terminal": 113,
-      "remaining": 146,
+      "terminal": 172,
+      "remaining": 87,
       "breakdown": {
-        "unsupported-by-policy": 16,
+        "unsupported-by-policy": 22,
         "js-native": 42,
-        "implemented": 55,
-        "contract-only": 146
+        "implemented": 108,
+        "contract-only": 87
       },
       "rule": "status in implemented | js-native | unsupported-by-policy"
     }
   ],
   "total": {
     "denominator": 747,
-    "terminal": 464,
-    "remaining": 283,
-    "percent": 62.12
+    "terminal": 523,
+    "remaining": 224,
+    "percent": 70.01
   },
   "evidence_gaps": []
 }

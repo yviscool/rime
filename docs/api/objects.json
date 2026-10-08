@@ -939,8 +939,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "__New",
@@ -952,8 +952,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "Error when the Gui is already constructed or disposed; ValueError on invalid options; TypeError when eventObj is not an object; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Add",
@@ -965,8 +965,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on an invalid control type or options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddActiveX",
@@ -977,8 +977,8 @@
           "lane": "ui",
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
-          "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
+          "error": "unsupported-by-policy (in-process arbitrary COM hosting: no capability can scope which server; use an out-of-process plugin with a manifest instead)",
+          "status": "unsupported-by-policy",
           "compatibilityTest": "missing"
         },
         {
@@ -991,8 +991,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddCheckBox",
@@ -1004,8 +1004,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddComboBox",
@@ -1029,8 +1029,8 @@
           "lane": "ui",
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
-          "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
+          "error": "unsupported-by-policy (script code in a window procedure violates reentrancy and lifetime rules; a declarative custom-control description may reopen this in batch 5)",
+          "status": "unsupported-by-policy",
           "compatibilityTest": "missing"
         },
         {
@@ -1082,8 +1082,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddGroupBox",
@@ -1095,8 +1095,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddHotkey",
@@ -1186,8 +1186,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddProgress",
@@ -1199,8 +1199,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddRadio",
@@ -1212,8 +1212,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddSlider",
@@ -1276,8 +1276,8 @@
           "lane": "ui",
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
-          "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
+          "error": "unsupported-by-policy (per-control visual-style opt-out has no comctl32 path under the v6 manifest; unthemed tabs are not offered)",
+          "status": "unsupported-by-policy",
           "compatibilityTest": "missing"
         },
         {
@@ -1290,8 +1290,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddTreeView",
@@ -1329,8 +1329,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "no source error path - destroying an already destroyed Gui is a no-op",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Flash",
@@ -1342,8 +1342,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "GetClientPos",
@@ -1355,8 +1355,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "GetPos",
@@ -1368,8 +1368,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Hide",
@@ -1381,8 +1381,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Maximize",
@@ -1394,8 +1394,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Minimize",
@@ -1407,8 +1407,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Move",
@@ -1420,8 +1420,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "OnEvent",
@@ -1433,8 +1433,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError when the event name is unknown or addRemove is out of range",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "OnMessage",
@@ -1446,8 +1446,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError when addRemove is out of range",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Opt",
@@ -1459,8 +1459,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Restore",
@@ -1472,8 +1472,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "SetFont",
@@ -1485,8 +1485,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Show",
@@ -1498,8 +1498,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Submit",
@@ -1511,8 +1511,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; MemoryError on allocation failure",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "__Item",
@@ -1524,8 +1524,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; UnsetItemError when no control matches the index, name, text or HWND",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "BackColor",
@@ -1537,8 +1537,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on an invalid color",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "FocusedCtrl",
@@ -1550,8 +1550,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "FontHandle",
@@ -1563,8 +1563,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "unsupported-by-policy (raw HBRUSH handle exposure); InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Hwnd",
@@ -1576,8 +1576,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "unsupported-by-policy (raw HWND exposure); InvalidState when the Gui window is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "MarginX",
@@ -1589,8 +1589,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "MarginY",
@@ -1602,8 +1602,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "MenuBar",
@@ -1628,8 +1628,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "TypeError when the value is not a string; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Title",
@@ -1641,8 +1641,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; TypeError when the value is not a string",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         }
       ]
     },
@@ -1659,8 +1659,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "GetPos",
@@ -1672,8 +1672,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Move",
@@ -1685,8 +1685,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "OnCommand",
@@ -1698,8 +1698,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError when addRemove is out of range",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "OnEvent",
@@ -1711,8 +1711,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError when the event name is unknown or addRemove is out of range",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "OnMessage",
@@ -1724,8 +1724,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError when addRemove is out of range",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "OnNotify",
@@ -1737,8 +1737,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError when addRemove is out of range",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Opt",
@@ -1750,8 +1750,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Redraw",
@@ -1763,8 +1763,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "SetFont",
@@ -1776,8 +1776,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "ClassNN",
@@ -1789,8 +1789,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Enabled",
@@ -1802,8 +1802,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; TypeError when the value is not boolean-like",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Focused",
@@ -1815,8 +1815,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Gui",
@@ -1828,8 +1828,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Hwnd",
@@ -1841,8 +1841,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "unsupported-by-policy (raw HWND exposure); InvalidState when the control is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Name",
@@ -1854,8 +1854,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; TypeError when the value is not a string",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Text",
@@ -1867,8 +1867,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Type",
@@ -1880,8 +1880,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Value",
@@ -1893,8 +1893,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError when the value is invalid for the control type",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Visible",
@@ -1906,8 +1906,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; TypeError when the value is not boolean-like",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Add",
@@ -1984,8 +1984,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "GetNext",
