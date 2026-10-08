@@ -1,5 +1,15 @@
 import { runAction } from "../action";
-import { compileSend, type SendKeyStep, type SendMode } from "../send";
+import {
+  CHAR_KEYS,
+  NAMED_KEYS,
+  VK_CONTROL,
+  VK_LWIN,
+  VK_MENU,
+  VK_SHIFT,
+  compileSend,
+  type SendKeyStep,
+  type SendMode,
+} from "../send";
 import type { KeyboardSendOptions, LockKeyName, LockStateWord, ModifiersSnapshot } from "./types";
 import { modifierMaskOf } from "./helpers";
 import { input } from "rime:input";
@@ -35,35 +45,113 @@ function runSend(keys: string, options?: KeyboardSendOptions): Promise<{ sent: n
 }
 
 /**
- * Send-string family: compiles the AHK Send grammar (`sdk/src/send`)
- * against the live modifier state and dispatches the resulting batch through
- * `input.send`. Grammar and mode errors are synchronous TypeErrors; a missing
- * `windows.input.inject` capability surfaces synchronously from the modifier
- * read; Action failures reject (ActionError with `timeout` / `cancelled` /
+ * One structured key chord: a key name plus explicit modifiers. Key names
+ * are the `NAMED_KEYS` vocabulary (`"enter"`, `"f2"`, `"esc"`, …,
+ * case-insensitive) or a single character (`"c"`, `"?"`; anything outside
+ * the US table injects as Unicode). This is the primary input surface;
+ * the Send string DSL (`send()`) is a legacy migration frontend over the
+ * same batch path.
+ */
+export interface KeyChord {
+  key: string;
+  ctrl?: boolean;
+  alt?: boolean;
+  shift?: boolean;
+  win?: boolean;
+}
+
+function keyToVk(key: string, fn: string): { vk: number; shift: boolean; unicode: boolean } {
+  if (typeof key !== "string" || key.length === 0) {
+    throw new TypeError(`${fn}: key must be a non-empty string, got ${String(key)}`);
+  }
+  const named = NAMED_KEYS[key.toLowerCase()];
+  if (named !== undefined) return { vk: named, shift: false, unicode: false };
+  if (key.length === 1) {
+    const entry = CHAR_KEYS[key];
+    if (entry !== undefined) return { vk: entry[0], shift: entry[1], unicode: false };
+    return { vk: key.charCodeAt(0), shift: false, unicode: true };
+  }
+  throw new TypeError(`${fn}: unknown key ${JSON.stringify(key)}`);
+}
+
+function tapSteps(
+  vk: number,
+  unicode: boolean,
+  autoShift: boolean,
+  mods: { ctrl?: boolean; alt?: boolean; shift?: boolean; win?: boolean },
+): SendKeyStep[] {
+  const held: number[] = [];
+  if (mods.ctrl) held.push(VK_CONTROL);
+  if (mods.alt) held.push(VK_MENU);
+  if (mods.shift || autoShift) held.push(VK_SHIFT);
+  if (mods.win) held.push(VK_LWIN);
+  const steps: SendKeyStep[] = held.map((code) => ({ vk: code, down: true }));
+  const key = unicode ? { vk, down: true, unicode: true } : { vk, down: true };
+  const release = unicode ? { vk, down: false, unicode: true } : { vk, down: false };
+  steps.push(key, release);
+  for (let i = held.length - 1; i >= 0; i--) steps.push({ vk: held[i] as number, down: false });
+  return steps;
+}
+
+function runSteps(steps: SendKeyStep[], options?: Omit<KeyboardSendOptions, "mode">): Promise<{ sent: number }> {
+  return runAction(options, async (native) => {
+    if (steps.length === 0) return { sent: 0 };
+    return input.send(steps, native);
+  });
+}
+/**
+ * Key injection family. `press()` (structured chords) is the primary
+ * surface; the `send*()` string forms compile the legacy Send DSL
+ * (`sdk/src/send`) against the live modifier state and dispatch through the
+ * same batch path. Grammar and mode errors are synchronous TypeErrors;
+ * Action failures reject (ActionError with `timeout` / `cancelled` /
  * `capability_denied` / `invalid_state`).
- *
- * `SendEvent`/`SendPlay` are SendInput approximations in this stage (same
- * compiled grammar, single SendInput batch), matching the injected-behavior
- * contract while the delivery mode differs from AHK.
  */
 export const keyboard = {
-  /** AHK `Send`/`SendInput`: full Send grammar, default mode `input`. */
+  /**
+   * Presses structured key chords: each item taps down+up with its
+   * modifiers held around it (`{ key: "c", ctrl: true }`). Modifiers from
+   * outside stay as they are; every modifier this call holds is released
+   * before it resolves. Unknown key names and empty input are synchronous
+   * TypeErrors; an empty list resolves `{ sent: 0 }` without touching the
+   * device.
+   */
+  press(
+    keys: string | KeyChord | Array<string | KeyChord>,
+    options?: Omit<KeyboardSendOptions, "mode">,
+  ): Promise<{ sent: number }> {
+    const items = Array.isArray(keys) ? keys : [keys];
+    const steps: SendKeyStep[] = [];
+    for (const item of items) {
+      const chord: KeyChord = typeof item === "string" ? { key: item } : item;
+      if (chord === null || typeof chord !== "object") {
+        throw new TypeError(`keyboard.press: chord must be a key name or object, got ${String(item)}`);
+      }
+      const resolved = keyToVk(chord.key, "keyboard.press");
+      steps.push(...tapSteps(resolved.vk, resolved.unicode, resolved.shift, chord));
+    }
+    // Live capability read first, like runSend: a missing
+    // `windows.input.inject` throws synchronously here.
+    modifierMaskOf(input.modifiers());
+    return runSteps(steps, options);
+  },
+  /** Legacy Send string (`^c`, `{Enter}`): a migration frontend over `press()` semantics. Prefer `press()`. */
   send(keys: string, options?: KeyboardSendOptions): Promise<{ sent: number }> {
     return runSend(keys, options);
   },
-  /** AHK `SendInput`: identical compilation to `send` (this stage always injects via SendInput). */
+  /** Legacy `SendInput` string form (this stage always injects via SendInput). Prefer `press()`. */
   sendInput(keys: string, options?: Omit<KeyboardSendOptions, "mode">): Promise<{ sent: number }> {
     return runSend(keys, { ...options, mode: "input" });
   },
-  /** AHK `SendEvent`: same grammar and batch as `send` (event-mode delivery is approximated). */
+  /** Legacy `SendEvent` string form (event-mode delivery is approximated). Prefer `press()`. */
   sendEvent(keys: string, options?: Omit<KeyboardSendOptions, "mode">): Promise<{ sent: number }> {
     return runSend(keys, { ...options, mode: "event" });
   },
-  /** AHK `SendPlay`: same grammar and batch as `send` (play-mode delivery is approximated). */
+  /** Legacy `SendPlay` string form (play-mode delivery is approximated). Prefer `press()`. */
   sendPlay(keys: string, options?: Omit<KeyboardSendOptions, "mode">): Promise<{ sent: number }> {
     return runSend(keys, { ...options, mode: "play" });
   },
-  /** AHK `SendText`: every non-control char becomes a KEYEVENTF_UNICODE packet (layout-independent). */
+  /** Legacy `SendText` string form (layout-independent Unicode packets). Prefer `press()`. */
   sendText(keys: string, options?: Omit<KeyboardSendOptions, "mode">): Promise<{ sent: number }> {
     return runSend(keys, { ...options, mode: "text" });
   },

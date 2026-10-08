@@ -1,13 +1,29 @@
 # Keyboard and Mouse API
 
-状态：`Send` 字符串语言（`Send`/`SendInput`/`SendEvent`/`SendPlay`/`SendText`，`SendMode` 经每调用 `mode` 选项承载，均映射到 `keyboard.send*` 族）、结构化注入 `input.send`、鼠标族 `mouse.move/click/drag/getPos`、修饰键快照 `input.modifiers()` 均已实现并通过 contract。`KeyWait`、`GetKeyState`、`BlockInput`、`KeyHistory` 已实现为 `input.keyWait`/`input.getKeyState`/`input.blockInput`/`input.keyHistory`（见"键状态与输入控制"）。`GetKeyName` 与 `Set{Caps,Num,Scroll}LockState`（`input.getKeyName`/`keyboard.setLockState`）已实现（contract 见 `tests/js/input_slice.cpp`、`tests/sdk/keyboard-lock.test.ts`）；`SendLevel` 已实现为 `input.sendLevel`（发送级别 0..100，见"发送级别"节，contract 见 `tests/native/input_tests.cpp`）；`SendMessage` 未实现，且按政策不进标准 TS API（`future-runtime.md` §10 把"未审计消息发送"列为不进入标准库的能力，`design-review.md:148`/`ts-windows-model.md:89` 同口径点名"未审计的 SendMessage"——条目落档在 [`window.md`](./window.md) 的"偏差与不实现项"）。
+状态：结构化按键 `keyboard.press`（和弦对象 direct to batch）是首选输入面；
+`Send` 字符串族（`send`/`sendInput`/`sendEvent`/`sendPlay`/`sendText`）是遗留迁移前端，
+走同一批次路径（`SendMode` 经每调用 `mode` 选项承载）。结构化注入 `input.send`、鼠标族 `mouse.move/click/drag/getPos`、修饰键快照 `input.modifiers()` 均已实现并通过 contract。`KeyWait`、`GetKeyState`、`BlockInput`、`KeyHistory` 已实现为 `input.keyWait`/`input.getKeyState`/`input.blockInput`/`input.keyHistory`（见"键状态与输入控制"）。`GetKeyName` 与 `Set{Caps,Num,Scroll}LockState`（`input.getKeyName`/`keyboard.setLockState`）已实现（contract 见 `tests/js/input_slice.cpp`、`tests/sdk/keyboard-lock.test.ts`）；`SendLevel` 已实现为 `input.sendLevel`（发送级别 0..100，见"发送级别"节，contract 见 `tests/native/input_tests.cpp`）；`SendMessage` 未实现，且按政策不进标准 TS API（`future-runtime.md` §10 把"未审计消息发送"列为不进入标准库的能力，`design-review.md:148`/`ts-windows-model.md:89` 同口径点名"未审计的 SendMessage"——条目落档在 [`window.md`](./window.md) 的"偏差与不实现项"）。
 全局 Hook 之上的声明式事件（`Hotkey`/`Hotstring`/`HotIf*`/`Install*Hook`/`SetTimer`/`OnMessage`/`OnClipboardChange`/`OnError`/`OnExit`）与捕获/调度控制（`input.createInputHook` 的 `InputHook` 23 成员、`input.suspend`、`input.policy`）已实现，契约与偏差见 [`hotkey-events.md`](./hotkey-events.md)。
 
 源码证据：`functions.h` 的 `Send*`/`Mouse*`/`KeyWait`；`rime-research/AutoHotkey-alpha/source/keyboard_mouse.cpp`（SendKeys ~460-830、SendKey 1035-1265、MouseClickDrag 2035-2106、MouseClick 2116、MouseMove 2355、BlockInput 4512/4520）；`script2.cpp:1308`（MouseGetPos）、`script2.cpp:2264`（GetKeyState 模式首字符）、`script2.cpp:870`（KeyHistory）、`lib/wait.cpp:111`（KeyWait 默认等释放/physical）、`hook.cpp:263-266`（hook 吞噬 return 1 先例）、`hook.h:255`+`globaldata.cpp:97`（`KeyHistoryItem` 与 `g_MaxHistoryKeys=40`）；`source/window.cpp:1136`（GetNonChildParent）；`lib/win.cpp:762`（ControlGetClassNN）。
 
 TS 面：`keyboard`/`mouse` 两个门面（`sdk/src/input/`），编译器为纯函数 `compileSend`（`sdk/src/send/parse.ts`）。经 Action 管道执行：`input.send`、`input.mouse` 共用一个 executor，提交单次 `SendInput` 批次，`dwExtraInfo` 写入进程私有标记，Hook 据此标记 `selfInjected`；chord 匹配跳过 `selfInjected` 防止注入回灌热键。
 
-## keyboard — Send 字符串语言
+## keyboard — 结构化优先
+
+```js
+import { keyboard } from "rime:input";
+
+await keyboard.press({ key: "c", ctrl: true });
+await keyboard.press(["F2", "Enter"]);
+await keyboard.press("C"); // 大写自带 Shift
+```
+
+和弦是数据（键名 + 修饰键），按键名不分大小写，单字符走 US 表、表外走 Unicode 包。
+每个条目点按（按下+抬起），调用持有的修饰键在返回前全部释放；未知键名同步
+TypeError，空列表 resolve `{ sent: 0 }` 且不触碰设备。
+
+## keyboard — Send 字符串语言（遗留迁移前端）
 
 ```js
 import { keyboard, mouse, input } from "rime:input";

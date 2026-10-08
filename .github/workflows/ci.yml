@@ -59,9 +59,9 @@ jobs:
       - name: Full suite (contract, typecheck, sdk, MSVC native, QuickJS bundle)
         run: bun run test
 
-      # M8 第 4 项：核算报告（终态计数、总百分比、证据缺口）进 run 的
-      # Summary 面，而不是只留在 job 日志里。99% 是 M8 收尾目标，
-      # 分母未到之前不设硬门——这一步只报数、不拦人。
+      # 核算报告（终态计数、总百分比、证据缺口）进 run 的 Summary 面，
+      # 而不是只留在 job 日志里。百分比只做雷达观测，不设目标和门槛
+      # （AGENTS.md：AHK 是养料，不是兼容目标）——这一步只报数、不拦人。
       - name: Accounting report
         shell: bash
         run: bun tools/coverage-matrix.ts --summary "$GITHUB_STEP_SUMMARY"

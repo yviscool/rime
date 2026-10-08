@@ -73,6 +73,9 @@ export interface ControlBridge {
   dispose(id: ControlId): boolean;
   /** Adds an item; resolves the 1-based index. */
   listAdd(id: ControlId, text: string, options?: NativeActionOptions): Promise<{ index: number }>;
+  // Wire numbering below is 1-based throughout (native side); the Control
+  // class translates to 0-based at this boundary, so application code never
+  // sees it.
   /** Deletes the 1-based index. */
   listDelete(id: ControlId, index: number, options?: NativeActionOptions): Promise<{ deleted: true }>;
   /** Selects by index (0 clears) or text; notifies the parent by default. */
@@ -207,7 +210,30 @@ async function controlBridge(): Promise<ControlBridge> {
  * A resolved control handle. Async verbs run through the Action pipeline
  * (capability `windows.automation.control`, cancellable); sync queries
  * read straight through (capability `windows.window.read`).
+ *
+ * Indexing is 0-based everywhere on this class (`null` means "none":
+ * no match, no selection, clear the choice). The native wire underneath
+ * stays 1-based with `0` as its none-sentinel; the translation happens at
+ * this boundary, so application code never sees AHK numbering.
  */
+/**
+ * Validates a 0-based caller index and translates it to the 1-based wire
+ * numbering. Non-integers and negatives are synchronous TypeErrors (a
+ * wire-level 0 would silently mean "none", which must stay explicit null
+ * on this side instead).
+ */
+function requireWireIndex(index: number, fn: string): number {
+  if (!Number.isInteger(index) || index < 0) {
+    throw new TypeError(`${fn}: index must be a 0-based integer >= 0, got ${String(index)}`);
+  }
+  return index + 1;
+}
+
+/** Wire 1-based index (0 = none) back to 0-based (`null` = none). */
+function readWireIndex(index: number): number | null {
+  return index <= 0 ? null : index - 1;
+}
+
 export class Control {
   constructor(
     readonly windowId: number,
@@ -272,55 +298,70 @@ export class Control {
     );
   }
 
-  /** Adds an item; resolves the 1-based index. */
+  /** Adds an item; resolves the 0-based index. */
   listAdd(text: string, options?: ActionOptions): Promise<{ index: number }> {
     const id = this.id;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.listAdd(id, text, native)),
+      controlBridge().then((bridge) =>
+        bridge.listAdd(id, text, native).then(({ index }) => ({ index: index - 1 })),
+      ),
     );
   }
 
-  /** Deletes the 1-based index. */
+  /** Deletes the 0-based index. */
   listDelete(index: number, options?: ActionOptions): Promise<{ deleted: true }> {
+    const wire = requireWireIndex(index, "listDelete");
     const id = this.id;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.listDelete(id, index, native)),
+      controlBridge().then((bridge) => bridge.listDelete(id, wire, native)),
     );
   }
 
-  /** Selects by index (0 clears) or text; notifies the parent by default. */
+  /**
+   * Selects by 0-based index (`null` clears) or text; notifies the parent
+   * by default.
+   */
   listChoose(
-    sel: { index: number } | { text: string },
+    sel: { index: number | null } | { text: string },
     notifyParent?: boolean,
     options?: ActionOptions,
   ): Promise<{ chosen: true }> {
+    const wire: { index: number } | { text: string } =
+      "index" in sel
+        ? { index: sel.index === null ? 0 : requireWireIndex(sel.index, "listChoose") }
+        : { text: sel.text };
     const id = this.id;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.listChoose(id, sel, notifyParent, native)),
+      controlBridge().then((bridge) => bridge.listChoose(id, wire, notifyParent, native)),
     );
   }
 
-  /** Exact-match find; 0 means no match (a result, not an error). */
-  listFind(text: string, options?: ActionOptions): Promise<{ index: number }> {
+  /** Exact-match find; `null` means no match (a result, not an error). */
+  listFind(text: string, options?: ActionOptions): Promise<{ index: number | null }> {
     const id = this.id;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.listFind(id, text, native)),
+      controlBridge().then((bridge) =>
+        bridge.listFind(id, text, native).then(({ index }) => ({ index: readWireIndex(index) })),
+      ),
     );
   }
 
-  /** Current selection, 1-based, 0 when nothing is selected. */
-  listIndex(options?: ActionOptions): Promise<{ index: number }> {
+  /** Current selection, 0-based, `null` when nothing is selected. */
+  listIndex(options?: ActionOptions): Promise<{ index: number | null }> {
     const id = this.id;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.listIndex(id, native)),
+      controlBridge().then((bridge) =>
+        bridge.listIndex(id, native).then(({ index }) => ({ index: readWireIndex(index) })),
+      ),
     );
   }
 
-  /** Text of an item (omitted index reads the current one). */
+  /** Text of an item, 0-based (omitted index reads the current one). */
   listChoice(index?: number, options?: ActionOptions): Promise<{ text: string }> {
     const id = this.id;
+    const wire = index === undefined ? undefined : requireWireIndex(index, "listChoice");
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.listChoice(id, index, native)),
+      controlBridge().then((bridge) => bridge.listChoice(id, wire, native)),
     );
   }
 
@@ -332,11 +373,12 @@ export class Control {
     );
   }
 
-  /** Selects a tab page (1-based). */
+  /** Selects a tab page (0-based). */
   tabSelect(index: number, options?: ActionOptions): Promise<{ selected: true }> {
+    const wire = requireWireIndex(index, "tabSelect");
     const id = this.id;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.tabSelect(id, index, native)),
+      controlBridge().then((bridge) => bridge.tabSelect(id, wire, native)),
     );
   }
 
@@ -348,19 +390,22 @@ export class Control {
     );
   }
 
-  /** Caret position, 1-based. */
+  /** Caret position, 0-based. */
   editCaret(options?: ActionOptions): Promise<{ line: number; col: number }> {
     const id = this.id;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.editCaret(id, native)),
+      controlBridge().then((bridge) =>
+        bridge.editCaret(id, native).then(({ line, col }) => ({ line: line - 1, col: col - 1 })),
+      ),
     );
   }
 
-  /** Line text, 1-based. */
+  /** Line text, 0-based. */
   editLine(line: number, options?: ActionOptions): Promise<{ text: string }> {
+    const wire = requireWireIndex(line, "editLine");
     const id = this.id;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.editLine(id, line, native)),
+      controlBridge().then((bridge) => bridge.editLine(id, wire, native)),
     );
   }
 
@@ -380,15 +425,16 @@ export class Control {
     );
   }
 
-  /** Checkbox set; -1 toggles. */
+  /** Checkbox set; `"toggle"` flips the current state. */
   setChecked(
-    checked: boolean | -1 | 0 | 1,
+    checked: boolean | "toggle",
     ensureActive?: boolean,
     options?: ActionOptions,
   ): Promise<{ checked: boolean }> {
     const id = this.id;
+    const wire = checked === "toggle" ? -1 : checked ? 1 : 0;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.setChecked(id, checked, ensureActive, native)),
+      controlBridge().then((bridge) => bridge.setChecked(id, wire, ensureActive, native)),
     );
   }
 
@@ -435,11 +481,13 @@ export class Control {
     );
   }
 
-  /** Current tab page, 1-based. */
-  tabIndex(options?: ActionOptions): Promise<{ index: number }> {
+  /** Current tab page, 0-based (`null` when the control reports none). */
+  tabIndex(options?: ActionOptions): Promise<{ index: number | null }> {
     const id = this.id;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.tabIndex(id, native)),
+      controlBridge().then((bridge) =>
+        bridge.tabIndex(id, native).then(({ index }) => ({ index: readWireIndex(index) })),
+      ),
     );
   }
 
@@ -459,25 +507,27 @@ export class Control {
     );
   }
 
-  /** Style bits with AHK +-=^ prefix op. */
+  /** Style bits: add, remove, toggle or replace the mask. */
   setStyle(
-    spec: { op: "+" | "-" | "^" | "="; bits: number },
+    spec: { mode: "add" | "remove" | "toggle" | "replace"; bits: number },
     options?: ActionOptions,
   ): Promise<{ styled: true }> {
     const id = this.id;
+    const op = spec.mode === "add" ? "+" : spec.mode === "remove" ? "-" : spec.mode === "toggle" ? "^" : "=";
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.setStyle(id, spec, native)),
+      controlBridge().then((bridge) => bridge.setStyle(id, { op, bits: spec.bits }, native)),
     );
   }
 
-  /** Ex-style bits with AHK +-=^ prefix op. */
+  /** Ex-style bits: add, remove, toggle or replace the mask. */
   setExStyle(
-    spec: { op: "+" | "-" | "^" | "="; bits: number },
+    spec: { mode: "add" | "remove" | "toggle" | "replace"; bits: number },
     options?: ActionOptions,
   ): Promise<{ styled: true }> {
     const id = this.id;
+    const op = spec.mode === "add" ? "+" : spec.mode === "remove" ? "-" : spec.mode === "toggle" ? "^" : "=";
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.setExStyle(id, spec, native)),
+      controlBridge().then((bridge) => bridge.setExStyle(id, { op, bits: spec.bits }, native)),
     );
   }
 
@@ -512,11 +562,15 @@ export class Control {
     );
   }
 
-  /** ListView cell text, 1-based row/col. */
+  /** ListView cell text, 0-based row/col. */
   listviewText(row: number, col: number, options?: ActionOptions): Promise<{ text: string }> {
+    const wireRow = requireWireIndex(row, "listviewText");
+    const wireCol = requireWireIndex(col, "listviewText");
     const id = this.id;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.listviewText(id, row, col, native)),
+      controlBridge().then((bridge) =>
+        bridge.listviewText(id, wireRow, wireCol, native),
+      ),
     );
   }
 
@@ -531,23 +585,25 @@ export class Control {
     );
   }
 
-  /** StatusBar part text (1-based part, default 1). */
-  statusbarText(part?: number, options?: ActionOptions): Promise<{ text: string }> {
+  /** StatusBar part text (0-based part, default 0). */
+  statusbarText(part = 0, options?: ActionOptions): Promise<{ text: string }> {
+    const wire = requireWireIndex(part, "statusbarText");
     const id = this.id;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.statusbarText(id, part, native)),
+      controlBridge().then((bridge) => bridge.statusbarText(id, wire, native)),
     );
   }
 
   /** Waits until a part contains text (bounded by deadline). */
   statusbarWait(
     text: string,
-    part?: number,
+    part = 0,
     options?: ActionOptions,
   ): Promise<{ waited: true }> {
+    const wire = requireWireIndex(part, "statusbarWait");
     const id = this.id;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.statusbarWait(id, text, part, native)),
+      controlBridge().then((bridge) => bridge.statusbarWait(id, text, wire, native)),
     );
   }
 

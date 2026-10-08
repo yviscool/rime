@@ -407,6 +407,42 @@ export async function groups(): Promise<WindowGroups> {
  * window surface: resolve via `Window.list` / `find` / `active`, then act
  * on the handle (`win.focus()`, `win.controls()`).
  */
+/**
+ * Builds the wire change string for WinSetStyle/WinSetExStyle from a modern
+ * mode+bits spec. The wire keeps the `+N`/`-N`/`^N`/bare-`N` grammar; only
+ * this boundary speaks it.
+ */
+function styleChange(
+  value: { mode: "add" | "remove" | "toggle" | "replace"; bits: number },
+  fn: string,
+): string {
+  if (!Number.isInteger(value.bits) || value.bits < 0 || value.bits > 0xffffffff) {
+    throw new TypeError(`${fn}: bits must be an integer 0..0xFFFFFFFF, got ${String(value.bits)}`);
+  }
+  switch (value.mode) {
+    case "add":
+      return `+${value.bits}`;
+    case "remove":
+      return `-${value.bits}`;
+    case "toggle":
+      return `^${value.bits}`;
+    case "replace":
+      return `${value.bits}`;
+    default:
+      throw new TypeError(
+        `${fn}: mode must be "add"|"remove"|"toggle"|"replace", got ${String((value as { mode: unknown }).mode)}`,
+      );
+  }
+}
+
+/** Validates a 0..255 alpha (null means off and is translated by the caller). */
+function requireAlpha(value: number, fn: string): number {
+  if (!Number.isInteger(value) || value < 0 || value > 255) {
+    throw new TypeError(`${fn}: value must be an integer 0..255 or null, got ${String(value)}`);
+  }
+  return value;
+}
+
 export class Window {
   private current: WindowSnapshot;
 
@@ -590,40 +626,64 @@ export class Window {
   setTitle(title: string, options?: ActionOptions): Promise<WindowSnapshot> {
     return this.mutate((windows, native) => windows.setTitle(this.id, title, native), options);
   }
-  /** WinSetEnabled: 1 enables, 0 disables, -1 toggles. */
-  setEnabled(value: boolean | -1 | 0 | 1, options?: ActionOptions): Promise<WindowSnapshot> {
-    return this.mutate((windows, native) => windows.setEnabled(this.id, value, native), options);
+  /** WinSetEnabled: true enables, false disables, "toggle" flips. */
+  setEnabled(value: boolean | "toggle", options?: ActionOptions): Promise<WindowSnapshot> {
+    const wire = value === "toggle" ? -1 : value ? 1 : 0;
+    return this.mutate((windows, native) => windows.setEnabled(this.id, wire, native), options);
   }
-  /** WinSetAlwaysOnTop: absent value means topmost. */
-  setAlwaysOnTop(value?: boolean | -1 | 0 | 1, options?: ActionOptions): Promise<WindowSnapshot> {
+  /**
+   * WinSetAlwaysOnTop: true pins topmost, false clears, "toggle" flips.
+   * Omitted means topmost (preserved default).
+   */
+  setAlwaysOnTop(
+    value: boolean | "toggle" = true,
+    options?: ActionOptions,
+  ): Promise<WindowSnapshot> {
+    const wire = value === "toggle" ? -1 : value ? 1 : 0;
     return this.mutate(
-      (windows, native) => windows.setAlwaysOnTop(this.id, value, native),
+      (windows, native) => windows.setAlwaysOnTop(this.id, wire, native),
       options,
     );
   }
-  /** WinSetStyle: '+N' adds, '-N' removes, '^N' toggles, bare N replaces. */
-  setStyle(value: string, options?: ActionOptions): Promise<WindowSnapshot> {
-    return this.mutate((windows, native) => windows.setStyle(this.id, value, native), options);
-  }
-  /** WinSetExStyle: same change-string grammar against the extended style. */
-  setExStyle(value: string, options?: ActionOptions): Promise<WindowSnapshot> {
-    return this.mutate((windows, native) => windows.setExStyle(this.id, value, native), options);
-  }
-  /** WinSetTransparent: 0..255 alpha, -1 turns transparency off. */
-  setTransparent(value: number, options?: ActionOptions): Promise<WindowSnapshot> {
+  /** WinSetStyle: add, remove, toggle or replace style bits. */
+  setStyle(
+    value: { mode: "add" | "remove" | "toggle" | "replace"; bits: number },
+    options?: ActionOptions,
+  ): Promise<WindowSnapshot> {
     return this.mutate(
-      (windows, native) => windows.setTransparent(this.id, value, native),
+      (windows, native) => windows.setStyle(this.id, styleChange(value, "setStyle"), native),
       options,
     );
   }
-  /** WinSetTransColor: ''/'off' clears, hex sets, optional ' <0-255>' alpha. */
+  /** WinSetExStyle: add, remove, toggle or replace extended style bits. */
+  setExStyle(
+    value: { mode: "add" | "remove" | "toggle" | "replace"; bits: number },
+    options?: ActionOptions,
+  ): Promise<WindowSnapshot> {
+    return this.mutate(
+      (windows, native) => windows.setExStyle(this.id, styleChange(value, "setExStyle"), native),
+      options,
+    );
+  }
+  /** WinSetTransparent: 0..255 layered alpha, null turns transparency off. */
+  setTransparent(value: number | null, options?: ActionOptions): Promise<WindowSnapshot> {
+    const wire = value === null ? -1 : requireAlpha(value, "setTransparent");
+    return this.mutate(
+      (windows, native) => windows.setTransparent(this.id, wire, native),
+      options,
+    );
+  }
+  /** WinSetTransColor: ''/'off' clears, hex sets, optional ' <0-255>' alpha.
+   * The option-string grammar is frozen legacy (a Region/Color object model
+   * will replace it); new code should prefer setTransparent. */
   setTransColor(value: string, options?: ActionOptions): Promise<WindowSnapshot> {
     return this.mutate(
       (windows, native) => windows.setTransColor(this.id, value, native),
       options,
     );
   }
-  /** WinSetRegion: '' restores the normal region. */
+  /** WinSetRegion: '' restores the normal region. The option-string grammar
+   * is frozen legacy (a Region object model will replace it). */
   setRegion(value = "", options?: ActionOptions): Promise<WindowSnapshot> {
     return this.mutate((windows, native) => windows.setRegion(this.id, value, native), options);
   }
@@ -666,10 +726,11 @@ export class Window {
     );
   }
   /**
-   * Focused child control of this window, or 0 when nothing inside holds
+   * Focused child control of this window, or null when nothing inside holds
    * focus (AHK ControlGetFocus rule). Synchronous.
    */
-  focusedControl(): number {
-    return focusedControl(this.id);
+  focusedControl(): number | null {
+    const id = focusedControl(this.id);
+    return id === 0 ? null : id;
   }
 }

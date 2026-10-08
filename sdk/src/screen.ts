@@ -8,9 +8,9 @@ export interface ScreenRect {
   bottom: number;
 }
 
-/** One display, as AHK's Monitor* family reports it. */
+/** One display in `EnumDisplayMonitors` order. */
 export interface ScreenMonitor {
-  /** 1-based position in `EnumDisplayMonitors` order. */
+  /** 0-based position in `EnumDisplayMonitors` order. */
   index: number;
   /** True for the system's primary monitor. */
   primary: boolean;
@@ -90,20 +90,22 @@ export const screen = {
   },
   /**
    * One monitor: bounds, work area, device name and whether it is primary.
-   * An omitted `index` means the primary monitor, which is how AHK's
-   * `MonitorGet` / `MonitorGetWorkArea` / `MonitorGetName` /
-   * `MonitorGetPrimary` all behave.
+   * An omitted (or null) `index` means the primary monitor.
    *
-   * @param index 1-based monitor number; 0 or omitted selects the primary.
+   * @param index 0-based monitor number; null/omitted selects the primary.
    * @throws ActionError with `invalid_contract` (no such monitor),
    *   `capability_denied`, `timeout` or `cancelled`.
    */
-  monitor(index?: number, options?: ActionOptions): Promise<ScreenMonitor> {
+  monitor(index?: number | null, options?: ActionOptions): Promise<ScreenMonitor> {
+    if (index !== undefined && index !== null && (!Number.isInteger(index) || index < 0)) {
+      throw new TypeError(`screen.monitor: index must be a 0-based integer >= 0, got ${String(index)}`);
+    }
     return runAction(options, (bridgeOptions) =>
       screenBridge().then((bridge) =>
-        index === undefined
+        (index === undefined || index === null
           ? bridge.monitor(bridgeOptions)
-          : bridge.monitor(index, bridgeOptions),
+          : bridge.monitor(index + 1, bridgeOptions)
+        ).then((monitor) => ({ ...monitor, index: monitor.index - 1 })),
       ),
     );
   },

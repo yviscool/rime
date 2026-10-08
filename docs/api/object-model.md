@@ -35,6 +35,12 @@ fromSnapshot/refresh/isAlive` 见 `tests/sdk/windows.test.ts` 与
 
 ## 语言核心成员判定（Round 5，59 项）
 
+> 定位（2026-10-08，与 `AGENTS.md` 一致）：下表是**冻结的迁移参照**，
+> 记录 AHK 语义与 TS 形态的对照，供移植脚本查阅。它不是规范——现代语义以
+> `tests/sdk/object-model.test.ts` 为准（缺键 `undefined`、越界 `RangeError`、
+> 0-based 索引），测试不再断言 AHK 怪癖（1-based、`UnsetItemError` 等错误名、
+> unset 置洞）。新增 API 不得引用下表做行为依据。
+
 `objects.json` 中 7 个非控制类对象（`Array`/`Buffer`/`ComObject`/`Func`/`Map`/`Object`/`RegExMatchObject`）共 59 个成员逐项定档：**42 项 `js-native` + 16 项 `unsupported-by-policy`**；另 `Map.CaseSense` 判 `contract-only`（set 要求空表 + `On/Off/Locale`，`script_object.cpp:1934-1976`——有用户价值的可观察差异，按分诊规则留 L4 还原路径，不进等价表），`GuiControl.Get` 同留 `contract-only`（GUI 侧，`script_gui.cpp:GuiControlType::sMembersTV`）。每条 `js-native` 行给出等价 TS 表达式与可观察差异，等价式在 `tests/sdk/object-model.test.ts`（L2）真跑，期望值取自本表引证的 AHK 源行，不由测试逻辑自算；`unsupported-by-policy` 行的理由与替代在 `stdlib.md` §5（第 1/4/5/7 条）与 `native-interop.md`，入口级拒绝由 `policy-refusal.mjs` 守 `Ptr`/`Handle`/`Hwnd`。
 
 统一注记：

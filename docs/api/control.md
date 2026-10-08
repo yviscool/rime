@@ -68,7 +68,7 @@ await c.isChecked();               // -> boolean
 
 // 列表/组合/Tab/Edit 族（Phase 2，本期只定形状）：
 await c.combo.select({ index: 1 } | { text: "..." }, { notifyParent: true });
-await c.edit.line(3);              // 1-based，对齐 AHK
+await c.edit.line(2);              // 0-based（SDK 面；native 线规保持 1-based，翻译在边界）
 await c.edit.selectedText();
 
 // 可见/启用/几何/样式：纯查询同步（单 Win32 调用，无阻塞；AHK 轮询范式

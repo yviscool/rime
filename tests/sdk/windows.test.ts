@@ -367,33 +367,43 @@ test("setTitle, setEnabled and setAlwaysOnTop route through the window bridge", 
   await win.setTitle("Renamed");
   expect(calls).toEqual([{ method: "setTitle", target: 7, title: "Renamed", options: undefined }]);
   calls.length = 0;
-  await win.setEnabled(-1, { deadlineMs: 100 });
+  await win.setEnabled("toggle", { deadlineMs: 100 });
   expect(calls).toEqual([
     { method: "setEnabled", target: 7, value: -1, options: { deadlineMs: 100 } },
   ]);
   calls.length = 0;
   await win.setAlwaysOnTop();
   expect(calls).toEqual([
-    { method: "setAlwaysOnTop", target: 7, value: undefined, options: undefined },
+    { method: "setAlwaysOnTop", target: 7, value: 1, options: undefined },
+  ]);
+  calls.length = 0;
+  await win.setAlwaysOnTop(false);
+  expect(calls).toEqual([
+    { method: "setAlwaysOnTop", target: 7, value: 0, options: undefined },
   ]);
 });
 
 test("setStyle, setExStyle, setTransparent and setTransColor route through the window bridge", async () => {
   calls.length = 0;
   const win = Window.fromSnapshot({ ...movedHandle, id: 7 as WindowId });
-  await win.setStyle("+0x02000000");
+  await win.setStyle({ mode: "add", bits: 0x02000000 });
   expect(calls).toEqual([
-    { method: "setStyle", target: 7, value: "+0x02000000", options: undefined },
+    { method: "setStyle", target: 7, value: "+33554432", options: undefined },
   ]);
   calls.length = 0;
-  await win.setExStyle("-0x08000000", { deadlineMs: 100 });
+  await win.setExStyle({ mode: "remove", bits: 0x08000000 }, { deadlineMs: 100 });
   expect(calls).toEqual([
-    { method: "setExStyle", target: 7, value: "-0x08000000", options: { deadlineMs: 100 } },
+    { method: "setExStyle", target: 7, value: "-134217728", options: { deadlineMs: 100 } },
   ]);
   calls.length = 0;
   await win.setTransparent(0x80);
   expect(calls).toEqual([
     { method: "setTransparent", target: 7, value: 128, options: undefined },
+  ]);
+  calls.length = 0;
+  await win.setTransparent(null);
+  expect(calls).toEqual([
+    { method: "setTransparent", target: 7, value: -1, options: undefined },
   ]);
   calls.length = 0;
   await win.setTransColor("0xFF0000 128");

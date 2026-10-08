@@ -36,4 +36,7 @@
  */
 export type { SendKeyStep, SendCompileContext, SendCompileResult, SendMode } from "./types";
 export { MOD_LCONTROL, MOD_RCONTROL, MOD_LSHIFT, MOD_RSHIFT, MOD_LALT, MOD_RALT, MOD_LWIN, MOD_RWIN } from "./tables";
+// Key-name vocabulary shared by the legacy string compiler and structured
+// `keyboard.press()` (US-layout names, case-insensitive).
+export { CHAR_KEYS, NAMED_KEYS, VK_CONTROL, VK_LWIN, VK_MENU, VK_SHIFT } from "./tables";
 export { compileSend } from "./parse";

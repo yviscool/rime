@@ -70,16 +70,31 @@ Target 恒为 `{"kind": "storage", "id": "fs"}`；成功 `detail` 为 `storage w
 ```ts
 declare module "rime:storage" {
   const storage: {
-    read(path: string, options?): Promise<string>;
+    // Node fs/promises 对齐面（首选；见下“Node 对齐”）：
+    readFile(path: string, options?): Promise<string>;
+    writeFile(path: string, data: string | number[], options?): Promise<void>;
+    appendFile(path: string, text: string, options?): Promise<void>;
+    readdir(path: string, options?): Promise<DirEntry[]>;
+    mkdir(path: string, options?): Promise<void>;
+    rm(path: string, options?): Promise<void>;
+    unlink(path: string, options?): Promise<void>;
+    copyFile(src: string, dst: string, options?): Promise<void>;
+    rename(oldPath: string, newPath: string, options?): Promise<void>;
+    exists(path: string, options?): Promise<boolean>;
     stat(path: string): Promise<FileInfo>;
+    readFile(path: string, options?): Promise<Uint8Array>;
+    readFile(path: string, encoding: SessionEncoding, options?): Promise<string>;
+    writeFile(path: string, data: string | number[], options?): Promise<void>;
+    // 电源 API（多 op 批量、方言扩展）：
+    write(payload: StorageWritePayload, options?): Promise<{ op: string }>;
+    open(path: string, mode: FileMode, options?): Promise<OpenedFile>;
+    openFile(path: string, mode: FileMode, options?): Promise<File>;
     shortcut(path: string, options?): Promise<{ target: string; workingDir: string; args: string; icon: string }>;
     version(path: string, options?): Promise<string>;
-    list(path: string): Promise<DirEntry[]>;
-    write(payload: StorageWritePayload, options?): Promise<{ op: string }>;
     envGet(name: string): Promise<string>;
     iniRead(path, section, key): Promise<string>;
     driveGet(field, letter?): Promise<DriveInfo>;
-    download(url, path, options?): Promise<{ bytes: number }>;
+    download(url, path, options?): Promise<number>;
     selectFile(options?): Promise<string[]>;
     selectDir(options?): Promise<string>;
     setEncoding(enc: string): Promise<string>;
@@ -88,7 +103,29 @@ declare module "rime:storage" {
 }
 ```
 
-arity 与 `NativeActionOptions` 形态已按 `clipboard`/`registry` 门面的既有形态定稿（`setEncoding`/`encoding` 原生同步，SDK 门面因模块动态加载而 async）。单字段 wire 结果在门面层解包（`read`←`{text}`、`envGet`←`{value}`、`download`←`{bytes}`、`selectFile`←`{paths}`、`version`←`{version}`），多字段保持对象（`stat`、`write`、`shortcut` 四字段）；模块侧原名只有 `readText`/`shortcut`/`version` 与门面不同，其余同名。
+`File` 方法全部小驼峰（`read`/`readLine`/`readBytes`/`readInt8…readFloat64`、
+`write`/`writeLine`/`writeBytes`/`writeInt8…writeFloat64`、`seek`/`close`、
+属性 `atEof`/`length`/`pos`/`handle`/`encoding`），与 Node `FileHandle`
+同形；定宽读写按 DataView 位宽命名（`Int8…Float64`）。
+
+## Node 对齐
+
+文件生命周期走 Node `fs/promises` 的名字与形状（`readFile`/`writeFile`/
+`appendFile`/`readdir`/`mkdir`/`rm`/`unlink`/`copyFile`/`rename`/`exists`），
+全部是 `write()` op 联合与句柄族之上的薄委托，不新增 native。故意偏离
+Node 的三处（桥上无 Buffer/无同步形态/错误是 `ActionError`，见下）之外，
+行为同 Node：`writeFile` 全量覆盖、`appendFile` 追加、`rm({recursive})`
+删树、`exists` 只做 `stat` 探针（含 TOCTOU 警告，同 Node 自身文档口径）。
+
+三处偏离：① 文本永远是字符串（会话编码解码），字节是 `number[]`
+（`Uint8Array` 不出桥——裸内存禁令）；② 只有异步形态（QuickJS 无
+libuv，同步会卡 UI/JS 线程）；③ 错误码是 `ActionError.code`
+（`target_gone`/`invalid_contract`/…），不是 `ENOENT` 系——code 域由
+action codec 版本化锁定，不跟 Node 对齐。`ini`/`env`/`drive`/`shortcut`/
+`version`/`download`/`selectFile`/`selectDir`/`encoding` 是 Rime 扩展
+（QuickJS 无 `process.env`、无对话框、无版本资源），不在 Node 对齐内。
+
+arity 与 `NativeActionOptions` 形态已按 `clipboard`/`registry` 门面的既有形态定稿（`setEncoding`/`encoding` 原生同步，SDK 门面因模块动态加载而 async）。单字段 wire 结果在门面层解包（`readFile` 文本←`{text}`、`envGet`←`{value}`、`download`←`{bytes}`、`selectFile`←`{paths}`、`version`←`{version}`），多字段保持对象（`stat`、`write`、`shortcut` 四字段）；模块侧原名只有 `readText`/`readBytes`/`shortcut`/`version` 与门面不同，其余同名。
 
 ## 底层实现
 

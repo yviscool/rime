@@ -391,9 +391,9 @@ function render_accounting_doc(accounting: Accounting): string {
 
 // Job-summary report (`--summary <path>`): the same numbers matrix:check
 // enforces, emitted as GitHub-flavored markdown so a run shows the accounting
-// without opening a log. 99% is M8's target, not a gate this file enforces -
-// a build that failed on a percentage nobody can reach yet would only teach
-// people to ignore the gate.
+// without opening a log. Percentages are radar observations only: there is no
+// percentage target or gate anywhere in this pipeline (AGENTS.md: AHK is
+// nourishment, never a compat goal).
 function renderSummary(accounting: Accounting): string {
   const share = (terminal: number, denominator: number): string =>
     denominator === 0 ? "n/a" : `${((terminal / denominator) * 100).toFixed(2)}%`;
@@ -401,7 +401,7 @@ function renderSummary(accounting: Accounting): string {
     "## AHK accounting",
     "",
     `**${accounting.total.terminal}/${accounting.total.denominator} = ${accounting.total.percent}%** terminal, ` +
-      `${accounting.total.remaining} remaining · M8 target **99%** (target only — not enforced as a gate yet).`,
+      `${accounting.total.remaining} remaining (radar only — no percentage target).`,
     "",
     "| ledger | terminal | denominator | remaining | share |",
     "| --- | --- | --- | --- | --- |",

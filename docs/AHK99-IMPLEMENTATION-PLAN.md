@@ -1,14 +1,22 @@
-# AHK 99% 能力对齐实施计划
+# AHK 能力雷达实施计划
 
 > 状态：已定稿待执行。本文件是长期战役的唯一计划真值；进度以 `docs/api/*.json` 的状态计数为准，不在 README 维护。
+>
+> 定位（2026-10-08 修订，与 `AGENTS.md` 修改原则一致）：**AHK 永远是养料，
+> 不是目标，不做任何兼容。** 本计划的覆盖矩阵只做需求雷达（发现能力缺口），
+> 百分比只做观测指标——没有任何版本的“达到 x%”目标或门槛。每个条目是否实现，
+> 由独立的现代 TS 理由决定，而不是由“把数字推高”决定。
 
 ## 0. 验收口径（已拍板）
 
-1. **能力对齐（还原保留）**：每个 AHK 函数、对象成员、内置变量、指令都有 TS 原生等价实现——能力不缺项、语义以对照原版的测试守住；命名、参数形状、同步性与暴露边界按 `docs/AHK-TS-WINDOWS-API-DESIGN.md` §0 的核心设计问题重新设计，**不实现 AHK 名称兼容层**。Rime 只执行 TypeScript，**不实现 AHK 脚本语言本身**（解析器/表达式编译器不在范围内）。AHK 名称只用于覆盖矩阵追踪，公共命名以 `docs/api/future-runtime.md` 与各领域规范为准。
+1. **能力雷达（查缺，不还原）**：覆盖矩阵追踪 AHK 函数/对象成员/内置变量/指令，
+   只用于发现能力缺口——缺口是否补、如何补，由独立的现代 TS 理由决定，不设
+   条目清零义务。重叠功能的边界定义以对照原版的测试守住（行为参照，注明出处）；
+   命名、参数形状、同步性与暴露边界按 `docs/AHK-TS-WINDOWS-API-DESIGN.md` §0 的核心设计问题重新设计，**不实现 AHK 名称兼容层**。Rime 只执行 TypeScript，**不实现 AHK 脚本语言本身**（解析器/表达式编译器不在范围内）。AHK 名称只用于覆盖矩阵追踪，公共命名以 `docs/api/future-runtime.md` 与各领域规范为准。
 2. **GUI 底座 = Win32 通用控件**：`GuiService` 在 UI Thread 拥有真实 HWND + common controls（Button/Edit/ListView/TreeView/…），行为与 AHK 对齐、可逐控件落到 Win32 消息。Rime UI Runtime 继续服务 Rim 自身 UI，两者不冲突；本计划不等待 UI Runtime。
 3. **维持策略裁剪**：DllCall、ComCall、CallbackCreate/Free、ObjPtr/AddRef/Release 系、NumGet/NumPut、StrPtr、ComObj*、Obj*PtrData 等裸互操作保持 `unsupported-by-policy`，补文档与"拒绝行为"测试，计为已决策项（分母中为终态）。调试器、AHK 脚本引擎同样排除。
 
-**99% 公式**：`终态条目 / 范围内条目 ≥ 99%`，终态 = `implemented | js-native | unsupported-by-policy`（`implemented` 须有测试 ID；`js-native` 以等价表达式与差异记录替代测试 ID）；`contract-only`/`sdk-owned` 为过渡态，逐步收敛到终态（状态口径见 `docs/api/stdlib.md` §3）；`excluded`（AHK v1 别名等版本差异条目）不计入范围内分母。
+**终态口径（观测用，非目标）**：`终态条目 / 范围内条目`，终态 = `implemented | js-native | unsupported-by-policy`（`implemented` 须有测试 ID；`js-native` 以等价表达式与差异记录替代测试 ID）；`contract-only`/`sdk-owned` 为过渡态；`excluded`（AHK v1 别名等版本差异条目）不计入范围内分母。百分比只描述现状，不设任何达标线（状态口径见 `docs/api/stdlib.md` §3）。
 
 ## 1. 事实基线
 
@@ -31,8 +39,8 @@
 | coverage | 253 | 245 | 8 | status in implemented \| js-native \| unsupported-by-policy；实测 implemented 223、unsupported-by-policy 11、js-native 11、contract-only 8 |
 | core-builtins | 101 | 101 | 0 | status in implemented \| js-native \| unsupported-by-policy；实测 js-native 57、unsupported-by-policy 25、implemented 19 |
 | builtins | 134 | 5 | 129 | status in implemented \| js-native \| unsupported-by-policy (excluded leaves the denominator)；实测 unset 129、excluded 11、implemented 5 |
-| objects | 259 | 113 | 146 | status in implemented \| js-native \| unsupported-by-policy；实测 contract-only 146、implemented 55、js-native 42、unsupported-by-policy 16 |
-| **合计** | **747** | **464** | **283** | **62.12%** |
+| objects | 259 | 169 | 90 | status in implemented \| js-native \| unsupported-by-policy；实测 implemented 108、contract-only 90、js-native 42、unsupported-by-policy 19 |
+| **合计** | **747** | **520** | **227** | **69.61%** |
 
 证据缺口：无（每个 `implemented` 条目都有指向真实文件的 contract/compatibility 测试路径）。
 
@@ -171,7 +179,7 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 
 ### M6 GUI / Menu / 对话框（15 函数 + 114 对象成员 + 控件对象，XXL）
 
-- `GuiService`（UI Thread 所有权 + 稳定 GuiId/ControlId + Win32 common controls）：`Gui` 55 成员（Add* 构造器 28 种控件）、`GuiControl` 42 成员；
+- `GuiService`（UI Thread 所有权 + 稳定 GuiId/ControlId + Win32 common controls）：`Gui` 55 成员（Add* 构造器 28 种控件）、`GuiControl` 43 成员；
 - `Menu/MenuBar` 17 成员 + 托盘（`TraySetIcon/TrayTip/MenuSelect`）；
 - 模态对话框 `MsgBox/InputBox`（结果经统一调度器，禁第二脚本泵）；`ToolTip/FileSelect 已在 M4/DirSelect`、`LoadPicture/IL_Create/IL_Add/IL_Destroy`（ImageList 不透明句柄）；
 - 控件专用对象方法：ListView 11、TreeView 12、StatusBar 3、Edit/Date/Tab/ComboBox（M0 已提取的成员逐项）；
@@ -182,12 +190,11 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 - `Control* 42`：三层执行（UIA pattern → Win32 消息 → visual fallback），执行层进 Trace；`ControlId` = UIA runtime id + generation（不复用 HWND 别名）；`Edit*` 系；读 `ControlGet*` 全部走快照缓存 + 失效 `target_gone`；
 - 与 M6 控件对象共享注册表。
 
-### M8 完备性收尾与 99% 核算（M）
+### M8 审计收尾与核算报告（M）
 
 - audit-gaps 12 条逐条销项（**COM/VARIANT 边界文档化：2026-10-07 已销**——`docs/api/native-interop.md` §1-§3 定档与六问、`runtime-language.md` §2.4 逐项理由/替代/证据、`stdlib.md` §5 尾注同步、`audit-gaps.md` 同条改写；余：ahklib.idl → 版本化 Host ABI contract、错误原型、globaldata 状态簇归属表、漂移检查 CI）；
-- 对象 213+ 成员语义还原测试、builtins 全量测试补齐；
 - `unsupported-by-policy` 每项：拒绝行为测试 + 替代路径文档（**2026-10-07 全覆盖**：39 个名字 = core-builtins 25 + coverage 11 + 对象入口级 3（`Ptr`/`Handle`/`Hwnd`，`design-review.md:64`），`tests/js/fixtures/policy-refusal.mjs` / ctest `quickjs_policy_refusal` / `rime_js_bundle --production`，替代路径列在 `runtime-language.md` §2.4，两次反向验证非恒真；objects 台账 16 条 `unsupported-by-policy` 成员由 `objects.json` 状态 + `checkObjectsLedger` + `object-model.md` 裁剪条款背书，入口级拒绝共用同一名字表）；
-- 生成**核算报告**（脚本输出终态计数/百分比）入 CI，`≥99%` 为硬门槛（报告已入 CI：2026-10-07 起 `bun tools/coverage-matrix.ts --summary $GITHUB_STEP_SUMMARY` 在 Full suite 之后把计数与百分比写进 run 的 Summary 面，只报数不拦人；`≥99%` 硬门待分母到 99% 再开——当前 61.45%（以 §1.2 生成块为准），现在开门只会教人忽略门禁）；
+- 生成**核算报告**（脚本输出终态计数/百分比）入 CI，只做观测、不设任何百分比门槛（2026-10-07 起 `bun tools/coverage-matrix.ts --summary $GITHUB_STEP_SUMMARY` 在 Full suite 之后把计数与百分比写进 run 的 Summary 面）；
 - 生产 hosts 端到端：Rim bundle 经共享 bootstrap 跑通全模块。
 
 ## 4. 质量与流程约束
@@ -207,7 +214,7 @@ M0 地基与分母 ──► M1 Window 收官 ──► M2 输入/事件中枢�
 | coverage 与代码再次脱节 | 真值源 + `matrix:check` 强制；每阶段 DoD 含状态回填 |
 | 单线程推进吞吐 | M3（纯 JS）与 M1/M4 并行；切片小步提交 |
 
-## 6. 进度度量（机器可读）
+## 6. 进度度量（机器可读，观测用）
 
 - `bun run matrix:check` + 核算报告脚本 `bun tools/coverage-matrix.ts --summary <file>`：输出各 JSON 终态计数与总百分比，CI 在 Full suite 之后同时写进 run 的 Summary 面；
-- 目标曲线：M0 后分母固定（764，有效 753）；M1~M5 每阶段消化 15~25%；M6/M7 消化对象成员大头；M8 收口 ≥99%。
+- 口径：M0 后分母固定；百分比只描述雷达现状，不设阶段消化指标、不设收口线。开发优先级由现代 TS 需求决定，不由剩余条目数决定。

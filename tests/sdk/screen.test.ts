@@ -155,14 +155,16 @@ test("the facade unwraps the pixel colour and the monitor count", async () => {
   expect(countCalls).toEqual([undefined]);
 });
 
-test("monitor passes an index through and an omitted index as options only", async () => {
+test("monitor translates 0-based indexes and null means primary", async () => {
   const second = await screen.monitor(2, { deadlineMs: 250 });
   expect(second.index).toBe(2);
-  expect(monitorCalls.at(-1)).toEqual([2, { deadlineMs: 250 }]);
+  expect(monitorCalls.at(-1)).toEqual([3, { deadlineMs: 250 }]);
 
   const primary = await screen.monitor();
   expect(primary.primary).toBe(true);
   expect(monitorCalls.at(-1)).toEqual([undefined, undefined]);
+
+  expect(() => screen.monitor(-1)).toThrow(TypeError);
 });
 
 test("a coded bridge rejection becomes an ActionError with that code", async () => {

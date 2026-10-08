@@ -246,15 +246,15 @@ test("the facade unwraps every wire result into the documented shape", async () 
   textFiles.set("C:/data.txt", "hello");
   seed("C:/data.txt", [0x68, 0x69]);
 
-  expect(await facade.read("C:/data.txt")).toBe("hello");
-  expect(await facade.readBytes("C:/data.txt")).toEqual([0x68, 0x69]);
+  expect(await facade.readFile("C:/data.txt", "utf-8")).toBe("hello");
+  expect(await facade.readFile("C:/data.txt")).toStrictEqual(new Uint8Array([0x68, 0x69]));
   expect(await facade.stat("C:/data.txt")).toEqual({
     size: 2,
     mtimeMs: 1700000000000,
     attrib: "A",
     isDir: false,
   });
-  expect(await facade.list("C:/")).toEqual([{ name: "child.txt", isDir: false }]);
+  expect(await facade.readdir("C:/")).toEqual([{ name: "child.txt", isDir: false }]);
   expect(await facade.envGet("RIME_TEST_SET")).toBe("yes");
   expect(await facade.envGet("RIME_TEST_UNSET")).toBe("");
   expect(await facade.iniRead("C:/a.ini", "sec", "key")).toBe("sec/key");
@@ -294,7 +294,7 @@ test("shortcut and version upgrade a coded rejection to ActionError", async () =
 
 test("a coded rejection surfaces as ActionError carrying the same code", async () => {
   readRejection = { code: "target_gone", message: "file not found: C:/gone.txt" };
-  const error = await facade.read("C:/gone.txt").catch((e: unknown) => e);
+  const error = await facade.readFile("C:/gone.txt", "utf-8").catch((e: unknown) => e);
   expect(error).toBeInstanceOf(ActionError);
   expect((error as ActionError).code).toBe("target_gone");
   expect((error as ActionError).message).toBe("file not found: C:/gone.txt");
@@ -324,7 +324,7 @@ test("an already-aborted signal short-circuits before the bridge", async () => {
   await expect(
     facade.write({ op: "delete", path: "C:/x" }, { signal }),
   ).rejects.toThrow("signal already aborted");
-  await expect(facade.read("C:/data.txt", { signal })).rejects.toThrow("signal already aborted");
+  await expect(facade.readFile("C:/data.txt", { signal })).rejects.toThrow("signal already aborted");
   expect(writeCalls).toHaveLength(0);
   expect(readCalls).toHaveLength(0);
 });
@@ -364,37 +364,37 @@ test("openFile rejects an ANSI session encoding instead of silently guessing", a
 // ---- File shape ------------------------------------------------------------
 
 const FILE_MEMBERS = [
-  "AtEOF",
-  "Close",
-  "Encoding",
-  "Handle",
-  "Length",
-  "Pos",
-  "RawRead",
-  "RawWrite",
-  "Read",
-  "ReadChar",
-  "ReadDouble",
-  "ReadFloat",
-  "ReadInt",
-  "ReadInt64",
-  "ReadLine",
-  "ReadShort",
-  "ReadUChar",
-  "ReadUInt",
-  "ReadUShort",
-  "Seek",
-  "Write",
-  "WriteChar",
-  "WriteDouble",
-  "WriteFloat",
-  "WriteInt",
-  "WriteInt64",
-  "WriteLine",
-  "WriteShort",
-  "WriteUChar",
-  "WriteUInt",
-  "WriteUShort",
+  "atEof",
+  "close",
+  "encoding",
+  "handle",
+  "length",
+  "pos",
+  "readBytes",
+  "readFloat32",
+  "readFloat64",
+  "readInt16",
+  "readInt32",
+  "readInt64",
+  "readInt8",
+  "readLine",
+  "readUInt16",
+  "readUInt32",
+  "readUInt8",
+  "read",
+  "seek",
+  "writeBytes",
+  "writeFloat32",
+  "writeFloat64",
+  "writeInt16",
+  "writeInt32",
+  "writeInt64",
+  "writeInt8",
+  "writeLine",
+  "writeUInt16",
+  "writeUInt32",
+  "writeUInt8",
+  "write",
 ];
 
 test("File exposes exactly the 31 documented members and nothing else", () => {
@@ -422,65 +422,65 @@ test("File exposes exactly the 31 documented members and nothing else", () => {
 test("Read decodes literal byte sequences and advances only past what it consumed", async () => {
   seed("C:/abc.txt", [0x41, 0x42, 0x43]);
   const file = await facade.openFile("C:/abc.txt", "r");
-  expect(await file.Read()).toBe("ABC");
-  expect(await file.AtEOF).toBe(true);
+  expect(await file.read()).toBe("ABC");
+  expect(await file.atEof).toBe(true);
 
   seed("C:/abc2.txt", [0x41, 0x42, 0x43, 0x44]);
   const two = await facade.openFile("C:/abc2.txt", "r");
-  expect(await two.Read(2)).toBe("AB");
-  expect(await two.Read()).toBe("CD");
+  expect(await two.read(2)).toBe("AB");
+  expect(await two.read()).toBe("CD");
 
   // U+4E2D in UTF-8 is three bytes; one code unit must consume all three.
   seed("C:/cjk.txt", [0xe4, 0xb8, 0xad, 0x41]);
   const cjk = await facade.openFile("C:/cjk.txt", "r");
-  expect(await cjk.Read(1)).toBe("\u4e2d");
-  expect(await cjk.Read()).toBe("A");
+  expect(await cjk.read(1)).toBe("\u4e2d");
+  expect(await cjk.read()).toBe("A");
 });
 
 test("a BOM is detected on open and never leaks into the decoded text", async () => {
   seed("C:/bom.txt", [0xef, 0xbb, 0xbf, 0x48, 0x69]);
   const file = await facade.openFile("C:/bom.txt", "r");
-  expect(await file.Read()).toBe("Hi");
+  expect(await file.read()).toBe("Hi");
   // The sniff runs lazily on the first queued operation, so Encoding is only
   // the detected name once something has been read.
-  expect(file.Encoding).toBe("utf-8-bom");
-  expect(await file.Pos).toBe(5);
+  expect(file.encoding).toBe("utf-8-bom");
+  expect(await file.pos).toBe(5);
 });
 
 test("Write emits the encoding's own bytes, with a BOM only into an empty file", async () => {
   seed("C:/w.txt", []);
   const utf8 = await facade.openFile("C:/w.txt", "w");
-  expect(await utf8.Write("Hi")).toBe(2);
+  expect(await utf8.write("Hi")).toBe(2);
   expect(stored("C:/w.txt")).toEqual([0x48, 0x69]);
 
   seed("C:/bomw.txt", []);
   const bom = await facade.openFile("C:/bomw.txt", "w", { encoding: "utf-8-bom" });
-  expect(await bom.Write("A")).toBe(4);
+  expect(await bom.write("A")).toBe(4);
   expect(stored("C:/bomw.txt")).toEqual([0xef, 0xbb, 0xbf, 0x41]);
-  expect(await bom.Write("B")).toBe(1);
+  expect(await bom.write("B")).toBe(1);
   expect(stored("C:/bomw.txt")).toEqual([0xef, 0xbb, 0xbf, 0x41, 0x42]);
 
   seed("C:/cp.txt", []);
   const cp = await facade.openFile("C:/cp.txt", "w", { encoding: "cp1252" });
-  await cp.Write("\u20ac");
+  await cp.write("\u20ac");
   expect(stored("C:/cp.txt")).toEqual([0x80]);
 
   // U+0041 in UTF-16LE is the two bytes 41 00; a BOM-less file still decodes
   // once the file itself says which encoding to use.
   seed("C:/u16.txt", [0x41, 0x00]);
   const le = await facade.openFile("C:/u16.txt", "r", { encoding: "utf-16" });
-  expect(await le.Read()).toBe("A");
-  expect(await le.AtEOF).toBe(true);
+  expect(await le.read()).toBe("A");
+  expect(await le.atEof).toBe(true);
 });
 
 test("ReadLine consumes one terminator and returns the line without it", async () => {
   seed("C:/lines.txt", Array.from("one\r\ntwo\nthree", (ch) => ch.charCodeAt(0)));
   const file = await facade.openFile("C:/lines.txt", "r");
-  expect(await file.ReadLine()).toBe("one");
-  expect(await file.ReadLine()).toBe("two");
-  expect(await file.ReadLine()).toBe("three");
-  expect(await file.ReadLine()).toBe("");
-  expect(await file.AtEOF).toBe(true);
+  expect(await file.readLine()).toBe("one");
+  expect(await file.readLine()).toBe("two");
+  expect(await file.readLine()).toBe("three");
+  expect(await file.readLine()).toBe("");
+  expect(await file.atEof).toBe(true);
 });
 
 test("fixed-width reads and writes use little-endian layout", async () => {
@@ -489,40 +489,40 @@ test("fixed-width reads and writes use little-endian layout", async () => {
     0xff,
   ]);
   const file = await facade.openFile("C:/ints.bin", "r");
-  expect(await file.ReadInt()).toBe(1);
-  expect(await file.ReadUInt()).toBe(1);
-  expect(await file.ReadInt()).toBe(-1);
-  expect(await file.ReadUInt()).toBe(4294967295);
-  expect(await file.AtEOF).toBe(true);
+  expect(await file.readInt32()).toBe(1);
+  expect(await file.readUInt32()).toBe(1);
+  expect(await file.readInt32()).toBe(-1);
+  expect(await file.readUInt32()).toBe(4294967295);
+  expect(await file.atEof).toBe(true);
 
   seed("C:/small.bin", [0x41, 0xff, 0xff, 0xff, 0xff, 0xff]);
   const small = await facade.openFile("C:/small.bin", "r");
-  expect(await small.ReadUChar()).toBe(0x41);
-  expect(await small.ReadChar()).toBe(-1);
-  expect(await small.ReadUShort()).toBe(0xffff);
-  expect(await small.ReadShort()).toBe(-1);
-  expect(await small.AtEOF).toBe(true);
+  expect(await small.readUInt8()).toBe(0x41);
+  expect(await small.readInt8()).toBe(-1);
+  expect(await small.readUInt16()).toBe(0xffff);
+  expect(await small.readInt16()).toBe(-1);
+  expect(await small.atEof).toBe(true);
 
   // 1.5 is 0x3FF8000000000000 as a double and 0x3FC00000 as a float.
   seed("C:/double.bin", [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x3f]);
   const doubles = await facade.openFile("C:/double.bin", "r");
-  expect(await doubles.ReadDouble()).toBe(1.5);
+  expect(await doubles.readFloat64()).toBe(1.5);
 
   seed("C:/float.bin", [0x00, 0x00, 0xc0, 0x3f]);
   const floats = await facade.openFile("C:/float.bin", "r");
-  expect(await floats.ReadFloat()).toBeCloseTo(1.5, 6);
+  expect(await floats.readFloat32()).toBeCloseTo(1.5, 6);
 
   seed("C:/i64.bin", [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
   const big = await facade.openFile("C:/i64.bin", "r");
-  expect(await big.ReadInt64()).toBe(1);
+  expect(await big.readInt64()).toBe(1);
 });
 
 test("fixed-width writes land as the literal byte layout", async () => {
   seed("C:/out.bin", []);
   const file = await facade.openFile("C:/out.bin", "w");
-  expect(await file.WriteInt(-1)).toBe(4);
-  expect(await file.WriteUShort(0x1234)).toBe(2);
-  expect(await file.WriteDouble(1.5)).toBe(8);
+  expect(await file.writeInt32(-1)).toBe(4);
+  expect(await file.writeUInt16(0x1234)).toBe(2);
+  expect(await file.writeFloat64(1.5)).toBe(8);
   expect(stored("C:/out.bin")).toEqual([
     0xff, 0xff, 0xff, 0xff, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x3f,
   ]);
@@ -531,7 +531,7 @@ test("fixed-width writes land as the literal byte layout", async () => {
 test("a short fixed read rejects with the end-of-file message", async () => {
   seed("C:/short.bin", [0x01, 0x02]);
   const file = await facade.openFile("C:/short.bin", "r");
-  const error = await file.ReadInt().catch((e: unknown) => e);
+  const error = await file.readInt32().catch((e: unknown) => e);
   expect(error).toBeInstanceOf(ActionError);
   expect((error as ActionError).code).toBe("execution_failed");
   expect((error as ActionError).message).toBe("unexpected end of file: needed 4 bytes, got 2");
@@ -540,70 +540,70 @@ test("a short fixed read rejects with the end-of-file message", async () => {
 test("RawRead and RawWrite move bytes without any encoding", async () => {
   seed("C:/raw.bin", [0x01, 0x02, 0x03]);
   const file = await facade.openFile("C:/raw.bin", "a");
-  expect(await file.RawRead()).toEqual([]);
-  expect(await file.RawWrite([0x09, 0x08])).toBe(2);
-  expect(await file.RawWrite("A")).toBe(1);
+  expect(await file.readBytes()).toEqual([]);
+  expect(await file.writeBytes([0x09, 0x08])).toBe(2);
+  expect(await file.writeBytes("A")).toBe(1);
   expect(stored("C:/raw.bin")).toEqual([0x01, 0x02, 0x03, 0x09, 0x08, 0x41]);
-  file.Pos = 0;
-  expect(await file.RawRead()).toEqual([0x01, 0x02, 0x03, 0x09, 0x08, 0x41]);
+  file.pos = 0;
+  expect(await file.readBytes()).toEqual([0x01, 0x02, 0x03, 0x09, 0x08, 0x41]);
 });
 
 test("Pos reads, writes, and surfaces a failed set on the next read", async () => {
   seed("C:/pos.txt", [0x61, 0x62, 0x63]);
   const file = await facade.openFile("C:/pos.txt", "r");
-  expect(await file.Pos).toBe(0);
-  file.Pos = 2;
-  expect(await file.Pos).toBe(2);
+  expect(await file.pos).toBe(0);
+  file.pos = 2;
+  expect(await file.pos).toBe(2);
   expect(() => {
-    file.Pos = -1;
+    file.pos = -1;
   }).toThrow(TypeError);
   expect(() => {
-    file.Pos = 1e99;
+    file.pos = 1e99;
   }).toThrow(RangeError);
 });
 
 test("Seek reports only a move before the start of the file as false", async () => {
   seed("C:/seek.txt", [0x61, 0x62, 0x63]);
   const file = await facade.openFile("C:/seek.txt", "r");
-  expect(await file.Seek(2, 0)).toBe(true);
-  expect(await file.Seek(1, 1)).toBe(true); // 2 -> 3
-  expect(await file.Seek(-10, 2)).toBe(false); // end (3) - 10 is before the file
-  expect(await file.Seek(-1, 0)).toBe(false);
-  expect(await file.Seek(-1, 1)).toBe(true); // 3 -> 2
-  expect(await file.Pos).toBe(2);
-  expect(await file.Seek(1, 0)).toBe(true);
-  expect(await file.Pos).toBe(1);
-  await expect(file.Seek(0, 5)).rejects.toThrow(TypeError);
+  expect(await file.seek(2, 0)).toBe(true);
+  expect(await file.seek(1, 1)).toBe(true); // 2 -> 3
+  expect(await file.seek(-10, 2)).toBe(false); // end (3) - 10 is before the file
+  expect(await file.seek(-1, 0)).toBe(false);
+  expect(await file.seek(-1, 1)).toBe(true); // 3 -> 2
+  expect(await file.pos).toBe(2);
+  expect(await file.seek(1, 0)).toBe(true);
+  expect(await file.pos).toBe(1);
+  await expect(file.seek(0, 5)).rejects.toThrow(TypeError);
 });
 
 test("Length is readable but refuses a setter", async () => {
   seed("C:/len.txt", [0x61, 0x62, 0x63]);
   const file = await facade.openFile("C:/len.txt", "r");
-  expect(await file.Length).toBe(3);
+  expect(await file.length).toBe(3);
   expect(() => {
-    file.Length = 1;
+    file.length = 1;
   }).toThrow(TypeError);
 });
 
 test("Encoding is synchronous, rejects an unknown name, and rejects cp0", async () => {
   seed("C:/enc.txt", [0x61]);
   const file = await facade.openFile("C:/enc.txt", "r");
-  expect(file.Encoding).toBe("utf-8");
-  file.Encoding = "latin1";
-  expect(file.Encoding).toBe("latin1");
+  expect(file.encoding).toBe("utf-8");
+  file.encoding = "latin1";
+  expect(file.encoding).toBe("latin1");
   expect(() => {
-    file.Encoding = "bogus";
+    file.encoding = "bogus";
   }).toThrow(TypeError);
   expect(() => {
-    file.Encoding = "cp0";
+    file.encoding = "cp0";
   }).toThrow(TypeError);
-  expect(file.Encoding).toBe("latin1");
+  expect(file.encoding).toBe("latin1");
 });
 
 test("Handle always refuses to expose the OS handle", async () => {
   seed("C:/h.txt", [0x61]);
   const file = await facade.openFile("C:/h.txt", "r");
-  const read = () => file.Handle;
+  const read = () => file.handle;
   expect(read).toThrow(ActionError);
   expect(read).toThrow("unsupported by policy");
 });
@@ -611,24 +611,24 @@ test("Handle always refuses to expose the OS handle", async () => {
 test("Close is idempotent and every member then reports the file is closed", async () => {
   seed("C:/c.txt", [0x61]);
   const file = await facade.openFile("C:/c.txt", "r");
-  await file.Close();
-  await file.Close();
+  await file.close();
+  await file.close();
 
-  const error = await file.Read().catch((e: unknown) => e);
+  const error = await file.read().catch((e: unknown) => e);
   expect(error).toBeInstanceOf(ActionError);
   expect((error as ActionError).code).toBe("invalid_state");
   expect((error as ActionError).message).toBe("file is closed");
 
-  const lineError = await file.ReadLine().catch((e: unknown) => e);
+  const lineError = await file.readLine().catch((e: unknown) => e);
   expect(lineError).toBeInstanceOf(ActionError);
   expect((lineError as ActionError).message).toBe("file is closed");
-  expect(() => file.Encoding).toThrow("file is closed");
-  expect(() => file.Handle).toThrow("file is closed");
+  expect(() => file.encoding).toThrow("file is closed");
+  expect(() => file.handle).toThrow("file is closed");
   expect(() => {
-    file.Pos = 0;
+    file.pos = 0;
   }).toThrow("file is closed");
   expect(() => {
-    file.Length = 0;
+    file.length = 0;
   }).toThrow("file is closed");
 });
 
@@ -636,20 +636,20 @@ test("members validate their arguments and leave the file untouched", async () =
   seed("C:/args.txt", [0x61]);
   const file = await facade.openFile("C:/args.txt", "r");
 
-  await expect(file.Read(-1)).rejects.toThrow(TypeError);
-  await expect(file.RawRead(1.5)).rejects.toThrow(TypeError);
-  await expect(file.Write({} as never)).rejects.toThrow(TypeError);
-  await expect(file.WriteLine([] as never)).rejects.toThrow(TypeError);
-  await expect(file.RawWrite([300])).rejects.toThrow(TypeError);
-  await expect(file.Seek(1.5)).rejects.toThrow(TypeError);
-  await expect(file.Seek(0, 5)).rejects.toThrow(TypeError);
-  expect(() => file.WriteInt(1.5)).toThrow(TypeError);
-  expect(() => file.WriteUShort(1.5)).toThrow(TypeError);
-  expect(() => file.WriteUShort(70000)).toThrow(RangeError);
-  expect(() => file.WriteDouble(Number.NaN)).toThrow(TypeError);
+  await expect(file.read(-1)).rejects.toThrow(TypeError);
+  await expect(file.readBytes(1.5)).rejects.toThrow(TypeError);
+  await expect(file.write({} as never)).rejects.toThrow(TypeError);
+  await expect(file.writeLine([] as never)).rejects.toThrow(TypeError);
+  await expect(file.writeBytes([300])).rejects.toThrow(TypeError);
+  await expect(file.seek(1.5)).rejects.toThrow(TypeError);
+  await expect(file.seek(0, 5)).rejects.toThrow(TypeError);
+  expect(() => file.writeInt32(1.5)).toThrow(TypeError);
+  expect(() => file.writeUInt16(1.5)).toThrow(TypeError);
+  expect(() => file.writeUInt16(70000)).toThrow(RangeError);
+  expect(() => file.writeFloat64(Number.NaN)).toThrow(TypeError);
 
   // None of the refusals enqueued anything, so the file still reads whole.
-  expect(await file.Read()).toBe("a");
+  expect(await file.read()).toBe("a");
 });
 
 // ---- contract types --------------------------------------------------------
@@ -677,4 +677,47 @@ test("the bridge interface the module must export is satisfied", () => {
   const probe: StorageBridge = bridge;
   expect(typeof probe.readText).toBe("function");
   expect(typeof probe.encoding).toBe("function");
+});
+
+// ---- Node-named facade (delegates to the same ops) -------------------------
+
+test("readFile/readdir delegate to the text read and listing", async () => {
+  seed("C:/n.txt", [0x68, 0x69]);
+  textFiles.set("C:/n.txt", "hi");
+  await expect(facade.readFile("C:/n.txt", "utf-8")).resolves.toBe("hi");
+  await expect(facade.readdir("C:/")).resolves.toEqual([{ name: "child.txt", isDir: false }]);
+});
+
+test("writeFile text goes through one write op; bytes through open/write/close", async () => {
+  await facade.writeFile("C:/w.txt", "hi");
+  expect(writeCalls.at(-1)?.[0]).toStrictEqual({ op: "write", path: "C:/w.txt", text: "hi" });
+
+  seed("C:/b.bin", []);
+  await facade.writeFile("C:/b.bin", [0x41]);
+  expect(stored("C:/b.bin")).toEqual([0x41]);
+});
+
+test("appendFile/mkdir/rm/unlink/copyFile/rename map to ops", async () => {
+  await facade.appendFile("C:/a.txt", "x");
+  await facade.mkdir("C:/d");
+  await facade.rm("C:/f.txt");
+  await facade.rm("C:/d", { recursive: true });
+  await facade.unlink("C:/g.txt");
+  await facade.copyFile("C:/a.txt", "C:/b.txt", { overwrite: true });
+  await facade.rename("C:/b.txt", "C:/c.txt");
+  expect(writeCalls.map(([payload]) => payload)).toStrictEqual([
+    { op: "append", path: "C:/a.txt", text: "x" },
+    { op: "mkdir", path: "C:/d" },
+    { op: "delete", path: "C:/f.txt" },
+    { op: "rmdir", path: "C:/d", recursive: true },
+    { op: "delete", path: "C:/g.txt" },
+    { op: "copy", src: "C:/a.txt", dst: "C:/b.txt", overwrite: true },
+    { op: "move", src: "C:/b.txt", dst: "C:/c.txt" },
+  ]);
+});
+
+test("exists is true exactly when stat succeeds", async () => {
+  seed("C:/here.txt", [1]);
+  await expect(facade.exists("C:/here.txt")).resolves.toBe(true);
+  await expect(facade.exists("C:/gone.txt")).resolves.toBe(false);
 });

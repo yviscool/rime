@@ -705,7 +705,7 @@ export class File {
   // ---- properties ---------------------------------------------------------
 
   /** True once the stream has no unread bytes left. */
-  get AtEOF(): Promise<boolean> {
+  get atEof(): Promise<boolean> {
     return this.enqueue(async () => {
       await this.ready();
       const stat = await this.bridge.fileStat(this.handleId, this.options);
@@ -714,7 +714,7 @@ export class File {
   }
 
   /** File length in bytes (the whole file, not the unread remainder). */
-  get Length(): Promise<number> {
+  get length(): Promise<number> {
     return this.enqueue(async () => {
       await this.ready();
       const stat = await this.bridge.fileStat(this.handleId, this.options);
@@ -722,15 +722,15 @@ export class File {
     });
   }
 
-  set Length(_value: number) {
+  set length(_value: number) {
     this.ensureOpen();
     throw new TypeError(
-      "Length has no setter: truncation is unsupported because the storage service exposes no truncate primitive",
+      "length has no setter: truncation is unsupported because the storage service exposes no truncate primitive",
     );
   }
 
   /** Current read/write position, measured in bytes from the start of the file. */
-  get Pos(): Promise<number> {
+  get pos(): Promise<number> {
     return this.enqueue(async () => {
       await this.ready();
       if (this.pendingPosWrite) await this.pendingPosWrite;
@@ -739,9 +739,9 @@ export class File {
     });
   }
 
-  set Pos(value: number) {
+  set pos(value: number) {
     this.ensureOpen();
-    const target = requireNonNegative(value, "Pos");
+    const target = requireNonNegative(value, "pos");
     const pending = this.enqueue(async () => {
       await this.ready();
       await this.bridge.fileSeek(this.handleId, target, 0, this.options);
@@ -754,20 +754,20 @@ export class File {
    * Always throws: exposing a raw OS HANDLE would break the service's rule
    * that no Win32 handle ever leaves the native layer.
    */
-  get Handle(): number {
+  get handle(): number {
     this.ensureOpen();
     throw new ActionError("unsupported", "raw OS HANDLE exposure is unsupported by policy");
   }
 
   /** This file's encoding. Assigning an unknown name is a synchronous TypeError. */
-  get Encoding(): FileEncoding {
+  get encoding(): FileEncoding {
     this.ensureOpen();
     return this.currentEncoding;
   }
 
-  set Encoding(value: FileEncoding | SessionEncoding | string) {
+  set encoding(value: FileEncoding | SessionEncoding | string) {
     this.ensureOpen();
-    this.currentEncoding = toFileEncoding(value, "Encoding");
+    this.currentEncoding = toFileEncoding(value, "encoding");
   }
 
   // ---- reads --------------------------------------------------------------
@@ -776,8 +776,8 @@ export class File {
    * Reads up to `chars` UTF-16 code units (all remaining when omitted) and
    * advances the position by exactly the bytes those units consumed.
    */
-  async Read(chars?: number): Promise<string> {
-    const units = chars === undefined ? Number.MAX_SAFE_INTEGER : requireNonNegative(chars, "Read(chars?): chars");
+  async read(chars?: number): Promise<string> {
+    const units = chars === undefined ? Number.MAX_SAFE_INTEGER : requireNonNegative(chars, "read(chars?): chars");
     return this.enqueue(async () => {
       await this.ready();
       const stat = await this.bridge.fileStat(this.handleId, this.options);
@@ -801,7 +801,7 @@ export class File {
    * terminator. Returns `""` at end of file and stops after 65535 code units,
    * which is the native stream's line limit.
    */
-  async ReadLine(): Promise<string> {
+  async readLine(): Promise<string> {
     return this.enqueue(async () => {
       await this.ready();
       let text = "";
@@ -859,8 +859,8 @@ export class File {
   }
 
   /** Reads up to `bytes` raw bytes (all remaining when omitted); no decoding. */
-  async RawRead(bytes?: number): Promise<number[]> {
-    const limit = bytes === undefined ? -1 : requireNonNegative(bytes, "RawRead(bytes?): bytes");
+  async readBytes(bytes?: number): Promise<number[]> {
+    const limit = bytes === undefined ? -1 : requireNonNegative(bytes, "readBytes(bytes?): bytes");
     return this.enqueue(async () => {
       await this.ready();
       if (limit >= 0) return this.readUpTo(limit);
@@ -884,32 +884,32 @@ export class File {
   }
 
   /** Reads one unsigned byte. */
-  ReadUChar(): Promise<number> {
+  readUInt8(): Promise<number> {
     return this.fixedRead(1, "uint8");
   }
 
   /** Reads one signed byte. */
-  ReadChar(): Promise<number> {
+  readInt8(): Promise<number> {
     return this.fixedRead(1, "int8");
   }
 
   /** Reads a little-endian signed 16-bit integer. */
-  ReadShort(): Promise<number> {
+  readInt16(): Promise<number> {
     return this.fixedRead(2, "int16");
   }
 
   /** Reads a little-endian unsigned 16-bit integer. */
-  ReadUShort(): Promise<number> {
+  readUInt16(): Promise<number> {
     return this.fixedRead(2, "uint16");
   }
 
   /** Reads a little-endian signed 32-bit integer. */
-  ReadInt(): Promise<number> {
+  readInt32(): Promise<number> {
     return this.fixedRead(4, "int32");
   }
 
   /** Reads a little-endian unsigned 32-bit integer. */
-  ReadUInt(): Promise<number> {
+  readUInt32(): Promise<number> {
     return this.fixedRead(4, "uint32");
   }
 
@@ -917,17 +917,17 @@ export class File {
    * Reads a little-endian signed 64-bit integer. Values outside the double
    * range lose precision - JavaScript has no 64-bit integer number type.
    */
-  ReadInt64(): Promise<number> {
+  readInt64(): Promise<number> {
     return this.fixedRead(8, "int64");
   }
 
   /** Reads a little-endian IEEE-754 single. */
-  ReadFloat(): Promise<number> {
+  readFloat32(): Promise<number> {
     return this.fixedRead(4, "float32");
   }
 
   /** Reads a little-endian IEEE-754 double. */
-  ReadDouble(): Promise<number> {
+  readFloat64(): Promise<number> {
     return this.fixedRead(8, "float64");
   }
 
@@ -937,8 +937,8 @@ export class File {
    * Writes text in this file's encoding and returns the number of bytes
    * written (the BOM of a still-empty file counts).
    */
-  async Write(value: string | number): Promise<number> {
-    const text = textArgument(value, "Write(value)");
+  async write(value: string | number): Promise<number> {
+    const text = textArgument(value, "write(value)");
     return this.enqueue(async () => {
       await this.ready();
       return this.putText(encodeText(text, this.currentEncoding));
@@ -946,11 +946,11 @@ export class File {
   }
 
   /** Writes text plus a `\n` and returns the number of bytes written. */
-  async WriteLine(value?: string | number): Promise<number> {
+  async writeLine(value?: string | number): Promise<number> {
     const text =
       value === undefined
         ? "\n"
-        : textArgument(value, "WriteLine(value?)") + "\n";
+        : textArgument(value, "writeLine(value?)") + "\n";
     return this.enqueue(async () => {
       await this.ready();
       return this.putText(encodeText(text, this.currentEncoding));
@@ -958,9 +958,9 @@ export class File {
   }
 
   /** Writes raw bytes (a string is UTF-8 encoded first); no encoding, no BOM. */
-  async RawWrite(data: string | number[], bytes?: number): Promise<number> {
-    const source = coerceBytes(data, "RawWrite(data, bytes?)");
-    const take = bytes === undefined ? source.length : requireNonNegative(bytes, "RawWrite(data, bytes?): bytes");
+  async writeBytes(data: string | number[], bytes?: number): Promise<number> {
+    const source = coerceBytes(data, "writeBytes(data, bytes?)");
+    const take = bytes === undefined ? source.length : requireNonNegative(bytes, "writeBytes(data, bytes?): bytes");
     const payload = source.slice(0, Math.min(take, source.length));
     return this.enqueue(async () => {
       await this.ready();
@@ -979,51 +979,51 @@ export class File {
     });
   }
 
-  WriteChar(value: number): Promise<number> {
-    requireInteger(value, "WriteChar(value)", -128, 127);
+  writeInt8(value: number): Promise<number> {
+    requireInteger(value, "writeInt8(value)", -128, 127);
     return this.fixedWrite(value, "int8");
   }
 
-  WriteUChar(value: number): Promise<number> {
-    requireInteger(value, "WriteUChar(value)", 0, 255);
+  writeUInt8(value: number): Promise<number> {
+    requireInteger(value, "writeUInt8(value)", 0, 255);
     return this.fixedWrite(value, "uint8");
   }
 
-  WriteShort(value: number): Promise<number> {
-    requireInteger(value, "WriteShort(value)", -32768, 32767);
+  writeInt16(value: number): Promise<number> {
+    requireInteger(value, "writeInt16(value)", -32768, 32767);
     return this.fixedWrite(value, "int16");
   }
 
-  WriteUShort(value: number): Promise<number> {
-    requireInteger(value, "WriteUShort(value)", 0, 65535);
+  writeUInt16(value: number): Promise<number> {
+    requireInteger(value, "writeUInt16(value)", 0, 65535);
     return this.fixedWrite(value, "uint16");
   }
 
-  WriteInt(value: number): Promise<number> {
-    requireInteger(value, "WriteInt(value)", -2147483648, 2147483647);
+  writeInt32(value: number): Promise<number> {
+    requireInteger(value, "writeInt32(value)", -2147483648, 2147483647);
     return this.fixedWrite(value, "int32");
   }
 
-  WriteUInt(value: number): Promise<number> {
-    requireInteger(value, "WriteUInt(value)", 0, 4294967295);
+  writeUInt32(value: number): Promise<number> {
+    requireInteger(value, "writeUInt32(value)", 0, 4294967295);
     return this.fixedWrite(value, "uint32");
   }
 
-  WriteInt64(value: number): Promise<number> {
-    requireInteger(value, "WriteInt64(value)", -MAX_SAFE, MAX_SAFE);
+  writeInt64(value: number): Promise<number> {
+    requireInteger(value, "writeInt64(value)", -MAX_SAFE, MAX_SAFE);
     return this.fixedWrite(value, "int64");
   }
 
-  WriteFloat(value: number): Promise<number> {
+  writeFloat32(value: number): Promise<number> {
     if (typeof value !== "number" || !Number.isFinite(value)) {
-      throw new TypeError("WriteFloat(value): value must be a finite number");
+      throw new TypeError("writeFloat32(value): value must be a finite number");
     }
     return this.fixedWrite(value, "float32");
   }
 
-  WriteDouble(value: number): Promise<number> {
+  writeFloat64(value: number): Promise<number> {
     if (typeof value !== "number" || !Number.isFinite(value)) {
-      throw new TypeError("WriteDouble(value): value must be a finite number");
+      throw new TypeError("writeFloat64(value): value must be a finite number");
     }
     return this.fixedWrite(value, "float64");
   }
@@ -1036,7 +1036,7 @@ export class File {
    * capability) still rejects. `origin` defaults to `SEEK_SET` for a
    * non-negative distance and `SEEK_END` for a negative one.
    */
-  async Seek(distance: number, origin?: number): Promise<boolean> {
+  async seek(distance: number, origin?: number): Promise<boolean> {
     if (typeof distance !== "number" || !Number.isInteger(distance)) {
       throw new TypeError("Seek(distance, origin?): distance must be an integer");
     }
@@ -1072,7 +1072,7 @@ export class File {
   }
 
   /** Closes the handle. Idempotent: closing twice resolves both times. */
-  async Close(): Promise<void> {
+  async close(): Promise<void> {
     return this.enqueue(async () => {
       if (this.isClosed) return;
       this.ensureOpen();
@@ -1100,23 +1100,45 @@ async function storageBridge(): Promise<StorageBridge> {
 
 const DEFAULT_FILE_FILTER = "All Files (*.*)";
 
-export const storage = {
-  /**
-   * Reads a whole file as text using the session encoding.
-   * @throws ActionError with `capability_denied` / `execution_failed`.
-   */
-  read(path: string, options?: ActionOptions): Promise<string> {
-    return runAction(options, (native) =>
-      storageBridge().then((bridge) => bridge.readText(path, native).then((r) => r.text)),
-    );
-  },
-
-  /** Reads a whole file as raw bytes (1 GiB cap). */
-  readBytes(path: string, options?: ActionOptions): Promise<number[]> {
-    return runAction(options, (native) =>
+/**
+ * Reads a whole file. Without `encoding` this resolves raw bytes
+ * (`Uint8Array`, Node's no-encoding form); with an encoding it resolves
+ * text decoded in the session encoding, which must match (set it first
+ * with `setEncoding`). There is no `Buffer` over this bridge and no sync
+ * form: bytes cross as `number[]` and convert locally.
+ */
+async function readFileImpl(path: string, options?: ActionOptions): Promise<Uint8Array>;
+async function readFileImpl(
+  path: string,
+  encoding: SessionEncoding,
+  options?: ActionOptions,
+): Promise<string>;
+async function readFileImpl(
+  path: string,
+  encodingOrOptions?: SessionEncoding | ActionOptions,
+  options?: ActionOptions,
+): Promise<string | Uint8Array> {
+  const encoding = typeof encodingOrOptions === "string" ? encodingOrOptions : undefined;
+  const action = typeof encodingOrOptions === "string" ? options : encodingOrOptions;
+  if (encoding === undefined) {
+    const bytes = await runAction(action, (native) =>
       storageBridge().then((bridge) => bridge.readBytes(path, native).then((r) => r.bytes)),
     );
-  },
+    return new Uint8Array(bytes);
+  }
+  const session = await storage.encoding();
+  if (encoding !== session) {
+    throw new TypeError(
+      `readFile: encoding ${JSON.stringify(encoding)} != session ${JSON.stringify(session)} (set via setEncoding first)`,
+    );
+  }
+  return runAction(action, (native) =>
+    storageBridge().then((bridge) => bridge.readText(path, native).then((r) => r.text)),
+  );
+}
+
+export const storage = {
+  readFile: readFileImpl,
 
   /** Size, last write time, attribute letters and the directory flag. */
   stat(path: string, options?: ActionOptions): Promise<FileInfo> {
@@ -1149,10 +1171,105 @@ export const storage = {
   },
 
   /** Immediate children of a directory; `.` and `..` never appear. */
-  list(path: string, options?: ActionOptions): Promise<DirEntry[]> {
+  readdir(path: string, options?: ActionOptions): Promise<DirEntry[]> {
     return runAction(options, (native) =>
       storageBridge().then((bridge) => bridge.list(path, native).then((r) => r.entries)),
     );
+  },
+
+  /**
+   * Writes a whole file: text goes through one traced `write` action,
+   * bytes through open/write/close. Resolves void like Node; the write
+   * result details stay on the `write()` power API.
+   */
+  async writeFile(path: string, data: string | number[], options?: ActionOptions): Promise<void> {
+    if (typeof data === "string") {
+      await runAction(options, (native) =>
+        storageBridge().then((bridge) => bridge.write({ op: "write", path, text: data }, native)),
+      );
+      return;
+    }
+    const file = await storage.openFile(path, "w", options);
+    try {
+      await file.writeBytes(data);
+    } finally {
+      await file.close();
+    }
+  },
+
+  /** Appends text (single traced action; bytes have no native append op). */
+  appendFile(path: string, text: string, options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      storageBridge().then((bridge) => bridge.write({ op: "append", path, text }, native)),
+    ).then(() => undefined);
+  },
+
+  /** Creates a directory (single level, like Node without `recursive`). */
+  mkdir(path: string, options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      storageBridge().then((bridge) => bridge.write({ op: "mkdir", path }, native)),
+    ).then(() => undefined);
+  },
+
+  /**
+   * Removes a file, or with `recursive` a directory tree. Like Node this
+   * is existence-agnostic only in that a missing path rejects (check with
+   * `exists()` first when that is fine).
+   */
+  rm(path: string, options?: ActionOptions & { recursive?: boolean }): Promise<void> {
+    const { recursive, ...action } = options ?? {};
+    return runAction(action, (native) =>
+      storageBridge().then((bridge) =>
+        bridge.write(
+          recursive === true ? { op: "rmdir", path, recursive: true } : { op: "delete", path },
+          native,
+        ),
+      ),
+    ).then(() => undefined);
+  },
+
+  /** Removes a file (same as `rm()` without `recursive`). */
+  unlink(path: string, options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      storageBridge().then((bridge) => bridge.write({ op: "delete", path }, native)),
+    ).then(() => undefined);
+  },
+
+  /** Copies a file; `overwrite` defaults to false. */
+  copyFile(
+    src: string,
+    dst: string,
+    options?: ActionOptions & { overwrite?: boolean },
+  ): Promise<void> {
+    const { overwrite, ...action } = options ?? {};
+    return runAction(action, (native) =>
+      storageBridge().then((bridge) =>
+        bridge.write({ op: "copy", src, dst, overwrite: overwrite ?? false }, native),
+      ),
+    ).then(() => undefined);
+  },
+
+  /** Moves/renames a file or directory. */
+  rename(oldPath: string, newPath: string, options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      storageBridge().then((bridge) =>
+        bridge.write({ op: "move", src: oldPath, dst: newPath }, native),
+      ),
+    ).then(() => undefined);
+  },
+
+  /**
+   * True when `stat()` succeeds. Like Node's own guidance this is a
+   * convenience with a TOCTOU caveat, not a lock: prefer attempting the
+   * operation and handling the rejection.
+   */
+  async exists(path: string, options?: ActionOptions): Promise<boolean> {
+    try {
+      await storage.stat(path, options);
+      return true;
+    } catch {
+      return false;
+    }
   },
 
   /** Reads an environment variable; an unset name reads back `""`. */

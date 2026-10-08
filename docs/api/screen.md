@@ -27,7 +27,7 @@ type ScreenPixelSearchResult = { found: false } | { found: true; x: number; y: n
 type ScreenCaretResult = { found: false } | { found: true; x: number; y: number };
 interface ScreenPixelSearchOptions extends ActionOptions { variation?: number; }
 interface ScreenMonitor {
-  index: number;    // 1-based, EnumDisplayMonitors 顺序
+  index: number;    // 0-based, EnumDisplayMonitors 顺序（SDK 面；native 线规保持 1-based，见下）
   primary: boolean;
   name: string;     // 设备名，如 \\.\DISPLAY1
   bounds: ScreenRect; // 整屏，含被任务栏遮住的部分
@@ -132,7 +132,9 @@ JS 边界的坐标与计数都是**虚拟桌面像素**（`rcMonitor`/`rcWork` �
 - **用 `EnumDisplayMonitors` 而不是 `SM_CMONITORS`**：`GetSystemMetrics(SM_CMONITORS)` 计数与 `EnumDisplayMonitors(NULL,NULL,…)` 在有 pseudo-monitor 时不保证一致（`engine/win32/js/src/env.cpp:143` 的既有注释记录了这个陷阱）。AHK 自己也在 `EnumForMonitorGet` 里同时提供"计数"与"取第 n 个"两种模式，本实现统一走枚举，计数与取值天然自洽。
 - **一次枚举覆盖四条 AHK 命令**：AHK 每条命令各开一次枚举，所以 `MonitorGetCount` 与 `MonitorGet(1)` 之间可能看到不同的热插拔结果。本实现的 `monitor()` 返回整条记录，一次调用拿到 bounds/work/name/primary，四个字段必然同源；代价是"我只想要名字"也会拿回全套矩形——这是无害的多余信息，不值得为此拆成四个 native 函数。
 - **省略 index = 主屏，而不是 = index 1**：与 AHK 的 `MonitorGet`（省略参数时取 primary）保持一致，`MonitorGetPrimary` 因此不需要独立 API。显式 `index === 0` 与省略等价，都是"按 primary 标志找"。
-- **index 是 1-based 且按枚举序**：对齐 AHK 的 `MonitorGet MonitorNum`，而不是换成 0-based 自创约定；0 保留给"primary"这个特殊语义，与 AHK 的 `MonitorGetPrimary` 语义一致。
+- **SDK 面 index 是 0-based，null/省略 = primary**：native 线规保持 1-based
+ （`monitor_at(0)` 按 primary 标志找，见上），翻译只发生在 SDK 边界，应用代码
+  永不见 wire 编号。`index` 越界由 native 拒绝 `invalid_contract`。
 - **不施加 deadline**：见"异步/取消"。只读、单次、不可中断的 OS 调用给出 deadline 只会是假承诺，与 `registry.read` 的既有豁免同源。
 - **不进 Trace**：见"Trace"。本 runtime 把 Trace 绑定在可检查的副作用上，读屏信息没有副作用可回放。
 

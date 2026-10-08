@@ -83,26 +83,39 @@ test("msgBox passes only the text when the caller gave no options", async () => 
   expect(msgCalls).toStrictEqual([["hello", {}]]);
 });
 
-test("msgBox splits the AHK feature keys from the shared action options", async () => {
-  const options = { title: "T", buttons: 4 as const, icon: 0x20 as const, timeout: 0.5, deadlineMs: 250 };
+test("msgBox splits the dialog keys from the shared action options", async () => {
+  const options = { title: "T", buttons: "yes-no" as const, icon: "warning" as const, timeout: 0.5, deadlineMs: 250 };
   await expect(ui.msgBox("yes/no", options)).resolves.toBe("Timeout");
   expect(msgCalls).toStrictEqual([
-    ["yes/no", { title: "T", buttons: 4, icon: 0x20, timeout: 0.5, deadlineMs: 250 }],
+    ["yes/no", { title: "T", buttons: 4, icon: 0x30, timeout: 0.5, deadlineMs: 250 }],
   ]);
   // The caller's options object is not mutated by the split.
   expect(options).toStrictEqual({
     title: "T",
-    buttons: 4,
-    icon: 0x20,
+    buttons: "yes-no",
+    icon: "warning",
     timeout: 0.5,
     deadlineMs: 250,
   });
 });
 
+test("msgBox rejects unknown buttons/icon/defaultIndex before the bridge runs", async () => {
+  expect(() => ui.msgBox("x", { buttons: "nope" as never })).toThrow(TypeError);
+  expect(() => ui.msgBox("x", { icon: "nope" as never })).toThrow(TypeError);
+  expect(() => ui.msgBox("x", { defaultIndex: -1 })).toThrow(TypeError);
+  expect(() => ui.msgBox("x", { defaultIndex: 1.5 })).toThrow(TypeError);
+  expect(msgCalls).toEqual([]);
+});
+
 test("an explicitly undefined feature stays an absent key", async () => {
-  await ui.msgBox("x", { title: undefined, buttons: 1 });
+  await ui.msgBox("x", { title: undefined, buttons: "ok" });
   // toStrictEqual: `title: undefined` must not reach the bridge as a key.
-  expect(msgCalls[0][1]).toStrictEqual({ buttons: 1 });
+  expect(msgCalls[0][1]).toStrictEqual({ buttons: 0 });
+});
+
+test("msgBox translates 0-based defaultIndex to the wire", async () => {
+  await ui.msgBox("x", { defaultIndex: 0 });
+  expect(msgCalls).toStrictEqual([["x", { defaultIndex: 1 }]]);
 });
 
 test("inputBox forwards the prompt, the feature keys and the outcome", async () => {
@@ -118,19 +131,23 @@ test("inputBox with no prompt still reaches the bridge as an absent argument", a
   expect(inputCalls).toStrictEqual([[undefined, { timeout: 1 }]]);
 });
 
-test("toolTip resolves undefined to the caller and keeps x/y/index out of the action options", async () => {
+test("toolTip translates the 0-based slot and rejects out-of-range", async () => {
   await expect(ui.toolTip("tip", { x: 10, y: 20, index: 2, cancellationId: 7 })).resolves.toBe(
     undefined,
   );
-  expect(tipCalls).toStrictEqual([["tip", { x: 10, y: 20, index: 2, cancellationId: 7 }]]);
+  // Slot 2 on the surface reaches the wire as slot 3.
+  expect(tipCalls).toStrictEqual([["tip", { x: 10, y: 20, index: 3, cancellationId: 7 }]]);
+  expect(() => ui.toolTip("tip", { index: 20 })).toThrow(TypeError);
+  expect(() => ui.toolTip("tip", { index: -1 })).toThrow(TypeError);
 });
 
-test("traySetIcon keeps freeze: false rather than treating it as absent", async () => {
+test("traySetIcon translates the 0-based icon number", async () => {
   // freeze:false is a deliberate unfreeze: the native side keys off the
   // property's presence, so a facade that dropped false would silently
   // turn it into "freeze was never given".
-  await ui.traySetIcon("C:\\tmp\\a.ico", { iconNumber: 2, freeze: false });
+  await ui.traySetIcon("C:\\tmp\\a.ico", { iconNumber: 1, freeze: false });
   expect(iconCalls).toStrictEqual([["C:\\tmp\\a.ico", { iconNumber: 2, freeze: false }]]);
+  expect(() => ui.traySetIcon("C:\\tmp\\a.ico", { iconNumber: -1 })).toThrow(TypeError);
 });
 
 test("traySetIcon with no options forwards an empty options object", async () => {
@@ -140,9 +157,10 @@ test("traySetIcon with no options forwards an empty options object", async () =>
 
 test("trayTip forwards title/icon/mute and resolves undefined", async () => {
   await expect(
-    ui.trayTip("body", { title: "T", icon: 0x40, mute: true, deadlineMs: 50 }),
+    ui.trayTip("body", { title: "T", icon: "info", mute: true, deadlineMs: 50 }),
   ).resolves.toBe(undefined);
   expect(balloonCalls).toStrictEqual([["body", { title: "T", icon: 0x40, mute: true, deadlineMs: 50 }]]);
+  expect(() => ui.trayTip("body", { icon: "nope" as never })).toThrow(TypeError);
 });
 
 test("a coded bridge rejection becomes an ActionError with that code", async () => {
