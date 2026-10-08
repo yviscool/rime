@@ -14,6 +14,7 @@ type AddCall = [string, string | undefined, unknown, NativeActionOptions | undef
 let addCalls: AddCall[] = [];
 let showCalls: Array<string | undefined> = [];
 let destroyCalls = 0;
+let eventCalls: Array<[string, unknown, unknown]> = [];
 
 const madeControl: GuiControlNative = {
   Name: "ok",
@@ -44,7 +45,10 @@ const madeGui: GuiNative = {
   Hide: async () => undefined,
   Move: async () => undefined,
   Submit: async () => ({ ok: "pressed" }),
-  OnEvent: async () => undefined,
+  OnEvent: async (name: string, fn: unknown, addRemove?: number) => {
+    eventCalls.push([name, fn, addRemove]);
+    return undefined;
+  },
   GetPos: async () => ({ x: 10, y: 20, width: 300, height: 200 }),
 };
 
@@ -64,6 +68,7 @@ beforeEach(() => {
   addCalls = [];
   showCalls = [];
   destroyCalls = 0;
+  eventCalls = [];
   createArgs = [];
 });
 
@@ -75,6 +80,30 @@ test("create resolves a Gui; add routes kind/options/content", async () => {
   expect(control.type).toBe("Button");
   expect(control.classNN).toBe("Button1");
   expect(addCalls).toStrictEqual([["Button", "x10 y20", "OK", undefined]]);
+});
+
+test("structured options compile to the wire string; bad shapes throw first", async () => {
+  const gui = await Gui.create();
+  await gui.addEdit({ x: 10, y: 20, w: 200, name: "MyEdit" }, "seed");
+  await gui.addCheckBox({ hidden: true, disabled: false });
+  expect(addCalls).toStrictEqual([
+    ["Edit", "x10 y20 w200 vMyEdit", "seed", undefined],
+    ["CheckBox", "+Hidden -Disabled", undefined, undefined],
+  ]);
+  expect(() => gui.addText({ x: 1.5 })).toThrow(TypeError);
+  expect(() => gui.addText({ name: "" })).toThrow(TypeError);
+  expect(addCalls).toHaveLength(2);
+});
+
+test("offEvent removes by reference where onEvent hides the slot", async () => {
+  const gui = await Gui.create();
+  const fn = () => undefined;
+  await gui.onEvent("Close", fn);
+  await gui.offEvent("Close", fn);
+  expect(eventCalls).toStrictEqual([
+    ["Close", fn, undefined],
+    ["Close", fn, 0],
+  ]);
 });
 
 test("generic add passes the kind through untouched", async () => {

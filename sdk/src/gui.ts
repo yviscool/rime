@@ -19,13 +19,23 @@ export interface GuiBounds {
 
 /** Native `Gui` object shape (subset used by this facade). */
 export interface GuiNative {
-  Add(type: string, options?: string, content?: unknown, action?: NativeActionOptions): Promise<GuiControlNative>;
+  Add(
+    type: string,
+    options?: string,
+    content?: unknown,
+    action?: NativeActionOptions,
+  ): Promise<GuiControlNative>;
   Destroy(action?: NativeActionOptions): Promise<unknown>;
   Show(options?: string, action?: NativeActionOptions): Promise<unknown>;
   Hide(action?: NativeActionOptions): Promise<unknown>;
   Move(x: number, y: number, w?: number, h?: number, action?: NativeActionOptions): Promise<unknown>;
   Submit(action?: NativeActionOptions): Promise<Record<string, unknown>>;
-  OnEvent(name: string, fn: (target: unknown, ...args: unknown[]) => void, action?: NativeActionOptions): Promise<unknown>;
+  OnEvent(
+    name: string,
+    fn: (target: unknown, ...args: unknown[]) => void,
+    addRemove?: number,
+    action?: NativeActionOptions,
+  ): Promise<unknown>;
   GetPos(action?: NativeActionOptions): Promise<GuiBounds>;
 }
 
@@ -52,6 +62,49 @@ async function createGuiBridge(): Promise<{
   };
 }
 
+/** Structured control options, compiled to the wire option string at the boundary. */
+export interface GuiAddOptions {
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  hidden?: boolean;
+  disabled?: boolean;
+  /** Submit key name (wire `vName`; the `v` sigil never appears here). */
+  name?: string;
+}
+
+/** Validates structured options and compiles the wire string. */
+function compileAddOptions(options: GuiAddOptions | string | undefined, fn: string): string | undefined {
+  if (options === undefined) return undefined;
+  if (typeof options === "string") return options;
+  if (typeof options !== "object") {
+    throw new TypeError(`${fn}: options must be an object or string, got ${String(options)}`);
+  }
+  const parts: string[] = [];
+  const coord = (key: "x" | "y" | "w" | "h"): void => {
+    const value = options[key];
+    if (value === undefined) return;
+    if (!Number.isInteger(value)) {
+      throw new TypeError(`${fn}: options.${key} must be an integer, got ${String(value)}`);
+    }
+    parts.push(`${key}${value}`);
+  };
+  coord("x");
+  coord("y");
+  coord("w");
+  coord("h");
+  if (options.hidden !== undefined) parts.push(options.hidden ? "+Hidden" : "-Hidden");
+  if (options.disabled !== undefined) parts.push(options.disabled ? "+Disabled" : "-Disabled");
+  if (options.name !== undefined) {
+    if (typeof options.name !== "string" || options.name === "") {
+      throw new TypeError(`${fn}: options.name must be a non-empty string`);
+    }
+    parts.push(`v${options.name}`);
+  }
+  return parts.length === 0 ? undefined : parts.join(" ");
+}
+
 /** A resolved Gui window handle. */
 export class Gui {
   private constructor(private readonly native: GuiNative) {}
@@ -65,44 +118,50 @@ export class Gui {
 
   private addKind(
     kind: string,
-    options?: string,
+    options?: GuiAddOptions | string,
     content?: unknown,
     action?: ActionOptions,
   ): Promise<GuiControl> {
+    const wire = compileAddOptions(options, "Gui.add");
     return runAction(action, (native) =>
       this.native
-        .Add(kind, options, content, native)
+        .Add(kind, wire, content, native)
         .then((control) => new GuiControl(control)),
     );
   }
 
-  /** Generic constructor; `AddButton` and friends are sugar over this. */
-  add(type: string, options?: string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
+  /** Generic constructor; `addButton` and friends are sugar over this. */
+  add(
+    type: string,
+    options?: GuiAddOptions | string,
+    content?: unknown,
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
     return this.addKind(type, options, content, action);
   }
 
-  addButton(options?: string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
+  addButton(options?: GuiAddOptions | string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
     return this.addKind("Button", options, content, action);
   }
-  addCheckBox(options?: string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
+  addCheckBox(options?: GuiAddOptions | string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
     return this.addKind("CheckBox", options, content, action);
   }
-  addEdit(options?: string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
+  addEdit(options?: GuiAddOptions | string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
     return this.addKind("Edit", options, content, action);
   }
-  addGroupBox(options?: string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
+  addGroupBox(options?: GuiAddOptions | string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
     return this.addKind("GroupBox", options, content, action);
   }
-  addPicture(options?: string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
+  addPicture(options?: GuiAddOptions | string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
     return this.addKind("Picture", options, content, action);
   }
-  addProgress(options?: string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
+  addProgress(options?: GuiAddOptions | string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
     return this.addKind("Progress", options, content, action);
   }
-  addRadio(options?: string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
+  addRadio(options?: GuiAddOptions | string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
     return this.addKind("Radio", options, content, action);
   }
-  addText(options?: string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
+  addText(options?: GuiAddOptions | string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
     return this.addKind("Text", options, content, action);
   }
 
@@ -130,7 +189,17 @@ export class Gui {
     options?: ActionOptions,
   ): Promise<void> {
     return runAction(options, (native) =>
-      this.native.OnEvent(name, fn, native).then(() => undefined),
+      this.native.OnEvent(name, fn, undefined, native).then(() => undefined),
+    );
+  }
+  /** Removes one registration installed by `onEvent` (wire addRemove 0). */
+  offEvent(
+    name: string,
+    fn: (target: unknown, ...args: unknown[]) => void,
+    options?: ActionOptions,
+  ): Promise<void> {
+    return runAction(options, (native) =>
+      this.native.OnEvent(name, fn, 0, native).then(() => undefined),
     );
   }
   getPos(options?: ActionOptions): Promise<GuiBounds> {
