@@ -13,6 +13,7 @@ add_library(rime_win32 STATIC
   src/window_seam.cpp
   src/control_executor.cpp
   src/input.cpp
+  src/input_probe.cpp
   src/input_executor.cpp
   src/process.cpp
   src/process_executor.cpp
