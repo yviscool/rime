@@ -176,12 +176,33 @@ if (WIN32 AND TARGET rime_win32_js)
   # tooltip windows and the real tray icon, plus the capability-less gate.
   # Needs the same interactive desktop as the bundle/window tests.
   add_executable(rime_ui_slice ui_slice.cpp)
+  # Same manifest as rime_host: ToolTip, MsgBox/InputBox and the tray paths
+  # this slice proves at L5 must run in the configuration the host ships.
+  rime_embed_comctl32_v6(rime_ui_slice)
   target_link_libraries(rime_ui_slice PRIVATE rime_js rime_win32_js rime_test_support)
   target_compile_features(rime_ui_slice PRIVATE cxx_std_20)
   if (MINGW)
     target_link_options(rime_ui_slice PRIVATE -static-libstdc++ -static-libgcc)
   endif()
   add_test(NAME quickjs_ui_slice COMMAND rime_ui_slice)
+
+  # M6 batch 2: the Gui/GuiControl object family behind rime:ui. Real window
+  # materialization, real Win32 cross-checks (GetWindowTextW / GetWindowRect
+  # against the mirror), Resize and Close driven by this test's own
+  # SetWindowPos and PostMessageW, and the Destroy / capability teardown
+  # paths. Same interactive desktop requirement as the ui/window slices.
+  add_executable(rime_gui_object_slice gui_object_slice.cpp)
+  # ComCtl32 v6 for this process: EM_SETCUEBANNER (GuiControl.SetCue) is
+  # only honoured when the host declares it, so the slice has to run in the
+  # same manifest the production host ships or the cue observation below
+  # would be measuring nothing.
+  rime_embed_comctl32_v6(rime_gui_object_slice)
+  target_link_libraries(rime_gui_object_slice PRIVATE rime_js rime_win32_js rime_test_support)
+  target_compile_features(rime_gui_object_slice PRIVATE cxx_std_20)
+  if (MINGW)
+    target_link_options(rime_gui_object_slice PRIVATE -static-libstdc++ -static-libgcc)
+  endif()
+  add_test(NAME quickjs_gui_object_slice COMMAND rime_gui_object_slice)
 
   add_executable(rime_storage_slice storage_slice.cpp)
   target_link_libraries(rime_storage_slice PRIVATE rime_js rime_win32_js rime_test_support ole32)
