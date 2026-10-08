@@ -122,6 +122,8 @@ ahk  send->hook    p50=29us   p99=273us   received=200/200 reordered=0
 
 - **AHK 赢约 10 倍，认。** Rime 路径上多了批量串行化、marker 打标、
   hook 线程排队三道工序——这是 self/foreign 区分能力的标价，不是噪声。
+- **2026-10-08 修订**：本 run 的 285us 在同机复测中不再现（见 Run H）。
+  保留原文不改写；当前结论以 Run H 为准。
 - 探针副产品（已写入 scenario.json caveats）：AHK OnKeyDown 只对
   KeyOpt N 注册的键触发；F13-F24/Shift 到不了它，只有字符键行；
   离屏窗口任何模式都收不到字符（Edit 恒空），完整性只能靠 hook
@@ -145,3 +147,34 @@ ahk.cold-spawn-to-first-line p50=20ms  （含 CreateProcess，不含轮询量子
 - Rime 侧：JS 解析层真实存在（`events_module.cpp` Hotstring 解析 +
   `sdk/src/input` types），端到端（键入 → 展开）基准待建。
 - 在端到端跑通前，热字串不进对照表。
+
+## Run 2026-10-08-H（发键延迟重测 + 六层分解，非基线）
+
+- 同机器 loaded 桌面；Rime 为 query 当日 HEAD（含 `input_probe`），
+  Debug（seamcheck）与 Release（bench-release，mingw `-O2`）双跑；
+  AHK 2.0.28 同机背靠背（`send-latency.ahk 100`）。
+- 命令：`rime_bench --input-latency 100`（F24 down+up，probe 每迭代 arm）。
+
+```
+rime headline      p50=53~91us  p99=169~314us   (两次运行间漂移，见下)
+rime service       p50=2~9us    (validate+build+marker)
+rime inject        p50=169~248us (SendInput syscall 本体；与回调重叠，见下)
+rime traverse      p50=15~18us  (OS 遍历：RIT + hook 链)
+rime hook          p50=2us      (proc + enqueue：无可砍之处)
+rime queue         p50=37~65us  (pump 唤醒 + 投递：调度方差主导)
+ahk  send->hook    p50=31us     p99=176us       (复现 Run F 的 29us)
+```
+
+- Run F 的 285us 不再现：当日数应为负载/代码期 artifact，如实降级为
+  历史记录（原文保留 + 修订注记），不再作为差距依据。
+- 关键结构发现：multicore 下回调 routinely 落在 SendInput 返回**之前**
+  （callback p50 69us < SendInput 时长 p50 169us+），故跨线程首尾相减
+  会得出负数——分层必须用因果有序的内部戳点（`input_probe.hpp` 注释
+  有完整论证），禁止拿 headline 减 send-side。
+- 自洽校验：service + traverse + hook + queue ≈ headline（7.7 + 14.7 +
+  2.4 + 37.1 ≈ 62 vs 68.7，余量为回调尾 + prep 0.1us）。
+- 结论：p50 差距约 1.7x，p99 基本持平；残差主体是 pump 线程唤醒的调度
+  方差（37~65us 随桌面负载漂移，两次运行 literal 不同），即“绝不在
+  hook 线程跑脚本”架构决策的标价。proc/服务侧无可砍的肥肉（hook 2us
+  证明了三道 GetAsyncKeyState 也淹没在噪声里），故本次**不做优化改动**，
+  只立回归线（SPEC §4.5）：后续凡动 hook/pump 路径，先出六列数据再谈。

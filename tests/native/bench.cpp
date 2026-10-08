@@ -38,6 +38,7 @@
 #include "rime/core/trace.hpp"
 #include "rime/core/worker.hpp"
 #include "rime/win32/input.hpp"
+#include "rime/win32/input_probe.hpp"
 #include "rime/win32/window.hpp"
 #include "rime/win32/clipboard.hpp"
 #include "rime/win32/window_executor.hpp"
@@ -1338,10 +1339,23 @@ int run_input_latency(const int count) {
   }
 
   int failures = 0;
+  int incomplete = 0;
+  std::vector<std::int64_t> prep_ns;      // bench lock + timestamp (loop overhead floor)
+  std::vector<std::int64_t> service_ns;   // send_entry -> pre_inject (validate+build+mark)
+  std::vector<std::int64_t> inject_ns;    // pre_inject -> post_inject (SendInput syscall)
+  std::vector<std::int64_t> traverse_ns;  // pre_inject -> hook_entry (OS traversal)
+  std::vector<std::int64_t> hook_ns;      // hook_entry -> enqueue_done (proc + queue)
+  std::vector<std::int64_t> queue_ns;     // enqueue_done -> deliver (pump wake + wait)
   for (int index = 0; index < count; ++index) {
     {
       std::lock_guard lock(mutex);
       injected_ns = now_ns();
+    }
+    const std::int64_t t_prep = now_ns();
+    rime::win32::input_probe::clear();
+    if (!rime::win32::input_probe::arm(VK_F24)) {
+      ++failures;
+      break;
     }
     if (!service.send({{VK_F24, true}, {VK_F24, false}}).ok()) {
       ++failures;
@@ -1353,6 +1367,22 @@ int run_input_latency(const int count) {
       ++failures;
       break;
     }
+    lock.unlock();
+    prep_ns.push_back(t_prep - injected_ns);
+    rime::win32::input_probe::Stages stages;
+    if (!rime::win32::input_probe::read(stages) || stages.deliver_ns == 0 ||
+        stages.hook_entry == 0) {
+      // A foreign event stole a first-match stamp, or a stage never ran:
+      // count it, keep the headline sample, skip the layers for this iter.
+      ++incomplete;
+      continue;
+    }
+    const auto ns = [](std::uint64_t v) { return static_cast<std::int64_t>(v); };
+    service_ns.push_back(ns(stages.pre_inject) - ns(stages.send_entry));
+    inject_ns.push_back(ns(stages.post_inject) - ns(stages.pre_inject));
+    traverse_ns.push_back(ns(stages.hook_entry) - ns(stages.pre_inject));
+    hook_ns.push_back(ns(stages.enqueue_done) - ns(stages.hook_entry));
+    queue_ns.push_back(ns(stages.deliver_ns) - ns(stages.enqueue_done));
   }
   (void)service.unsubscribe(subscription);
   service.stop();
@@ -1366,8 +1396,22 @@ int run_input_latency(const int count) {
   if (received != count) {
     return fail("input event accounting");
   }
+  // Hoisted: argument evaluation order is unspecified, so sizes must be
+  // read before the moves below empty the vectors.
+  const std::size_t layer_n = service_ns.size();
+  if (incomplete != 0) {
+    std::fprintf(stderr, "rime_bench: input layers incomplete for %d of %d iters\n",
+                 incomplete, count);
+  }
   report("input.inject->hook callback", static_cast<std::size_t>(count),
          compute_stats(std::move(samples), 0));
+  const std::size_t prep_n = prep_ns.size();
+  report("input.prep", prep_n, compute_stats(std::move(prep_ns), 0));
+  report("input.service", layer_n, compute_stats(std::move(service_ns), 0));
+  report("input.inject", layer_n, compute_stats(std::move(inject_ns), 0));
+  report("input.traverse", layer_n, compute_stats(std::move(traverse_ns), 0));
+  report("input.hook", layer_n, compute_stats(std::move(hook_ns), 0));
+  report("input.queue", layer_n, compute_stats(std::move(queue_ns), 0));
   return 0;
 }
 

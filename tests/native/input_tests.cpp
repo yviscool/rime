@@ -10,6 +10,7 @@
 #include "rime/win32/input.hpp"
 
 #include "rime/win32/input_seam.hpp"
+#include "rime/win32/input_probe.hpp"
 
 #include <windows.h>
 
@@ -98,6 +99,17 @@ using rime::win32::MouseAction;
 
 int main() {
   InputService service;
+
+  // Latency probe starts disarmed (zero hot-path tax: one relaxed load per
+  // stage) and arms exactly once; bench owns the armed passes.
+  {
+    rime::win32::input_probe::Stages stages{};
+    assert(!rime::win32::input_probe::read(stages));
+    assert(rime::win32::input_probe::arm(VK_F24));
+    assert(!rime::win32::input_probe::arm(VK_F24));
+    rime::win32::input_probe::clear();
+    assert(!rime::win32::input_probe::read(stages));
+  }
 
   // Work before start is rejected.
   assert(service.subscribe([](const InputEvent&) {}) == 0);

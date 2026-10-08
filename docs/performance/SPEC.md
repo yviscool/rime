@@ -48,8 +48,13 @@ L0（纯语言循环对比）只作参考，不作结论：Rime 用 QuickJS，
 4. 快、稳、省三角：latency、throughput、resources 三项同时报告，
    不接受以内存换延迟的单项胜利。
 5. 输入延迟回归线（P0-2）：`input.inject->hook` 与 AHK `send->hook`
-   同机双跑并记录差距；当前 Rime 约慢 10 倍（串行化 + marker +
-   hook 排队三道工序），任何使差距扩大的改动必须在评审中解释。
+   同机双跑并记录差距；每次 `--input-latency` 必须附带同次运行的六列分层
+   （`input.prep/service/inject/traverse/hook/queue`，见 `input_probe.hpp`）。
+   当前（Run 2026-10-08-H）：Rime p50 ≈ AHK × 1.7，p99 基本持平；分层显示
+   service ≈ 2~9us、hook ≈ 2us（proc+enqueue 无可砍之处），差距主体是
+   pump 线程唤醒的调度方差（`input.queue` p50 37~65us，随桌面负载漂移）——
+   这是“绝不在 hook 线程跑脚本”架构决策的标价，不是待修的肥肉；任何改动
+   hook/pump 路径的优化必须先出分层数据再谈。
 6. 冷启动下限线（P0-2）：进程内 `js.abi.load+execute` 是 host 进程级
    启动时间的下限，禁止与 AHK 进程数直接对照；每次报告同时给出
    `js.abi.load+execute` 与 `quickjs.new+free` / `host.create+destroy`

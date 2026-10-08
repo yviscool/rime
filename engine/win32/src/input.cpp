@@ -1,5 +1,6 @@
 #include "rime/win32/input.hpp"
 
+#include "rime/win32/input_probe.hpp"
 #include "rime/win32/input_seam.hpp"
 
 #include <windows.h>
@@ -228,6 +229,7 @@ struct InputService::Impl {
     }
     // The delivery loop drains pending only when GetMessage returns; wake it.
     if (hook_thread != 0) PostThreadMessageW(hook_thread, kWakeMessage, 0, 0);
+    rime::win32::input_probe::internal::on_enqueue_done();
   }
 
   // Appends one history row (mutex held): key events always, mouse buttons
@@ -271,6 +273,12 @@ struct InputService::Impl {
       std::lock_guard lock(mutex);
       batch.swap(pending);
       targets.assign(entries.begin(), entries.end());
+    }
+    for (const auto& event : batch) {
+      if (event.kind == InputEventKind::Key) {
+        rime::win32::input_probe::internal::on_deliver(event.vk, event.key_down,
+                                                       event.self_injected);
+      }
     }
     for (const auto& event : batch) {
       for (const auto& entry : targets) {
@@ -401,6 +409,7 @@ LRESULT CALLBACK InputService::Impl::keyboard_proc(const int code, const WPARAM 
         event.control = async_key_down(VK_CONTROL);
         event.shift = async_key_down(VK_SHIFT);
         event.super = async_key_down(VK_LWIN) || async_key_down(VK_RWIN);
+        rime::win32::input_probe::internal::on_hook_event(event.vk, down, event.self_injected);
         self->enqueue(event);
         if (data->vkCode < 256) {
           self->physical[static_cast<std::size_t>(data->vkCode)].store(down);
@@ -727,6 +736,7 @@ bool InputService::mouse_hook_installed() const {
 }
 
 rime::core::Error InputService::send(const std::vector<SendKeyEvent>& keys) {
+  rime::win32::input_probe::internal::on_send_entry();
   if (keys.empty()) {
     return {rime::core::Error::Code::InvalidContract, "send requires at least one key step"};
   }
@@ -777,8 +787,10 @@ rime::core::Error InputService::send(const std::vector<SendKeyEvent>& keys) {
     input.ki.dwExtraInfo = extra_info;
     inputs.push_back(input);
   }
+  rime::win32::input_probe::internal::on_pre_inject();
   const UINT sent = g_send_input.load(std::memory_order_acquire)(
       static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+  rime::win32::input_probe::internal::on_post_inject();
   if (sent != inputs.size()) {
     return {rime::core::Error::Code::ExecutionFailed,
             "SendInput injected " + std::to_string(sent) + " of " +
