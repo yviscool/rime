@@ -193,6 +193,34 @@ export class Gui {
   ): Promise<GuiControl> {
     return this.addKind("DropDownList", options, content, action);
   }
+  addDateTime(
+    options?: GuiAddOptions | string,
+    content?: string,
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("DateTime", options, content, action);
+  }
+  addMonthCal(
+    options?: GuiAddOptions | string,
+    content?: string,
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("MonthCal", options, content, action);
+  }
+  addSlider(
+    options?: GuiAddOptions | string,
+    content?: number,
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("Slider", options, content, action);
+  }
+  addUpDown(
+    options?: GuiAddOptions | string,
+    content?: number,
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("UpDown", options, content, action);
+  }
 
   destroy(options?: ActionOptions): Promise<void> {
     return runAction(options, (native) =>

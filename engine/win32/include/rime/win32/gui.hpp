@@ -161,7 +161,12 @@ class GuiService {
     // vs ComboBox CBS_DROPDOWN); AddDDL is a ledger alias for it, not a kind.
     ListBox,
     ComboBox,
-    DropDownList
+    DropDownList,
+    // M6 batch 3a wave 2: date and slider families. No aliases here.
+    DateTime,
+    MonthCal,
+    Slider,
+    UpDown
   };
 
   // Event-interest bits shared with the JS-side registration table

@@ -58,6 +58,8 @@
 
 #include <windows.h>
 
+#include <commctrl.h>
+
 #include <chrono>
 #include <cstdio>
 #include <string>
@@ -944,6 +946,77 @@ int main() {
         "  throw new Error('Change must fire once with the list as target: ' +\n"
         "                  JSON.stringify(globalThis.wv.change));\n",
         "gui-object-list-change.mjs");
+
+  // ---- S9c: batch-3a date/slider family ----------------------------------
+  // DateTime/MonthCal take YYYYMMDD strings, Slider/UpDown take 0..100
+  // numbers; readback is OS messages (DTM_GETSYSTEMTIME/MCM_GETCURSEL/
+  // TBM_GETPOS/UDM_GETPOS32) plus the JS Value reads through the new
+  // read_value branches.
+  check(runtime,
+        "const g = globalThis.g;\n"
+        "globalThis.wd = {};\n"
+        "globalThis.track(globalThis.wd, 'date',\n"
+        "  g.AddDateTime('x10 y460 w200', '20261008'));\n"
+        "globalThis.track(globalThis.wd, 'month',\n"
+        "  g.AddMonthCal('x10 y500 w220 h160', '20260228'));\n"
+        "globalThis.track(globalThis.wd, 'badDate',\n"
+        "  g.AddMonthCal('x10 y500 w220 h160', '20260229'));\n"
+        "globalThis.track(globalThis.wd, 'slider', g.AddSlider('x10 y680 w200', 42));\n"
+        "globalThis.track(globalThis.wd, 'updown', g.AddUpDown('x220 y680 w40', 7));\n",
+        "gui-object-date-create.mjs");
+  require_ok(runtime.settle(10000ms), "date create settle");
+  check(runtime,
+        "const wd = globalThis.wd;\n"
+        "if (wd.date.Type !== 'DateTime') throw new Error('date Type: ' + wd.date.Type);\n"
+        "if (wd.month.Type !== 'MonthCal') throw new Error('month Type: ' + wd.month.Type);\n"
+        "if (wd.badDate === null || typeof wd.badDate !== 'object' ||\n"
+        "    wd.badDate.code !== 'invalid_contract')\n"
+        "  throw new Error('Feb 29 2026 must refuse invalid_contract: ' +\n"
+        "                  JSON.stringify(wd.badDate));\n"
+        "if (wd.slider.Type !== 'Slider') throw new Error('slider Type: ' + wd.slider.Type);\n"
+        "if (wd.updown.Type !== 'UpDown') throw new Error('updown Type: ' + wd.updown.Type);\n"
+        "globalThis.track(globalThis.wd, 'dateValue', wd.date.Value);\n"
+        "globalThis.track(globalThis.wd, 'monthValue', wd.month.Value);\n"
+        "globalThis.track(globalThis.wd, 'sliderValue', wd.slider.Value);\n"
+        "globalThis.track(globalThis.wd, 'updownValue', wd.updown.Value);\n",
+        "gui-object-date-types.mjs");
+  require_ok(runtime.settle(10000ms), "date value settle");
+  check(runtime,
+        "const wd = globalThis.wd;\n"
+        "if (wd.dateValue !== '20261008')\n"
+        "  throw new Error('date Value: ' + JSON.stringify(wd.dateValue));\n"
+        "if (wd.monthValue !== '20260228')\n"
+        "  throw new Error('month Value: ' + JSON.stringify(wd.monthValue));\n"
+        "if (wd.sliderValue !== 42) throw new Error('slider Value: ' + JSON.stringify(wd.sliderValue));\n"
+        "if (wd.updownValue !== 7) throw new Error('updown Value: ' + JSON.stringify(wd.updownValue));\n",
+        "gui-object-date-values.mjs");
+  {
+    // OS readback on the real common controls.
+    HWND date = find_child(hwnd, L"SysDateTimePick32");
+    require(date != nullptr, "FindWindowExW finds the DateTime child");
+    SYSTEMTIME selected{};
+    require(SendMessageW(date, DTM_GETSYSTEMTIME, 0, reinterpret_cast<LPARAM>(&selected)) ==
+                GDT_VALID,
+            "DTM_GETSYSTEMTIME succeeds");
+    require(selected.wYear == 2026 && selected.wMonth == 10 && selected.wDay == 8,
+            "the DateTime shows 2026-10-08");
+    HWND month = find_child(hwnd, L"SysMonthCal32");
+    require(month != nullptr, "FindWindowExW finds the MonthCal child");
+    SYSTEMTIME current{};
+    require(SendMessageW(month, MCM_GETCURSEL, 0, reinterpret_cast<LPARAM>(&current)) != FALSE,
+            "MCM_GETCURSEL succeeds");
+    require(current.wYear == 2026 && current.wMonth == 2 && current.wDay == 28,
+            "the MonthCal shows 2026-02-28");
+    HWND slider = find_child(hwnd, L"msctls_trackbar32");
+    require(slider != nullptr, "FindWindowExW finds the Slider child");
+    require(SendMessageW(slider, TBM_GETPOS, 0, 0) == 42, "TBM_GETPOS reads 42");
+    HWND updown = find_child(hwnd, L"msctls_updown32");
+    require(updown != nullptr, "FindWindowExW finds the UpDown child");
+    BOOL updown_failed = TRUE;
+    const LRESULT updown_pos =
+        SendMessageW(updown, UDM_GETPOS32, 0, reinterpret_cast<LPARAM>(&updown_failed));
+    require(updown_failed == FALSE && updown_pos == 7, "UDM_GETPOS32 reads 7");
+  }
 
   // ---- S10/S11: Resize, driven by this test's own SetWindowPos -----------
   check(runtime,

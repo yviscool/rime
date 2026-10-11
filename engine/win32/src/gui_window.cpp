@@ -26,6 +26,7 @@
 #include <commctrl.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <mutex>
 #include <string>
@@ -242,6 +243,42 @@ int progress_default_thickness(const GuiRecord& rec) {
   return MulDiv(rec.font_log.lfHeight, -2 * 72, 96);
 }
 
+// "YYYYMMDD" <-> SYSTEMTIME for the date kinds. Strict: exactly 8 digits
+// with a real calendar date (the service refuses the rest at the contract
+// layer instead of letting DateTime_SetSystemTime fail opaquely).
+bool parse_yyyymmdd(const std::string& text, SYSTEMTIME& out) {
+  if (text.size() != 8) return false;
+  for (const char c : text) {
+    if (c < '0' || c > '9') return false;
+  }
+  const int year = (text[0] - '0') * 1000 + (text[1] - '0') * 100 + (text[2] - '0') * 10 +
+                   (text[3] - '0');
+  const int month = (text[4] - '0') * 10 + (text[5] - '0');
+  const int day = (text[6] - '0') * 10 + (text[7] - '0');
+  if (year < 1601 || year > 9999 || month < 1 || month > 12 || day < 1) return false;
+  static const int kDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  int dim = kDays[month - 1];
+  if (month == 2 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))) dim = 29;
+  if (day > dim) return false;
+  SYSTEMTIME bare{};
+  bare.wYear = static_cast<WORD>(year);
+  bare.wMonth = static_cast<WORD>(month);
+  bare.wDay = static_cast<WORD>(day);
+  // Fill wDayOfWeek exactly: round-trip through FILETIME.
+  FILETIME file{};
+  if (!SystemTimeToFileTime(&bare, &file)) return false;
+  SYSTEMTIME full{};
+  if (!FileTimeToSystemTime(&file, &full)) return false;
+  out = full;
+  return true;
+}
+
+std::string format_yyyymmdd(const SYSTEMTIME& time) {
+  char text[9]{};
+  std::snprintf(text, sizeof(text), "%04d%02d%02d", time.wYear, time.wMonth, time.wDay);
+  return text;
+}
+
 // Auto-size extents over visible children (script_gui.cpp:7424-7438 body).
 // Returns the raw max edges; the caller adds the trailing margin.
 void content_extent(const GuiRecord& rec, int& right, int& bottom) {
@@ -384,6 +421,24 @@ DWORD control_style_for(GuiService::GuiControlKind kind, const GuiRecord& rec,
       // over the dropdown default unconditionally).
       style |= WS_TABSTOP | WS_VSCROLL | CBS_AUTOHSCROLL | CBS_DROPDOWN | CBS_DROPDOWNLIST;
       break;
+    case GuiService::GuiControlKind::DateTime:
+      // DTS_SHORTDATEFORMAT is 0: the AHK default compact date, no flag work.
+      style |= WS_TABSTOP | WS_BORDER;
+      break;
+    case GuiService::GuiControlKind::MonthCal:
+      style |= WS_TABSTOP | WS_BORDER;
+      break;
+    case GuiService::GuiControlKind::Slider:
+      style |= WS_TABSTOP | TBS_AUTOTICKS | TBS_HORZ;
+      break;
+    case GuiService::GuiControlKind::UpDown:
+      // Buddy-attached arrows (AHK behavior): UDS_AUTOBUDDY takes the
+      // previous z-order sibling, UDS_SETBUDDYINT keeps it showing the
+      // position. Measured: a buddy-less UpDown reports an error flag on
+      // UDM_GETPOS32 even though the position itself is correct, so a
+      // first-child UpDown with no preceding sibling reads an error.
+      style |= WS_TABSTOP | UDS_ALIGNRIGHT | UDS_ARROWKEYS | UDS_AUTOBUDDY | UDS_SETBUDDYINT;
+      break;
     case GuiService::GuiControlKind::Progress:
     case GuiService::GuiControlKind::Text:
       break;
@@ -485,6 +540,32 @@ void resolve_size(GuiRecord& rec, const GuiService::GuiControlSpec& spec, int& w
                                   font.tm.tmExternalLeading * 4 + 0.5f);
       }
       if (!has_w) width = gui_standard_width(rec);
+      break;
+    }
+    case GuiService::GuiControlKind::MonthCal: {
+      // A month grid needs real estate: default to roughly one month at the
+      // GUI font; explicit sizes always win.
+      if (!has_w) width = gui_standard_width(rec);
+      if (!has_h) {
+        height = static_cast<int>(font.tm.tmHeight * 9 +
+                                  font.tm.tmExternalLeading * 8 + 0.5f);
+      }
+      break;
+    }
+    case GuiService::GuiControlKind::Slider:
+    case GuiService::GuiControlKind::DateTime:
+    case GuiService::GuiControlKind::UpDown: {
+      // Single-row controls: same row math as the text family is wrong for
+      // them (ticks/arrows need fixed chrome), so take one text row plus a
+      // small allowance and otherwise explicit sizes.
+      if (!has_h) {
+        height = static_cast<int>(font.tm.tmHeight + font.tm.tmExternalLeading + 8 + 0.5f);
+      }
+      if (!has_w) {
+        width = kind == GuiService::GuiControlKind::UpDown
+                    ? static_cast<int>(font.tm.tmAveCharWidth * 2 + 8 + 0.5f)
+                    : gui_standard_width(rec);
+      }
       break;
     }
     case GuiService::GuiControlKind::Picture:
@@ -602,6 +683,18 @@ Error add_control_pump(GuiMap& guis, const EventSinkFn& sink,
     case GuiService::GuiControlKind::DropDownList:
       class_name = WC_COMBOBOXW;
       break;
+    case GuiService::GuiControlKind::DateTime:
+      class_name = DATETIMEPICK_CLASSW;
+      break;
+    case GuiService::GuiControlKind::MonthCal:
+      class_name = MONTHCAL_CLASSW;
+      break;
+    case GuiService::GuiControlKind::Slider:
+      class_name = TRACKBAR_CLASSW;
+      break;
+    case GuiService::GuiControlKind::UpDown:
+      class_name = UPDOWN_CLASSW;
+      break;
     case GuiService::GuiControlKind::Picture:
     case GuiService::GuiControlKind::Text:
       class_name = L"STATIC";
@@ -653,6 +746,38 @@ Error add_control_pump(GuiMap& guis, const EventSinkFn& sink,
         DestroyWindow(child);
         if (picture.bitmap) DeleteObject(picture.bitmap);
         if (picture.icon) DestroyIcon(picture.icon);
+        return {Code::ExecutionFailed, kCtrlCreateFailed};
+      }
+    }
+  } else if (spec.kind == GuiService::GuiControlKind::Slider) {
+    SendMessageW(child, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
+    int value = 0;
+    if (spec.has_number) {
+      value = static_cast<int>(spec.number + 0.5);
+      value = (std::max)(0, (std::min)(100, value));
+    }
+    SendMessageW(child, TBM_SETPOS, TRUE, value);
+  } else if (spec.kind == GuiService::GuiControlKind::UpDown) {
+    SendMessageW(child, UDM_SETRANGE32, 0, MAKELONG(0, 100));
+    int value = 0;
+    if (spec.has_number) {
+      value = static_cast<int>(spec.number + 0.5);
+      value = (std::max)(0, (std::min)(100, value));
+    }
+    SendMessageW(child, UDM_SETPOS32, 0, value);
+  } else if (spec.kind == GuiService::GuiControlKind::DateTime ||
+             spec.kind == GuiService::GuiControlKind::MonthCal) {
+    if (!spec.text.empty() || spec.has_number) {
+      SYSTEMTIME date{};
+      if (!parse_yyyymmdd(spec.text, date)) {
+        DestroyWindow(child);
+        return {Code::InvalidContract, "date content must be YYYYMMDD with a real calendar date"};
+      }
+      const UINT set_message = spec.kind == GuiService::GuiControlKind::DateTime
+                                   ? static_cast<UINT>(DTM_SETSYSTEMTIME)
+                                   : static_cast<UINT>(MCM_SETCURSEL);
+      if (SendMessageW(child, set_message, GDT_VALID, reinterpret_cast<LPARAM>(&date)) == 0) {
+        DestroyWindow(child);
         return {Code::ExecutionFailed, kCtrlCreateFailed};
       }
     }
@@ -720,6 +845,34 @@ Error read_value(const GuiChildRecord& child, Json& out) {
       out = Json::number(
           static_cast<double>(static_cast<int>(SendMessageW(child.hwnd, PBM_GETPOS, 0, 0))));
       return Error::none();
+    case GuiService::GuiControlKind::Slider:
+      out = Json::number(
+          static_cast<double>(static_cast<int>(SendMessageW(child.hwnd, TBM_GETPOS, 0, 0))));
+      return Error::none();
+    case GuiService::GuiControlKind::UpDown: {
+      BOOL failed = FALSE;
+      const LRESULT position = SendMessageW(child.hwnd, UDM_GETPOS32, 0, reinterpret_cast<LPARAM>(&failed));
+      if (failed) return {Code::ExecutionFailed, "up-down position read failed"};
+      out = Json::number(static_cast<double>(static_cast<int>(position)));
+      return Error::none();
+    }
+    case GuiService::GuiControlKind::DateTime: {
+      SYSTEMTIME date{};
+      if (SendMessageW(child.hwnd, DTM_GETSYSTEMTIME, 0, reinterpret_cast<LPARAM>(&date)) !=
+          GDT_VALID) {
+        return {Code::ExecutionFailed, "date-time read found no selected date"};
+      }
+      out = Json::string(format_yyyymmdd(date));
+      return Error::none();
+    }
+    case GuiService::GuiControlKind::MonthCal: {
+      SYSTEMTIME date{};
+      if (!SendMessageW(child.hwnd, MCM_GETCURSEL, 0, reinterpret_cast<LPARAM>(&date))) {
+        return {Code::ExecutionFailed, "month-calendar read found no selected date"};
+      }
+      out = Json::string(format_yyyymmdd(date));
+      return Error::none();
+    }
     default:
       return {Code::InvalidContract, "this control type has no value"};
   }
@@ -745,6 +898,38 @@ Error write_value(GuiChildRecord& child, const Json& value) {
       const int pos = static_cast<int>(value.as_number() + 0.5);
       if (pos < 0 || pos > 100) return {Code::InvalidContract, "progress value must be 0..100"};
       SendMessageW(child.hwnd, PBM_SETPOS, static_cast<WPARAM>(pos), 0);
+      return Error::none();
+    }
+    case GuiService::GuiControlKind::Slider: {
+      if (!value.is_number()) return {Code::InvalidContract, "Slider value must be a number"};
+      const int pos = static_cast<int>(value.as_number() + 0.5);
+      if (pos < 0 || pos > 100) return {Code::InvalidContract, "slider value must be 0..100"};
+      SendMessageW(child.hwnd, TBM_SETPOS, TRUE, pos);
+      return Error::none();
+    }
+    case GuiService::GuiControlKind::UpDown: {
+      if (!value.is_number()) return {Code::InvalidContract, "UpDown value must be a number"};
+      const int pos = static_cast<int>(value.as_number() + 0.5);
+      if (pos < 0 || pos > 100) return {Code::InvalidContract, "up-down value must be 0..100"};
+      SendMessageW(child.hwnd, UDM_SETPOS32, 0, pos);
+      return Error::none();
+    }
+    case GuiService::GuiControlKind::DateTime:
+    case GuiService::GuiControlKind::MonthCal: {
+      if (!value.is_string()) {
+        return {Code::InvalidContract, "date value must be a YYYYMMDD string"};
+      }
+      SYSTEMTIME date{};
+      if (!parse_yyyymmdd(value.as_string(), date)) {
+        return {Code::InvalidContract, "date value must be YYYYMMDD with a real calendar date"};
+      }
+      const UINT set_message = child.kind == GuiService::GuiControlKind::DateTime
+                                   ? static_cast<UINT>(DTM_SETSYSTEMTIME)
+                                   : static_cast<UINT>(MCM_SETCURSEL);
+      if (SendMessageW(child.hwnd, set_message, GDT_VALID, reinterpret_cast<LPARAM>(&date)) ==
+          0) {
+        return {Code::ExecutionFailed, "date value was rejected by the control"};
+      }
       return Error::none();
     }
     default:
@@ -1164,6 +1349,10 @@ Error GuiService::parse_control_type(const std::string& type, GuiControlKind& ou
   else if (word == "listbox") out = GuiControlKind::ListBox;
   else if (word == "combobox") out = GuiControlKind::ComboBox;
   else if (word == "dropdownlist" || word == "ddl") out = GuiControlKind::DropDownList;
+  else if (word == "datetime") out = GuiControlKind::DateTime;
+  else if (word == "monthcal") out = GuiControlKind::MonthCal;
+  else if (word == "slider") out = GuiControlKind::Slider;
+  else if (word == "updown") out = GuiControlKind::UpDown;
   else return {Code::InvalidContract, "unsupported control type: " + type};
   return Error::none();
 }

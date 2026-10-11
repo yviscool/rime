@@ -122,6 +122,20 @@ test("list sugars forward arrays; AddDDL aliases DropDownList", async () => {
   ]);
 });
 
+test("date/slider sugars forward content untouched", async () => {
+  const gui = await Gui.create();
+  await gui.addDateTime({ x: 1 }, "20261008");
+  await gui.addSlider(undefined, 42);
+  await gui.addUpDown(undefined, 7);
+  await gui.addMonthCal(undefined, "20260228");
+  expect(addCalls).toStrictEqual([
+    ["DateTime", "x1", "20261008", undefined],
+    ["Slider", undefined, 42, undefined],
+    ["UpDown", undefined, 7, undefined],
+    ["MonthCal", undefined, "20260228", undefined],
+  ]);
+});
+
 test("show/submit/destroy forward; text reads through the pump", async () => {
   const gui = await Gui.create();
   await gui.show("Center");

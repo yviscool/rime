@@ -229,12 +229,21 @@ std::string control_type_name(ControlKind kind) {
       return "ComboBox";
     case ControlKind::DropDownList:
       return "DropDownList";
+    case ControlKind::DateTime:
+      return "DateTime";
+    case ControlKind::MonthCal:
+      return "MonthCal";
+    case ControlKind::Slider:
+      return "Slider";
+    case ControlKind::UpDown:
+      return "UpDown";
   }
   return "Text";
 }
 
 // The batch-2 constructors (eight) plus batch-3a list family (four
-// magics, three kinds: AddDDL aliases AddDropDownList), fixed by sugar name.
+// magics, three kinds: AddDDL aliases AddDropDownList) and date/slider
+// family (four magics, four kinds), fixed by sugar name.
 std::optional<ControlKind> fixed_add_kind(const int magic);
 
 // ---- argument parsing -------------------------------------------------------
@@ -357,6 +366,15 @@ bool read_control_content(JSContext* context, JSValueConst value, const ControlK
   if (kind == ControlKind::Progress) {
     if (!JS_IsNumber(value)) {
       JS_ThrowTypeError(context, "Progress content must be a number");
+      return false;
+    }
+    if (JS_ToFloat64(context, &number_out, value)) return false;
+    has_number_out = true;
+    return true;
+  }
+  if (kind == ControlKind::Slider || kind == ControlKind::UpDown) {
+    if (!JS_IsNumber(value)) {
+      JS_ThrowTypeError(context, "Slider/UpDown content must be a number");
       return false;
     }
     if (JS_ToFloat64(context, &number_out, value)) return false;
@@ -1445,6 +1463,10 @@ enum GuiMethodMagic {
   kGuiAddComboBox,
   kGuiAddDDL,
   kGuiAddDropDownList,
+  kGuiAddDateTime,
+  kGuiAddMonthCal,
+  kGuiAddSlider,
+  kGuiAddUpDown,
   kGuiDestroy,
   kGuiFlash,
   kGuiGetClientPos,
@@ -1469,13 +1491,14 @@ enum GuiMethodMagic {
 constexpr const char* kGuiMethodNames[] = {
     "__New",     "Add",       "AddButton",  "AddCheckBox", "AddEdit",       "AddGroupBox",
     "AddPicture", "AddProgress", "AddRadio", "AddText",    "AddListBox",    "AddComboBox",
-    "AddDDL",    "AddDropDownList", "Destroy", "Flash",
+    "AddDDL",    "AddDropDownList", "AddDateTime", "AddMonthCal", "AddSlider", "AddUpDown",
+    "Destroy", "Flash",
     "GetClientPos", "GetPos", "Hide",       "Maximize",    "Minimize",      "Move",
     "OnEvent",   "OnMessage", "Opt",        "Restore",     "SetFont",       "Show",
     "Submit",    "__Item",    "__Enum",     "[Symbol.iterator]"};
 
 constexpr int kGuiMethodLengths[] = {
-    3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 1, 0, 0, 0, 0, 0, 4, 3, 3, 1, 0, 2, 1, 1, 1, 1, 0};
+    3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 1, 0, 0, 0, 0, 0, 4, 3, 3, 1, 0, 2, 1, 1, 1, 1, 0};
 
 static_assert(sizeof(kGuiMethodNames) / sizeof(kGuiMethodNames[0]) == kGuiMethodCount);
 static_assert(sizeof(kGuiMethodLengths) / sizeof(kGuiMethodLengths[0]) == kGuiMethodCount);
@@ -1507,6 +1530,14 @@ std::optional<ControlKind> fixed_add_kind(const int magic) {
       // AddDDL is a ledger alias for the DropDownList kind (same control,
       // two registry rows); there is no fourth list kind.
       return ControlKind::DropDownList;
+    case kGuiAddDateTime:
+      return ControlKind::DateTime;
+    case kGuiAddMonthCal:
+      return ControlKind::MonthCal;
+    case kGuiAddSlider:
+      return ControlKind::Slider;
+    case kGuiAddUpDown:
+      return ControlKind::UpDown;
     default:
       return std::nullopt;
   }
@@ -1714,7 +1745,11 @@ JSValue gui_method(JSContext* context, JSValueConst this_val, int argc, JSValueC
     case kGuiAddListBox:
     case kGuiAddComboBox:
     case kGuiAddDDL:
-    case kGuiAddDropDownList: {
+    case kGuiAddDropDownList:
+    case kGuiAddDateTime:
+    case kGuiAddMonthCal:
+    case kGuiAddSlider:
+    case kGuiAddUpDown: {
       if (!require_live(context, gui)) return JS_EXCEPTION;
       if (!split()) return JS_EXCEPTION;
       const auto fixed = fixed_add_kind(magic);
@@ -2220,7 +2255,9 @@ static_assert(sizeof(kCtrlPropWritable) / sizeof(kCtrlPropWritable[0]) == kCtrlP
 
 bool control_has_value(const ControlKind kind) {
   return kind == ControlKind::Edit || kind == ControlKind::CheckBox ||
-         kind == ControlKind::Radio || kind == ControlKind::Progress;
+         kind == ControlKind::Radio || kind == ControlKind::Progress ||
+         kind == ControlKind::DateTime || kind == ControlKind::MonthCal ||
+         kind == ControlKind::Slider || kind == ControlKind::UpDown;
 }
 
 JSValue ctrl_method(JSContext* context, JSValueConst this_val, int argc, JSValueConst* argv,
