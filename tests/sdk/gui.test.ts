@@ -73,6 +73,7 @@ const madeGui: GuiNative = {
     return undefined;
   },
   GetPos: async () => ({ x: 10, y: 20, width: 300, height: 200 }),
+  Dpi: async () => 96,
   MenuBar: Promise.resolve(null),
 };
 
@@ -329,4 +330,12 @@ test("imagelist wrappers forward file/index and list attach", async () => {
   await expect(list.add("x.ico", 3)).resolves.toBe(0);
   await expect(list.destroy()).resolves.toBeUndefined();
   expect(calls).toStrictEqual([["Add", ["x.ico", 3]]]);
+});
+
+test("menubar and dpi wrappers forward", async () => {
+  const { Gui } = await import("../../sdk/src/gui");
+  const gui = await Gui.create();
+  await expect(gui.getMenuBar()).resolves.toBeNull();
+  await expect(gui.setMenuBar(null)).resolves.toBeUndefined();
+  await expect(gui.getDpi()).resolves.toBe(96);
 });

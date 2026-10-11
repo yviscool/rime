@@ -1,11 +1,6 @@
 # `@rime/control` API 设计（落地文档）
 
-> 状态：设计 accepted，Phase 1 待实现。依据：AHK `lib/win.cpp:335-613`
->（ControlClick）、`script_autoit.cpp:339-922`（列表/Edit/复选框族）、
-> `window.cpp:810-919`（定位）语义研报 + 本仓库 `window/automation`
-> 现有能力研报。`coverage.json` 中 control 域 42 条 `contract-only`
-> 是本设计的输入，不是输出——实现以 `actions.json` 条目 +
-> contract 测试为准。
+> 状态：设计 accepted，Phase 1/2 动词已落地（`control_module.cpp` 五批提交：Phase 1、复选框/列表/Tab/Edit、显隐/移动/使能/Tab 序、下拉/样式/发送/ClassNN/焦点查询、ListView/StatusBar；`coverage.json` control 域 31 implemented + 1 unsupported-by-policy（`ControlGetHwnd`），零剩余）。下述“42 条 `contract-only`”是设计时的输入快照，不是现状——实现以 `actions.json` 条目 + contract 测试为准。
 
 ## 1. 建模：TS 作为 Windows automation language 时控件是什么
 

@@ -166,6 +166,7 @@ Error ensure_live_record(GuiMap& guis, const EventSinkFn& sink,
     rec->menus = menus;
     rec->interest = spec.interest;  // handlers registered before the window
     rec->interest_seq = spec.interest.seq;
+    rec->dpi_scale = spec.dpi_scale;
     GetObjectW(static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)), sizeof(LOGFONTW),
                &rec->font_log);
     rec->font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
@@ -179,6 +180,9 @@ Error ensure_live_record(GuiMap& guis, const EventSinkFn& sink,
       return {Code::InvalidState, kGuiCreateFailed};
     }
     SetWindowLongPtrW(rec->hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(rec));
+    // Baseline DPI for WM_DPICHANGED ratios (96 when the query fails).
+    const UINT at_create = GetDpiForWindow(rec->hwnd);
+    rec->dpi = at_create != 0 ? at_create : 96;
   } else {
     rec = it->second.get();
   }
@@ -1149,6 +1153,60 @@ void client_to_outer(HWND hwnd, int& width, int& height) {
 
 // ---- window procedure ----------------------------------------------------
 
+// Scales one LOGFONT axis by a DPI ratio, preserving the sign convention
+// (negative = character height) and never collapsing to zero.
+int scale_font_axis(int value, UINT updated, UINT baseline) {
+  if (value == 0 || updated == 0 || baseline == 0) return value;
+  const int magnitude = value < 0 ? -value : value;
+  const int scaled = MulDiv(magnitude, static_cast<int>(updated), static_cast<int>(baseline));
+  const int kept = scaled != 0 ? scaled : 1;
+  return value < 0 ? -kept : kept;
+}
+
+// WM_DPICHANGED body (batch 3e): suggested rect first, then children around
+// the client origin with their fonts, then the record font for later
+// children. Runs on the pump (window proc); no worker marshals inside.
+void apply_dpi_change(GuiRecord& rec, UINT new_dpi_x, UINT new_dpi_y, const RECT& suggested) {
+  HWND hwnd = rec.hwnd;
+  SetWindowPos(hwnd, nullptr, suggested.left, suggested.top, suggested.right - suggested.left,
+               suggested.bottom - suggested.top, SWP_NOZORDER | SWP_NOACTIVATE);
+  const UINT old = rec.dpi != 0 ? rec.dpi : 96;
+  const bool visible = IsWindowVisible(hwnd) != FALSE;
+  for (auto& [id, child] : rec.children) {
+    if (!child.hwnd || !IsWindow(child.hwnd)) continue;
+    RECT rc{};
+    GetWindowRect(child.hwnd, &rc);
+    POINT origin{rc.left, rc.top};
+    ScreenToClient(hwnd, &origin);
+    SetWindowPos(child.hwnd, nullptr, MulDiv(origin.x, static_cast<int>(new_dpi_x), static_cast<int>(old)),
+                 MulDiv(origin.y, static_cast<int>(new_dpi_y), static_cast<int>(old)),
+                 MulDiv(rc.right - rc.left, static_cast<int>(new_dpi_x), static_cast<int>(old)),
+                 MulDiv(rc.bottom - rc.top, static_cast<int>(new_dpi_y), static_cast<int>(old)),
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+    LOGFONTW scaled = child.font_log;
+    scaled.lfHeight = scale_font_axis(scaled.lfHeight, new_dpi_y, old);
+    scaled.lfWidth = scale_font_axis(scaled.lfWidth, new_dpi_x, old);
+    HFONT font = CreateFontIndirectW(&scaled);
+    if (font) {
+      if (child.owns_font && child.font) DeleteObject(child.font);
+      child.font = font;
+      child.owns_font = true;
+      child.font_log = scaled;
+      SendMessageW(child.hwnd, WM_SETFONT, reinterpret_cast<WPARAM>(font), visible ? TRUE : FALSE);
+    }
+  }
+  LOGFONTW record_scaled = rec.font_log;
+  record_scaled.lfHeight = scale_font_axis(record_scaled.lfHeight, new_dpi_y, old);
+  record_scaled.lfWidth = scale_font_axis(record_scaled.lfWidth, new_dpi_x, old);
+  HFONT record_font = CreateFontIndirectW(&record_scaled);
+  if (record_font) {
+    if (rec.owns_font && rec.font) DeleteObject(rec.font);
+    rec.font = record_font;
+    rec.owns_font = true;
+    rec.font_log = record_scaled;
+  }
+}
+
 LRESULT CALLBACK gui_wnd_proc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
   auto* rec = reinterpret_cast<GuiRecord*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
   if (!rec) return DefWindowProcW(hwnd, msg, w, l);
@@ -1291,6 +1349,21 @@ LRESULT CALLBACK gui_wnd_proc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
         push_event(*rec, target_gui(), "DropFiles", std::move(args));
       }
       DragFinish(reinterpret_cast<HDROP>(w));
+      break;
+    }
+    case WM_DPICHANGED: {
+      // Batch 3e: follow DPI moves when DPIScale is on (default), track the
+      // axis when off so re-enabling stays sane. wParam packs the axes
+      // (LOWORD x, HIWORD y); lParam is the suggested RECT*.
+      const UINT new_dpi_x = LOWORD(w);
+      const UINT new_dpi_y = HIWORD(w);
+      if (new_dpi_x != 0 && new_dpi_y != 0) {
+        if (rec->dpi_scale) {
+          const RECT* suggested = reinterpret_cast<RECT*>(l);
+          if (suggested) apply_dpi_change(*rec, new_dpi_x, new_dpi_y, *suggested);
+        }
+        rec->dpi = new_dpi_x;
+      }
       break;
     }
     case WM_NOTIFY: {
@@ -1511,6 +1584,8 @@ Error GuiService::parse_gui_options(const std::string& options, GuiStyleOptions&
       }
     } else if (word == "owndialogs") {
       out.own_dialogs = adding;
+    } else if (word == "dpiscale") {
+      out.dpi_scale = adding;
     } else {
       return {Code::InvalidContract, "unknown gui option: " + word};
     }
@@ -1928,6 +2003,7 @@ Error GuiService::gui_opt(const GuiSpec& gui, const GuiStyleOptions& style,
       SetWindowPos(rec->hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
+    if (style.dpi_scale.has_value()) rec->dpi_scale = *style.dpi_scale;
     return Error::none();
   });
 }
@@ -3467,6 +3543,15 @@ Error GuiService::menu_destroy(const std::uint64_t menu_id, const std::int64_t d
         slot.submenu = 0;
       }
     }
+    if (it->second.show_active > 0) {
+      // A modal Show owns the pump right now (nested loop): the record
+      // stays alive as a teardown envelope until the Show epilogue runs it
+      // down. Detach above already took it off every bar and parent, and
+      // the binding already released JS-side on Destroy().
+      it->second.pending_destroy = true;
+      it->second.items.clear();
+      return Error::none();
+    }
     free_menu_record(it->second);
     impl_->menus.erase(it);
     return Error::none();
@@ -3483,6 +3568,7 @@ Error GuiService::menu_invoke(std::uint64_t menu_id, const GuiMenuCall& call, Gu
         !err.ok()) {
       return err;
     }
+    if (menu->pending_destroy) return {Code::InvalidState, "menu is destroyed"};
     using Op = GuiService::GuiMenuCallOp;
     out = GuiMenuResult{};
     const char* op_name = "menu method";
@@ -3875,6 +3961,7 @@ Error GuiService::menu_show(std::uint64_t menu_id, std::uint64_t channel, bool h
         !err.ok()) {
       return err;
     }
+    if (menu->pending_destroy) return {Code::InvalidState, "menu is destroyed"};
     if (!impl_->menu_host) {
       // Off-screen 1x1 visible popup (not message-only): TrackPopupMenuEx
       // shows no menu at all with an HWND_MESSAGE owner, and a hidden owner
@@ -3895,13 +3982,29 @@ Error GuiService::menu_show(std::uint64_t menu_id, std::uint64_t channel, bool h
     }
     // Classic TrackPopupMenu ownership dance so clicks outside dismiss.
     SetForegroundWindow(impl_->menu_host);
-    const UINT picked = TrackPopupMenuEx(menu->hmenu, TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_RETURNCMD,
+    // The modal loop pumps nested tasks: a racing Destroy must not free
+    // this record (or its HMENU) under us. Hoist what TPM needs, count the
+    // modal, and re-resolve everything after it returns.
+    const HMENU shown = menu->hmenu;
+    ++menu->show_active;
+    const UINT picked = TrackPopupMenuEx(shown, TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_RETURNCMD,
                                          pt.x, pt.y, impl_->menu_host, nullptr);
     PostMessageW(impl_->menu_host, WM_NULL, 0, 0);
     command_out = picked;  // 0 = dismissed
     name_out.clear();
+    const auto live = impl_->menus.find(menu_id);
+    if (live == impl_->menus.end()) {
+      return Error::none();  // swept mid-modal (stop path tore it down)
+    }
+    GuiMenuRecord& current = live->second;
+    if (--current.show_active < 0) current.show_active = 0;
+    if (current.pending_destroy && current.show_active == 0) {
+      free_menu_record(current);
+      impl_->menus.erase(live);
+      return Error::none();
+    }
     if (picked != 0) {
-      for (const auto& item : menu->items) {
+      for (const auto& item : current.items) {
         if (!item.separator && item.submenu == 0 && item.command == picked) {
           name_out = to_utf8(item.name);
           break;
@@ -3910,7 +4013,7 @@ Error GuiService::menu_show(std::uint64_t menu_id, std::uint64_t channel, bool h
       // The selection also fires the item callback through the menu's own
       // channel (same event as a menubar click); the direct result lets
       // scripts skip callbacks. gui id 0 = popup (no owner window).
-      push_menu_event(menu_id, *menu, 0, picked, from_utf8(name_out));
+      push_menu_event(menu_id, current, 0, picked, from_utf8(name_out));
     }
     return Error::none();
   });
@@ -4060,6 +4163,21 @@ Error GuiService::image_list_destroy(std::uint64_t list_id, const std::int64_t d
     }
     ImageList_Destroy(it->second.handle);
     impl_->image_lists.erase(it);
+    return Error::none();
+  });
+}
+
+Error GuiService::gui_get_dpi(const GuiSpec& gui, std::uint64_t& dpi_out,
+                               const std::int64_t deadline_unix_ms,
+                               const rime::core::CancellationToken cancel) {
+  return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
+    GuiRecord* rec = nullptr;
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
+        !err.ok()) {
+      return err;
+    }
+    const UINT dpi = GetDpiForWindow(rec->hwnd);
+    dpi_out = dpi != 0 ? dpi : 96;
     return Error::none();
   });
 }

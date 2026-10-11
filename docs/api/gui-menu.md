@@ -82,7 +82,7 @@ GUI、菜单、托盘和模态对话框对象必须由 UI Thread 所有，以稳
 
 ### 4.8 明确不做（批3+ 前提）
 
-g-label 与事件标签、DPI 重缩放（`mDefaultDPIResize`）。`Add*` 构造器族已清零（3a；`AddActiveX/AddTab3/AddCustom` 为终态 `unsupported-by-policy`）。其余批3 项已落地（§4.10 控件方法、§4.11 菜单、§4.12 图片列表、§4.13 反查、§4.14 事件；`Focus`/`DblClk` 决议见 §4.14——前者无 AHK Gui 级对等物，后者走 `OnNotify`）。未实现项在 `objects.json`/`coverage.json` 维持 `contract-only`，`ValueError` 拒绝集合外事件名即是"未实现"的显式信号。
+g-label 与事件标签。`Add*` 构造器族已清零（3a；`AddActiveX/AddTab3/AddCustom` 为终态 `unsupported-by-policy`）。其余批3 项已落地（§4.10 控件方法、§4.11 菜单、§4.12 图片列表、§4.13 反查、§4.14 事件、§4.15 标签 verdict、§4.16 DPI；`Focus`/`DblClk` 决议见 §4.14——前者无 AHK Gui 级对等物，后者走 `OnNotify`）。未实现项在 `objects.json`/`coverage.json` 维持 `contract-only`，`ValueError` 拒绝集合外事件名即是"未实现"的显式信号。
 
 ### 4.9 批3 政策 verdict（3 行 → `unsupported-by-policy`，文档先行零代码）
 
@@ -134,3 +134,15 @@ AHK 的 `IL_Create/IL_Add/IL_Destroy` 整数句柄换成 runtime 对象（与菜
 `OnEvent` 名集合开到 7+3：Gui 侧 `Escape`（`VK_ESCAPE` 按下沿，repeat 跳过；AHK 会关窗，本运行时只报告）、`ContextMenu`（`WM_CONTEXTMENU`，参 x/y/ctrlId，背景为 0）、`DropFiles`（`WM_DROPFILES`，`DragAcceptFiles` 随 interest 开关，参为文件（分发 cap 8 个，多了截断如实文档），`DragFinish` 泵侧释放）；控件侧 `ItemSelect`（ListView `LVN_ITEMCHANGED` 选中翻转参 [row, 0/1]，TreeView `TVN_SELCHANGEDW` 参稳定 id——注意 W 后缀：TV 的 A/W 通知编号不同（`SELCHANGEDW=FIRST-51`），窗是 Unicode 必须对 W，ListView 编号统一无此坑；ListBox/ComboBox 的选中沿用 `Change`）。
 `DblClick` 不单列：双击经 `OnNotify` 原始码直达（`LBN_DBLCLK`/`NM_DBLCLK`…），传输层已覆盖，单列新名只有糖没有语义。
 并发注册收敛（3e 修的产品竞态）：每个 `OnEvent` 族注册都带单调戳镜像全表，泵只收最新戳（`interest.seq`，0=无戳创建期必收）；此前并发注册是 last-writer-wins 丢位，S9i 的五个并发注册即是复现与回归证据。
+
+### 4.15 标签 verdict（批3e：g-label 与事件标签不做）
+
+AHK 的两套标签机制在本运行时无对等物，且已有替代，不再补：
+- 控件 `gLabel` 选项（`Opt("gMyHandler")` / `Add("Button", "g...")`）：构造期即拒绝（`control label options are not supported; use OnEvent`，同步 `ValueError`，见 §4.4 与 sync-contract 测试的 `labelOption` 行）。理由：全局命名空间回调不可取消、不可观察、与订阅三路径（§4.5）冲突；`OnEvent/OnCommand/OnNotify` 持函数引用，覆盖全部触发语义。
+- Gui 事件标签（`GuiClose:`/`GuiSize:` 式全局标签）：同上，`OnEvent('Close'/'Resize'/'Escape'/…)` 覆盖；`__New` 的 `eventObj` 字符串回调形式保留（那是对象内方法名解析，不是全局标签，批2 已有）。
+无台账行（`coverage`/`objects` 均无 g-label 条目），本节即终态证据。
+
+### 4.16 DPI（批3e：DPIScale 跟随 + Dpi 读数；进程 awareness 不碰）
+
+进程 awareness 是宿主的：`visual-styles.manifest` 只声明 ComCtl32 v6，从不声明 DPI 感知，运行时也绝不在代码里调用 `SetProcessDpiAwareness` 系（抢宿主的进程级决策是越界）。 unaware 进程里 `Gui.Dpi` 读 96（`GetDpiForWindow` 原样返回，无镜像、无换算）。
+`+DPIScale`（默认开，`-DPIScale` 关；`Gui.Opt` 可后改）只在感知进程里干活：`WM_DPICHANGED` 到达时取建议矩形定位窗口，按新/旧轴比 `MulDiv` 缩放全部子控件（相对客户区原点）并等比缩放各自 `LOGFONTW`（符号保留、零保一；`owns_font` 接管，无font泄漏），record 字体同步供后建控件。关了的窗口只记新 DPI（重开不乱比）。`WM_DPICHANGED` 是 send-only 消息（`PostMessage` 拒 `ERROR_MESSAGE_SYNC_ONLY`），测试走 `SendMessage` 同步断言，无 settle 竞态。

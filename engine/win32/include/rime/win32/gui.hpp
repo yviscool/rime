@@ -212,6 +212,12 @@ class GuiService {
     std::uint32_t style{0};
     std::uint32_t ex_style{0};
     bool own_dialogs{false};
+    // DPIScale (batch 3e, AHK Gui option): follow WM_DPICHANGED with the
+    // suggested rect and scale children + fonts. Tri-state like hidden/
+    // disabled: nullopt = unmentioned (creation defaults on; Opt leaves it
+    // alone unless named). Only acts when the host process is DPI-aware
+    // (the runtime never flips process awareness itself, gui-menu.md §4.16).
+    std::optional<bool> dpi_scale;
     // Per-option mention masks for Gui Opt: Opt applies exactly the bits the
     // caller named (add/remove), computed by the parser from +/-. An
     // absolute-from-default value alone cannot express "-ToolWindow" against
@@ -255,6 +261,8 @@ class GuiService {
     std::string title;
     std::uint32_t style{0};
     std::uint32_t ex_style{0};
+    // Resolved DPIScale (creation options or Opt later; default on).
+    bool dpi_scale{true};
     // Host callback id of this Gui's event channel (0 = no channel yet;
     // events are never delivered without one).
     std::uint64_t channel{0};
@@ -639,6 +647,11 @@ class GuiService {
   rime::core::Error gui_menu_bar_of(const GuiSpec& gui, std::uint64_t& menu_id_out,
                                     std::int64_t deadline_unix_ms,
                                     rime::core::CancellationToken cancel);
+  // Batch 3e: live per-window DPI (GetDpiForWindow). Materializes like
+  // FocusedCtrl when the window does not exist yet.
+  rime::core::Error gui_get_dpi(const GuiSpec& gui, std::uint64_t& dpi_out,
+                                std::int64_t deadline_unix_ms,
+                                rime::core::CancellationToken cancel);
 
   // ---- batch 3d: ImageList objects -----------------------------------------
   // AHK's IL_Create/IL_Add integer handles become a runtime object (RAII

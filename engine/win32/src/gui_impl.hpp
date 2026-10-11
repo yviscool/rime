@@ -118,6 +118,11 @@ struct GuiMenuRecord {
   // own no window; menubar clicks and popup selections both land here.
   std::uint64_t channel{0};
   std::function<void(std::uint64_t, std::string)> event_sink;
+  // Modal Show guard (hardening): TPM runs a nested pump loop, so a
+  // Destroy racing the modal must not free the record/HMENU under it.
+  // Destroy detaches immediately but defers teardown while active > 0.
+  int show_active{0};
+  bool pending_destroy{false};
 };
 
 // One script-created image list (batch 3d). The HIMAGELIST dies here;
@@ -185,6 +190,10 @@ struct GuiRecord {
   std::uint64_t menu_id{0};
   // Newest applied interest stamp (batch 3e convergence).
   std::uint64_t interest_seq{0};
+  // DPI follow (batch 3e): scale on WM_DPICHANGED when true; dpi tracks
+  // the last applied axis (x; y is applied symmetrically per axis).
+  bool dpi_scale{true};
+  UINT dpi{96};
   // Pump-owned menu table for WM_COMMAND menu routing (batch 3c). Set at
   // record creation; the window proc only ever reads it on the pump.
   std::map<std::uint64_t, GuiMenuRecord>* menus{nullptr};

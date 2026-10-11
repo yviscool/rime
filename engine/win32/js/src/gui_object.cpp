@@ -374,7 +374,8 @@ bool optional_id_arg(JSContext* context, JSValueConst* argv, const int index, co
 }
 
 // Required positional 0-based index (row, column, part, tab): an integer
-// >= 0. Negative values fail here, synchronously.
+// >= 0. Negative values fail here, synchronously; absurdly large values
+// fail too (a wrapped int could address the wrong row on the pump).
 bool required_index_arg(JSContext* context, JSValueConst* argv, const int index, const int end,
                         const char* signature, const char* name, std::int64_t& out) {
   if (index >= end || JS_IsUndefined(argv[index]) || JS_IsNull(argv[index])) {
@@ -383,7 +384,7 @@ bool required_index_arg(JSContext* context, JSValueConst* argv, const int index,
   }
   const std::string label = std::string(signature) + ": " + name + " must be a non-negative integer";
   if (!js_int64_strict(context, argv[index], out, label.c_str())) return false;
-  if (out < 0) {
+  if (out < 0 || out > std::numeric_limits<int>::max()) {
     JS_ThrowRangeError(context, "%s: %s is out of range", signature, name);
     return false;
   }
@@ -398,7 +399,7 @@ bool optional_index_arg(JSContext* context, JSValueConst* argv, const int index,
   std::int64_t raw = 0;
   const std::string label = std::string(signature) + ": " + name + " must be a non-negative integer";
   if (!js_int64_strict(context, argv[index], raw, label.c_str())) return false;
-  if (raw < 0) {
+  if (raw < 0 || raw > std::numeric_limits<int>::max()) {
     JS_ThrowRangeError(context, "%s: %s is out of range", signature, name);
     return false;
   }
@@ -1003,6 +1004,7 @@ GuiService::GuiSpec make_spec(const GuiJs& gui) {
   spec.title = gui.title;
   spec.style = gui.style.style;
   spec.ex_style = gui.style.ex_style;
+  spec.dpi_scale = gui.style.dpi_scale.value_or(true);
   spec.channel = gui.channel;
   build_interest(gui, spec.interest);
   return spec;
@@ -1873,14 +1875,15 @@ enum GuiPropMagic {
   kGuiPropHwnd,
   kGuiPropFontHandle,
   kGuiPropMenuBar,
+  kGuiPropDpi,
   kGuiPropCount
 };
 
 constexpr const char* kGuiPropNames[] = {"Title", "BackColor", "MarginX", "MarginY",
                                          "FocusedCtrl", "Name", "Hwnd", "FontHandle",
-                                         "MenuBar"};
+                                         "MenuBar", "Dpi"};
 constexpr bool kGuiPropWritable[] = {true, true, true, true, false,
-                                     true, true, true, true};
+                                     true, true, true, true, false};
 
 static_assert(sizeof(kGuiPropNames) / sizeof(kGuiPropNames[0]) == kGuiPropCount);
 static_assert(sizeof(kGuiPropWritable) / sizeof(kGuiPropWritable[0]) == kGuiPropCount);
@@ -2498,6 +2501,22 @@ JSValue gui_prop_get(JSContext* context, JSValueConst this_val, int, JSValueCons
         return JS_EXCEPTION;
       }
       return then_chain(context, promise, on_ok, JS_UNDEFINED);
+    }
+
+    case kGuiPropDpi: {
+      if (!require_live(context, gui)) return JS_EXCEPTION;
+      const GuiService::GuiSpec spec = make_spec(gui);
+      return start_gui_op(
+          context, state, gui, ActionOptions{},
+          [spec](GuiService& service, const std::int64_t deadline,
+                 rime::core::CancellationToken cancel) -> AsyncOutcome {
+            std::uint64_t dpi = 0;
+            if (const Error error = service.gui_get_dpi(spec, dpi, deadline, cancel);
+                !error.ok()) {
+              return async_failure(error);
+            }
+            return async_success(std::to_string(dpi));
+          });
     }
 
     default:
@@ -3198,7 +3217,9 @@ JSValue ctrl_method(JSContext* context, JSValueConst this_val, int argc, JSValue
           std::int64_t start = -1;
           const std::string label("GetNext: start must be an integer >= -1");
           if (!js_int64_strict(context, argv[0], start, label.c_str())) return JS_EXCEPTION;
-          if (start < -1) return JS_ThrowRangeError(context, "GetNext: start is out of range");
+          if (start < -1 || start > std::numeric_limits<int>::max()) {
+            return JS_ThrowRangeError(context, "GetNext: start is out of range");
+          }
           call.index = start;
           call.has_index = true;
         }
@@ -3925,8 +3946,6 @@ void invoke_menu_callback(JSContext* context, GuiJsState* state, GuiModuleBindin
   if (JS_IsException(target)) {
     JSValue exception = JS_GetException(context);
     JS_FreeValue(context, exception);
-    std::fprintf(stderr, "DBG invoke: target object failed\n");
-    std::fflush(stderr);
     return;
   }
   JSValue name_arg = JS_NewStringLen(context, name.data(), name.size());

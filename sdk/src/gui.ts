@@ -37,6 +37,7 @@ export interface GuiNative {
     action?: NativeActionOptions,
   ): Promise<unknown>;
   GetPos(action?: NativeActionOptions): Promise<GuiBounds>;
+  Dpi(action?: NativeActionOptions): Promise<unknown>;
   MenuBar: Promise<unknown>;
 }
 
@@ -357,6 +358,10 @@ export class Gui {
   }
   getPos(options?: ActionOptions): Promise<GuiBounds> {
     return runAction(options, (native) => this.native.GetPos(native));
+  }
+  /** Live per-window DPI (GetDpiForWindow). */
+  getDpi(options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) => this.native.Dpi(native).then(Number));
   }
 }
 

@@ -1947,7 +1947,7 @@ int main() {
     HGLOBAL mem = GlobalAlloc(GHND | GMEM_SHARE, sizeof(DROPFILES) + chars * sizeof(wchar_t));
     require(mem != nullptr, "drop memory allocates");
     auto* drop = static_cast<DROPFILES*>(GlobalLock(mem));
-    drop->pFiles = sizeof(DROPFILES);
+    drop->pFiles = static_cast<UINT>(sizeof(DROPFILES));
     drop->pt.x = 0;
     drop->pt.y = 0;
     drop->fNC = FALSE;
@@ -1996,7 +1996,123 @@ int main() {
         "  fail('tvselect args', JSON.stringify(tv));\n",
         "gui-object-3e-events-assert.mjs");
 
-  // ---- S10/S11: Resize, driven by this test's own SetWindowPos -----------
+  // ---- S9j: batch-3e DPI (Dpi getter + WM_DPICHANGED scaling) ------------
+  // The Dpi assertion cross-checks against GetDpiForWindow on the same
+  // window (C++ embeds the OS value into the JS check): no environment
+  // assumption, though an unaware process like this one reads 96. The
+  // scaling path is driven by a posted WM_DPICHANGED with a 192-DPI wParam
+  // and a suggested rect (the same synthetic-message shape as the S9i
+  // WM_COMMAND post): the window must land exactly on the suggestion, a
+  // control must double in size (origin-free), and its font height must
+  // double. A -DPIScale Gui must not move at all. The suggested RECT lives
+  // in static storage: the post returns before the pump reads it.
+  check(runtime,
+        "globalThis.m9j = {};\n"
+        "globalThis.m9jDone = 'pending';\n"
+        "(async () => {\n"
+        "  const m = globalThis.m9j;\n"
+        "  m.dpi = await globalThis.g.Dpi;\n"
+        "  const { ui } = await import('rime:ui');\n"
+        "  m.plain = ui.createGui('-DPIScale', 'rime-gui-dpi-plain');\n"
+        "  await m.plain.Show();\n"
+        "})().then(() => { globalThis.m9jDone = 'ok'; },\n"
+        "  e => { globalThis.m9jDone = { code: (e && e.code) || '',\n"
+        "    message: String((e && e.message) || '') }; });\n",
+        "gui-object-3e-dpi-invoke.mjs");
+  require_ok(runtime.settle(10000ms), "3e dpi invoke settle");
+  check(runtime,
+        "if (globalThis.m9jDone !== 'ok')\n"
+        "  throw new Error('3e dpi failed: ' + JSON.stringify(globalThis.m9jDone));\n"
+        "if (globalThis.m9j.dpi !== " +
+            std::to_string(GetDpiForWindow(hwnd)) +
+            ")\n"
+            "  throw new Error('Dpi mismatch: ' + JSON.stringify(globalThis.m9j.dpi));\n",
+        "gui-object-3e-dpi-assert.mjs");
+  static RECT dpi_suggested{};
+  static RECT dpi_plain_before{};
+  {
+    RECT before{};
+    require(GetWindowRect(hwnd, &before) != FALSE, "window rect reads");
+    dpi_suggested.left = before.left;
+    dpi_suggested.top = before.top;
+    dpi_suggested.right = before.left + (before.right - before.left) * 2;
+    dpi_suggested.bottom = before.top + (before.bottom - before.top) * 2;
+    HWND listview = find_child(hwnd, L"SysListView32");
+    require(listview != nullptr, "FindWindowExW finds the ListView child");
+    RECT control_before{};
+    require(GetWindowRect(listview, &control_before) != FALSE, "control rect reads");
+    HFONT before_font = reinterpret_cast<HFONT>(
+        SendMessageW(listview, WM_GETFONT, 0, 0));
+    require(before_font != nullptr, "the ListView has a font to scale");
+    LOGFONTW before_log{};
+    require(GetObjectW(before_font, sizeof(before_log), &before_log) == sizeof(before_log),
+            "the font reads back");
+    require(before_log.lfHeight != 0, "the font height is nonzero");
+    // WM_DPICHANGED is send-only (PostMessage refuses it with
+    // ERROR_MESSAGE_SYNC_ONLY): SendMessage applies it synchronously, so
+    // no settle or poll is needed before reading back.
+    SendMessageW(hwnd, WM_DPICHANGED, MAKEWPARAM(192, 192),
+                 reinterpret_cast<LPARAM>(&dpi_suggested));
+    // The plain window must sit out: snapshot first, stimulate second.
+    HWND plain = find_own_window(L"rime-gui-dpi-plain");
+    require(plain != nullptr, "the -DPIScale window exists");
+    require(GetWindowRect(plain, &dpi_plain_before) != FALSE, "plain rect reads");
+    SendMessageW(plain, WM_DPICHANGED, MAKEWPARAM(192, 192),
+                 reinterpret_cast<LPARAM>(&dpi_suggested));
+    // Synchronous apply: read back directly (the drain poll below only
+    // guards the window-frame settle, not the message).
+    // Drain until the scaled window lands on the suggestion (condition
+    // poll, never a bare sleep), then read everything once.
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    bool landed = false;
+    while (std::chrono::steady_clock::now() < until) {
+      RECT now{};
+      GetWindowRect(hwnd, &now);
+      if (now.left == dpi_suggested.left && now.top == dpi_suggested.top &&
+          now.right == dpi_suggested.right && now.bottom == dpi_suggested.bottom) {
+        landed = true;
+        break;
+      }
+      Sleep(10);
+    }
+    require(landed, "the scaled window lands on the suggestion");
+    RECT grown{};
+    require(GetWindowRect(listview, &grown) != FALSE, "scaled control rect reads");
+    require(grown.right - grown.left == 2 * (control_before.right - control_before.left),
+            "the control width doubled");
+    require(grown.bottom - grown.top == 2 * (control_before.bottom - control_before.top),
+            "the control height doubled");
+    HFONT after_font = reinterpret_cast<HFONT>(
+        SendMessageW(listview, WM_GETFONT, 0, 0));
+    require(after_font != nullptr, "the scaled control still has a font");
+    LOGFONTW after_log{};
+    require(GetObjectW(after_font, sizeof(after_log), &after_log) == sizeof(after_log),
+            "the scaled font reads back");
+    require(after_log.lfHeight == 2 * before_log.lfHeight, "the font height doubled");
+    RECT plain_after{};
+    require(GetWindowRect(plain, &plain_after) != FALSE, "plain rect re-reads");
+    require(plain_after.left == dpi_plain_before.left &&
+            plain_after.top == dpi_plain_before.top &&
+            plain_after.right == dpi_plain_before.right &&
+            plain_after.bottom == dpi_plain_before.bottom,
+            "-DPIScale window does not move");
+  }
+  // The plain window was only created to prove the opt-out: destroy it so
+  // the S16 channel baseline holds (every dispatch callback released).
+  check(runtime,
+        "globalThis.m9jGone = 'pending';\n"
+        "(async () => {\n"
+        "  await globalThis.m9j.plain.Destroy();\n"
+        "})().then(() => { globalThis.m9jGone = 'ok'; },\n"
+        "  e => { globalThis.m9jGone = { code: (e && e.code) || '',\n"
+        "    message: String((e && e.message) || '') }; });\n",
+        "gui-object-3e-dpi-destroy.mjs");
+  require_ok(runtime.settle(10000ms), "dpi destroy settle");
+  check(runtime,
+        "if (globalThis.m9jGone !== 'ok')\n"
+        "  throw new Error('3e dpi destroy failed: ' + JSON.stringify(globalThis.m9jGone));\n",
+        "gui-object-3e-dpi-destroy-check.mjs");
+  require(find_own_window(L"rime-gui-dpi-plain") == nullptr, "the plain window is gone");
   check(runtime,
         "const g = globalThis.g;\n"
         "globalThis.ev = { resize: [], close: [], resizeSeen: null, closeSeen: null };\n"
