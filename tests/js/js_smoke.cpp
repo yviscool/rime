@@ -131,5 +131,43 @@ int main(int argc, char** argv) {
   assert(report.find("\"subscriptions\"") != std::string::npos);
   assert(report.find("expected failure") != std::string::npos);
 
+  // Map.CaseSense (objects.json, script_object.cpp:1934-1976): the builtin
+  // Map is unconditionally case-sensitive, so the getter always reports
+  // "On"; assigning "On" is accepted, anything else throws, and a nonempty
+  // map refuses the assignment like AHK ("Map must be empty"). Primitive
+  // receivers throw TypeError. Ordinary Map behavior is untouched. Each
+  // snippet runs in its own block: consecutive evals share one global
+  // lexical scope, so a repeated top-level `const m` would be a SyntaxError.
+  assert(host.eval("if (new Map().CaseSense !== 'On') throw new Error('CaseSense get');").ok());
+  assert(host.eval("{ const m = new Map(); m.CaseSense = 'On';\n"
+                   "if (m.CaseSense !== 'On') throw new Error('CaseSense set On'); }")
+             .ok());
+  assert(host.eval("{ const m = new Map(); m.CaseSense = 'oN';\n"
+                   "if (m.CaseSense !== 'On') throw new Error('CaseSense case'); }")
+             .ok());
+  assert(host.eval("{ const m = new Map([['a', 1]]);\n"
+                   "m.set('A', 2);\n"
+                   "if (m.size !== 2) throw new Error('Map stayed case-sensitive'); }")
+             .ok());
+  const auto nonempty = host.eval("{ const m = new Map([['a', 1]]);\n"
+                                  "m.CaseSense = 'On'; }",
+                                  "casesense-nonempty.mjs");
+  assert(!nonempty.ok());
+  assert(nonempty.message.find("Map must be empty") != std::string::npos);
+  const auto off = host.eval("new Map().CaseSense = 'Off';", "casesense-off.mjs");
+  assert(!off.ok());
+  assert(off.message.find("always case-sensitive") != std::string::npos);
+  const auto bogus = host.eval("new Map().CaseSense = 'sideways';", "casesense-bogus.mjs");
+  assert(!bogus.ok());
+  assert(bogus.message.find("On, Off or Locale") != std::string::npos);
+  const auto primitive_get = host.eval("Object.getOwnPropertyDescriptor(Map.prototype, 'CaseSense').get.call(42);",
+                                           "casesense-primitive.mjs");
+  assert(!primitive_get.ok());
+  assert(primitive_get.message.find("must be a Map") != std::string::npos);
+  const auto primitive_set = host.eval("Object.getOwnPropertyDescriptor(Map.prototype, 'CaseSense').set.call(42, 'On');",
+                                           "casesense-primitive-set.mjs");
+  assert(!primitive_set.ok());
+  assert(primitive_set.message.find("must be a Map") != std::string::npos);
+
   return 0;
 }

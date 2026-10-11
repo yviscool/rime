@@ -265,6 +265,12 @@ rime::core::Error Bootstrap::start() {
   // rolled-back start from leaving a dangling pump reference behind.
   storage_service_.set_ui_thread(&window_service_.ui());
   gui_service_.set_ui_thread(&window_service_.ui());
+  // FromHwnd reverse lookup shares the same pump: the resolver runs inside
+  // GuiService pump tasks, where WindowService::peek_hwnd is same-thread.
+  // Cleared on stop alongside the pump reference below.
+  gui_service_.set_hwnd_resolver([this](std::uint64_t id) -> void* {
+    return window_service_.peek_hwnd(id);
+  });
   started_ = true;
   return rime::core::Error::none();
 }
@@ -283,6 +289,7 @@ rime::core::Error Bootstrap::stop() {
   // only then is the borrowed pump dropped.
   (void)gui_service_.stop();
   gui_service_.set_ui_thread(nullptr);
+  gui_service_.set_hwnd_resolver({});
   (void)process_service_.stop();
   if (const auto error = automation_service_.stop(); !error.ok()) first = error;
   if (const auto error = window_service_.stop(); !error.ok() && first.ok()) first = error;

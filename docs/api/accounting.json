@@ -5,12 +5,11 @@
     {
       "ledger": "coverage",
       "denominator": 253,
-      "terminal": 245,
-      "remaining": 8,
+      "terminal": 253,
+      "remaining": 0,
       "breakdown": {
-        "implemented": 223,
-        "unsupported-by-policy": 11,
-        "contract-only": 8,
+        "implemented": 230,
+        "unsupported-by-policy": 12,
         "js-native": 11
       },
       "rule": "status in implemented | js-native | unsupported-by-policy"
@@ -42,22 +41,21 @@
     {
       "ledger": "objects",
       "denominator": 259,
-      "terminal": 237,
-      "remaining": 22,
+      "terminal": 259,
+      "remaining": 0,
       "breakdown": {
-        "unsupported-by-policy": 22,
+        "unsupported-by-policy": 24,
         "js-native": 42,
-        "implemented": 173,
-        "contract-only": 22
+        "implemented": 193
       },
       "rule": "status in implemented | js-native | unsupported-by-policy"
     }
   ],
   "total": {
     "denominator": 747,
-    "terminal": 588,
-    "remaining": 159,
-    "percent": 78.71
+    "terminal": 618,
+    "remaining": 129,
+    "percent": 82.73
   },
   "evidence_gaps": []
 }

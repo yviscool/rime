@@ -704,6 +704,10 @@ GuiService::~GuiService() { (void)stop(); }
 
 void GuiService::set_ui_thread(UiThread* ui) { impl_->ui = ui; }
 
+void GuiService::set_hwnd_resolver(HwndResolver resolver) {
+  impl_->hwnd_resolver = std::move(resolver);
+}
+
 void GuiService::set_event_sink(EventSink sink) { impl_->event_sink = std::move(sink); }
 
 Error GuiService::msg_box(const MsgBoxSpec& spec, std::string& result_out,

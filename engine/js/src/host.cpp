@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cctype>
 #include <limits>
 #include <string>
 #include <utility>
@@ -30,6 +31,104 @@ namespace json = rime::core::json;
 
 Host* host_of(JSContext* context) {
   return static_cast<Host*>(JS_GetContextOpaque(context));
+}
+
+// Map.CaseSense (objects.json, script_object.cpp:1934-1976): the builtin
+// Map is unconditionally case-sensitive, i.e. AHK's "On", so the getter
+// reports that truthfully instead of pretending per-map state exists.
+// The setter keeps AHK's shapes: a non-empty map refuses with a plain
+// "Map must be empty" Error, "On" (any case) is accepted, "Off"/"Locale"
+// are valid AHK spellings with no meaning on a builtin Map (ValueError
+// with the reason), and anything else is a ValueError. Primitive receivers
+// throw TypeError on both paths (the ledger's error column).
+JSValue map_case_sense_get(JSContext* context, JSValueConst this_val, int, JSValueConst*) {
+  if (!JS_IsObject(this_val)) {
+    JS_ThrowTypeError(context, "CaseSense receiver must be a Map");
+    return JS_EXCEPTION;
+  }
+  return JS_NewString(context, "On");
+}
+
+JSValue map_case_sense_set(JSContext* context, JSValueConst this_val, int argc,
+                            JSValueConst* argv) {
+  if (!JS_IsObject(this_val)) {
+    JS_ThrowTypeError(context, "CaseSense receiver must be a Map");
+    return JS_EXCEPTION;
+  }
+  JSValue size_value = JS_GetPropertyStr(context, this_val, "size");
+  if (JS_IsException(size_value)) return JS_EXCEPTION;
+  bool empty = false;
+  if (JS_IsNumber(size_value)) {
+    double size = 0;
+    if (JS_ToFloat64(context, &size, size_value) == 0) empty = size == 0;
+  }
+  JS_FreeValue(context, size_value);
+  if (!empty) {
+    JSValue error = JS_NewError(context);
+    if (JS_IsException(error)) return JS_EXCEPTION;
+    JSValue message = JS_NewString(context, "Map must be empty");
+    if (JS_IsException(message)) {
+      JS_FreeValue(context, error);
+      return JS_EXCEPTION;
+    }
+    JS_DefinePropertyValueStr(context, error, "message", message,
+                              JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+    return JS_Throw(context, error);
+  }
+  if (argc < 1 || !JS_IsString(argv[0])) {
+    JS_ThrowRangeError(context, "CaseSense must be On, Off or Locale");
+    return JS_EXCEPTION;
+  }
+  const char* text = JS_ToCString(context, argv[0]);
+  if (!text) return JS_EXCEPTION;
+  std::string lowered(text);
+  JS_FreeCString(context, text);
+  for (char& c : lowered) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  if (lowered == "on") return JS_UNDEFINED;
+  if (lowered == "off" || lowered == "locale") {
+    JS_ThrowRangeError(context,
+                       ("CaseSense '" + lowered +
+                        "' is not supported: this runtime's Map is always case-sensitive")
+                           .c_str());
+    return JS_EXCEPTION;
+  }
+  JS_ThrowRangeError(context, "CaseSense must be On, Off or Locale");
+  return JS_EXCEPTION;
+}
+
+void install_map_case_sense(JSContext* context) {
+  JSValue global = JS_GetGlobalObject(context);
+  if (JS_IsException(global)) return;
+  JSValue map_ctor = JS_GetPropertyStr(context, global, "Map");
+  JS_FreeValue(context, global);
+  if (JS_IsException(map_ctor) || JS_IsUndefined(map_ctor)) {
+    JS_FreeValue(context, map_ctor);
+    return;
+  }
+  JSValue proto = JS_GetPropertyStr(context, map_ctor, "prototype");
+  JS_FreeValue(context, map_ctor);
+  if (JS_IsException(proto)) return;
+  JSValue getter = JS_NewCFunction(context, map_case_sense_get, "get CaseSense", 0);
+  JSValue setter = JS_NewCFunction(context, map_case_sense_set, "set CaseSense", 1);
+  if (JS_IsException(getter) || JS_IsException(setter)) {
+    JS_FreeValue(context, getter);
+    JS_FreeValue(context, setter);
+    JS_FreeValue(context, proto);
+    return;
+  }
+  JSAtom atom = JS_NewAtom(context, "CaseSense");
+  if (atom == JS_ATOM_NULL) {
+    JS_FreeValue(context, getter);
+    JS_FreeValue(context, setter);
+    JS_FreeValue(context, proto);
+    return;
+  }
+  // Consumes getter and setter on both outcomes (same contract as the Gui
+  // member tables); freeing them here would double-free the heap.
+  JS_DefinePropertyGetSet(context, proto, atom, getter, setter,
+                          JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE);
+  JS_FreeAtom(context, atom);
+  JS_FreeValue(context, proto);
 }
 
 JSValue make_error_value(JSContext* context, const std::string& code,
@@ -498,6 +597,7 @@ Host::Host() : owner_(std::this_thread::get_id()) {
   if (runtime_) context_ = JS_NewContext(runtime_);
   if (!context_) return;
   JS_SetContextOpaque(context_, this);
+  install_map_case_sense(context_);
   JS_SetModuleLoaderFunc(runtime_, normalize_thunk, loader_thunk, this);
   JS_SetInterruptHandler(runtime_, interrupt_thunk, this);
   JS_SetHostPromiseRejectionTracker(runtime_, rejection_thunk, this);

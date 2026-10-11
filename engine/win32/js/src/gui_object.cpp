@@ -44,8 +44,10 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
+#include <new>
 #include <optional>
 #include <string>
 #include <utility>
@@ -962,11 +964,19 @@ void build_interest(const GuiJs& gui, GuiService::GuiEventInterest& out) {
         if (route.target == 0) {
           if (route.event == "Close") out.gui_bits |= GuiService::kGuiEventBitClose;
           else if (route.event == "Resize") out.gui_bits |= GuiService::kGuiEventBitResize;
-        } else if (route.event == "Click" || route.event == "Change") {
+          else if (route.event == "Escape") out.gui_bits |= GuiService::kGuiEventBitEscape;
+          else if (route.event == "ContextMenu") {
+            out.gui_bits |= GuiService::kGuiEventBitContextMenu;
+          } else if (route.event == "DropFiles") {
+            out.gui_bits |= GuiService::kGuiEventBitDropFiles;
+          }
+        } else if (route.event == "Click" || route.event == "Change" ||
+                   route.event == "ItemSelect") {
           const auto found = out.ctrl_bits.find(route.target);
           std::uint32_t bits = found == out.ctrl_bits.end() ? 0u : found->second;
-          bits |= route.event == "Click" ? GuiService::kCtrlEventBitClick
-                                         : GuiService::kCtrlEventBitChange;
+          bits |= route.event == "Click"      ? GuiService::kCtrlEventBitClick
+                  : route.event == "Change"   ? GuiService::kCtrlEventBitChange
+                                              : GuiService::kCtrlEventBitItemSelect;
           out.ctrl_bits[route.target] = bits;
         }
         break;
@@ -1222,6 +1232,110 @@ JSValue gui_channel_dispatch(JSContext* context, JSValueConst this_val, int argc
   return result;
 }
 
+// Menu channel dispatch (batch 3c): each Menu owns a host channel like each
+// Gui owns one, but the payload target names the menu ("menu:<id>") and the
+// only event is MenuSelect with args [command, name]. Runs on the JS thread.
+void invoke_menu_callback(JSContext* context, GuiJsState* state, GuiModuleBinding* binding,
+                          GuiJsMenu& menu, const std::string& name);
+void release_menu(JSContext* context, GuiJsState* state, GuiJsMenu& menu);
+void release_image_list(JSContext* context, GuiJsState* state, GuiJsImageList& list);
+GuiJsState* ensure_gui_state(JSContext* context, GuiModuleBinding* binding);
+template <typename Body>
+JSValue start_menu_op(JSContext* context, GuiJsState* state, const ActionOptions& action,
+                      Body body);
+JSValue menu_channel_dispatch(JSContext* context, JSValueConst this_val, int argc,
+                              JSValueConst* argv, int, void* opaque) {
+  (void)this_val;
+  GuiModuleBinding* binding = static_cast<GuiModuleBinding*>(opaque);
+  GuiJsState* state = state_or_null(binding);
+  if (!state) return JS_UNDEFINED;
+  if (argc < 1 || !JS_IsObject(argv[0])) return JS_UNDEFINED;
+
+  JSValue payload = argv[0];
+  JSValue target_value = JS_GetPropertyStr(context, payload, "target");
+  JSValue event_value = JS_GetPropertyStr(context, payload, "event");
+  JSValue args_value = JS_GetPropertyStr(context, payload, "args");
+  if (JS_IsException(target_value) || JS_IsException(event_value) || JS_IsException(args_value)) {
+    JS_FreeValue(context, target_value);
+    JS_FreeValue(context, event_value);
+    JS_FreeValue(context, args_value);
+    return JS_EXCEPTION;
+  }
+  std::uint64_t menu_id = 0;
+  bool usable = false;
+  if (JS_IsString(target_value)) {
+    const char* text = JS_ToCString(context, target_value);
+    if (text) {
+      const std::string target(text);
+      JS_FreeCString(context, text);
+      constexpr const char* kPrefix = "menu:";
+      if (target.rfind(kPrefix, 0) == 0) {
+        const std::string digits = target.substr(std::strlen(kPrefix));
+        bool numeric = !digits.empty() && digits.size() <= 19;
+        for (const char c : digits) numeric = numeric && c >= '0' && c <= '9';
+        if (numeric) {
+          const std::int64_t raw = std::stoll(digits);
+          if (raw > 0) {
+            menu_id = static_cast<std::uint64_t>(raw);
+            usable = true;
+          }
+        }
+      }
+    }
+  }
+  std::string event;
+  if (usable && JS_IsString(event_value)) {
+    const char* text = JS_ToCString(context, event_value);
+    if (text) {
+      event = text;
+      JS_FreeCString(context, text);
+      usable = event == "MenuSelect";
+    } else {
+      usable = false;
+    }
+  } else {
+    usable = false;
+  }
+  std::string name;
+  if (usable) {
+    JSValue length = JS_GetPropertyStr(context, args_value, "length");
+    std::int64_t args_length = 0;
+    if (!JS_IsException(length)) {
+      if (JS_IsNumber(length)) (void)JS_ToInt64(context, &args_length, length);
+      JS_FreeValue(context, length);
+    }
+    if (args_length >= 2) {
+      JSValue name_value = JS_GetPropertyInt64(context, args_value, 1);
+      if (!JS_IsException(name_value)) {
+        if (JS_IsString(name_value)) {
+          const char* text = JS_ToCString(context, name_value);
+          if (text) {
+            name = text;
+            JS_FreeCString(context, text);
+          } else {
+            usable = false;
+          }
+        } else {
+          usable = false;
+        }
+        JS_FreeValue(context, name_value);
+      } else {
+        usable = false;
+      }
+    } else {
+      usable = false;
+    }
+  }
+  JS_FreeValue(context, target_value);
+  JS_FreeValue(context, event_value);
+  JS_FreeValue(context, args_value);
+  if (!usable) return JS_UNDEFINED;
+  const auto found = state->menus.find(menu_id);
+  if (found == state->menus.end() || found->second.destroyed) return JS_UNDEFINED;
+  invoke_menu_callback(context, state, binding, found->second, name);
+  return JS_UNDEFINED;
+}
+
 // The FinalizationRegistry cleanup: the Gui object is gone, so tear the
 // window down (§4.5 GC path). Runs as a host job on the JS thread, never
 // inside the GC itself.
@@ -1231,10 +1345,28 @@ JSValue ui_gui_gc(JSContext* context, JSValueConst this_val, int argc, JSValueCo
   GuiModuleBinding* binding = static_cast<GuiModuleBinding*>(opaque);
   GuiJsState* state = state_or_null(binding);
   if (!state || argc < 1) return JS_UNDEFINED;
-  std::int64_t gui_id = 0;
-  if (!JS_IsNumber(argv[0]) || JS_ToInt64(context, &gui_id, argv[0]) != 0 || gui_id <= 0) {
+  std::int64_t held_id = 0;
+  if (!JS_IsNumber(argv[0]) || JS_ToInt64(context, &held_id, argv[0]) != 0 || held_id == 0) {
     return JS_UNDEFINED;
   }
+  if (held_id < 0) {
+    // Menu holding (negative menu id shares the Gui registry).
+    const auto found = state->menus.find(static_cast<std::uint64_t>(-held_id));
+    if (found == state->menus.end() || found->second.destroyed) return JS_UNDEFINED;
+    GuiJsMenu& menu = found->second;
+    release_menu(context, state, menu);
+    const std::uint64_t menu_id = menu.id;
+    ActionOptions action;
+    fire_and_forget(context,
+                    start_menu_op(context, state, action,
+                                  [menu_id](GuiService& service, const std::int64_t deadline,
+                                            rime::core::CancellationToken cancel) {
+                                    return null_out(service.menu_destroy(menu_id, deadline,
+                                                                         cancel));
+                                  }));
+    return JS_UNDEFINED;
+  }
+  std::int64_t gui_id = held_id;
   const auto found = state->guis.find(static_cast<std::uint64_t>(gui_id));
   if (found == state->guis.end() || found->second.destroyed) return JS_UNDEFINED;
   GuiJs& gui = found->second;
@@ -1261,6 +1393,12 @@ void GuiJsState::teardown() {
   for (auto& [id, gui] : guis) (void)release_gui(context, this, gui);
   guis.clear();
   channels.clear();
+  for (auto& [id, menu] : menus) (void)release_menu(context, this, menu);
+  menus.clear();
+  for (auto& [id, list] : image_lists) (void)release_image_list(context, this, list);
+  image_lists.clear();
+  JS_FreeValue(context, image_registry);
+  image_registry = JS_UNDEFINED;
   for (auto& [id, control] : controls) {
     JS_FreeValue(context, control.weak);
     control.weak = JS_UNDEFINED;
@@ -1395,6 +1533,10 @@ JSValue register_handler(JSContext* context, GuiJsState* state, GuiJs& gui, GuiJ
   }
 
   GuiService::GuiSpec spec = make_spec(gui);
+  // Stamp the mirror so concurrent registrations converge pump-side: the
+  // JS thread runs them in order, so the last stamp carries the full table
+  // and stale arrivals drop (batch 3e).
+  spec.interest.seq = state->next_interest_seq++;
   return start_gui_op(context, state, gui, action,
                       [spec](GuiService& service, const std::int64_t deadline,
                              rime::core::CancellationToken cancel) {
@@ -1730,29 +1872,54 @@ enum GuiPropMagic {
   kGuiPropName,
   kGuiPropHwnd,
   kGuiPropFontHandle,
+  kGuiPropMenuBar,
   kGuiPropCount
 };
 
 constexpr const char* kGuiPropNames[] = {"Title", "BackColor", "MarginX", "MarginY",
-                                         "FocusedCtrl", "Name", "Hwnd", "FontHandle"};
-constexpr bool kGuiPropWritable[] = {true, true, true, true, false, true, true, true};
+                                         "FocusedCtrl", "Name", "Hwnd", "FontHandle",
+                                         "MenuBar"};
+constexpr bool kGuiPropWritable[] = {true, true, true, true, false,
+                                     true, true, true, true};
 
 static_assert(sizeof(kGuiPropNames) / sizeof(kGuiPropNames[0]) == kGuiPropCount);
 static_assert(sizeof(kGuiPropWritable) / sizeof(kGuiPropWritable[0]) == kGuiPropCount);
 
 // Batch-2 event names (§4.3: the set closes with this section; outside it is
-// a ValueError and that is the "not implemented" signal of §4.8).
-bool gui_event_name(const std::string& name) { return name == "Close" || name == "Resize"; }
-bool ctrl_event_name(const std::string& name) { return name == "Click" || name == "Change"; }
+// a ValueError and that is the "not implemented" signal of §4.8). Batch 3e
+// adds Escape/ContextMenu/DropFiles (Gui) and ItemSelect (ListView/TreeView);
+// DblClick stays on the OnNotify transport (raw notify codes, documented),
+// it is not a separate event.
+bool gui_event_name(const std::string& name) {
+  return name == "Close" || name == "Resize" || name == "Escape" || name == "ContextMenu" ||
+         name == "DropFiles";
+}
+bool ctrl_event_name(const std::string& name) {
+  return name == "Click" || name == "Change" || name == "ItemSelect";
+}
 
 // ---- object builders (forward: they reference the member tables) -----------
 
 bool define_gui_members(JSContext* context, JSValue object, GuiModuleBinding* binding);
 bool define_ctrl_members(JSContext* context, JSValue object, GuiModuleBinding* binding);
+bool define_menu_members(JSContext* context, JSValue object, GuiModuleBinding* binding);
+bool define_image_members(JSContext* context, JSValue object, GuiModuleBinding* binding);
 JSValue build_gui_object(JSContext* context, GuiJsState* state, GuiModuleBinding* binding,
                          const std::uint64_t gui_id);
 JSValue build_ctrl_object(JSContext* context, GuiJsState* state, GuiModuleBinding* binding,
                           const std::uint64_t ctrl_id);
+JSValue build_menu_object(JSContext* context, GuiJsState* state, GuiModuleBinding* binding,
+                          const std::uint64_t menu_id);
+JSValue build_image_object(JSContext* context, GuiJsState* state, GuiModuleBinding* binding,
+                           const std::uint64_t list_id);
+void release_image_list(JSContext* context, GuiJsState* state, GuiJsImageList& list);
+JSValue image_list_then(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                        JSValueConst*);
+JSValue menu_object_for(JSContext* context, GuiJsState* state, GuiModuleBinding* binding,
+                        const std::uint64_t menu_id);
+void release_menu(JSContext* context, GuiJsState* state, GuiJsMenu& menu);
+void invoke_menu_callback(JSContext* context, GuiJsState* state, GuiModuleBinding* binding,
+                          GuiJsMenu& menu, const std::string& name);
 bool ensure_registry(JSContext* context, GuiModuleBinding* binding, GuiJsState* state);
 
 // ---- shared member plumbing -------------------------------------------------
@@ -1884,6 +2051,19 @@ JSValue focused_ctrl_then(JSContext* context, JSValueConst, int argc, JSValueCon
   GuiJsState* state = state_of(context, binding);
   if (!state) return JS_EXCEPTION;
   return ctrl_object_for(context, state, binding, static_cast<std::uint64_t>(id));
+}
+
+// MenuBar resolves with the attached menu id (or null); this continuation
+// maps it to the JS menu object, the shape FocusedCtrl uses for controls.
+JSValue menubar_then(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     JSValueConst*) {
+  if (argc < 1 || JS_IsNull(argv[0]) || JS_IsUndefined(argv[0])) return JS_NULL;
+  std::int64_t id = 0;
+  if (!JS_IsNumber(argv[0]) || JS_ToInt64(context, &id, argv[0]) != 0 || id <= 0) return JS_NULL;
+  GuiModuleBinding* binding = binding_of(context);
+  GuiJsState* state = state_of(context, binding);
+  if (!state) return JS_EXCEPTION;
+  return menu_object_for(context, state, binding, static_cast<std::uint64_t>(id));
 }
 
 // ---- Gui members ------------------------------------------------------------
@@ -2294,6 +2474,32 @@ JSValue gui_prop_get(JSContext* context, JSValueConst this_val, int, JSValueCons
       return then_chain(context, promise, on_ok, JS_UNDEFINED);
     }
 
+    case kGuiPropMenuBar: {
+      if (!require_live(context, gui)) return JS_EXCEPTION;
+      const GuiService::GuiSpec spec = make_spec(gui);
+      JSValue promise = start_gui_op(
+          context, state, gui, ActionOptions{},
+          [spec](GuiService& service, const std::int64_t deadline,
+                 rime::core::CancellationToken cancel) -> AsyncOutcome {
+            std::uint64_t menu_id = 0;
+            if (const Error error =
+                    service.gui_menu_bar_of(spec, menu_id, deadline, cancel);
+                !error.ok()) {
+              return async_failure(error);
+            }
+            if (menu_id == 0) return async_success("null");
+            return async_success(
+                json::stringify(json::Value::number(static_cast<double>(menu_id))));
+          });
+      if (JS_IsException(promise)) return JS_EXCEPTION;
+      JSValue on_ok = JS_NewCFunctionData2(context, menubar_then, "onMenuBar", 1, 0, 0, nullptr);
+      if (JS_IsException(on_ok)) {
+        JS_FreeValue(context, promise);
+        return JS_EXCEPTION;
+      }
+      return then_chain(context, promise, on_ok, JS_UNDEFINED);
+    }
+
     default:
       return JS_ThrowTypeError(context, "Gui: unknown property");
   }
@@ -2385,6 +2591,32 @@ JSValue gui_prop_set(JSContext* context, JSValueConst this_val, int argc, JSValu
       return JS_UNDEFINED;
     }
 
+    case kGuiPropMenuBar: {
+      // A Menu object attaches, null/undefined detaches. Fire-and-forget
+      // like the other setters; the getter reads back through the pump.
+      std::uint64_t menu_id = 0;
+      if (!JS_IsUndefined(argv[0]) && !JS_IsNull(argv[0])) {
+        bool ok = false;
+        menu_id = identity_of(context, argv[0], "Menu", ok);
+        if (!ok) return JS_EXCEPTION;
+        const auto found = state->menus.find(menu_id);
+        if (found == state->menus.end() || found->second.destroyed) {
+          throw_invalid_state(context, kDestroyed);
+          return JS_EXCEPTION;
+        }
+      }
+      const GuiService::GuiSpec spec = make_spec(gui);
+      fire_and_forget(context,
+                      start_gui_op(context, state, gui, action,
+                                   [spec, menu_id](GuiService& service,
+                                                   const std::int64_t deadline,
+                                                   rime::core::CancellationToken cancel) {
+                                     return null_out(service.gui_menu_bar(spec, menu_id, deadline,
+                                                                          cancel));
+                                   }));
+      return JS_UNDEFINED;
+    }
+
     default:
       return JS_ThrowTypeError(context, "Gui: unknown property");
   }
@@ -2430,6 +2662,7 @@ enum CtrlMethodMagic {
   kCtrlUseTab,
   kCtrlSetFormat,
   kCtrlSetHotkey,
+  kCtrlSetImageList,
   kCtrlMethodCount
 };
 
@@ -2441,11 +2674,11 @@ constexpr const char* kCtrlMethodNames[] = {"Focus",   "GetPos",   "Move",    "O
                                             "ModifyCol", "DeleteCol", "Get",  "GetChild",
                                             "GetParent", "GetPrev", "GetSelection", "SetParts",
                                             "SetText", "SetIcon",  "UseTab",  "SetFormat",
-                                            "SetHotkey"};
+                                            "SetHotkey", "SetImageList"};
 constexpr int kCtrlMethodLengths[] = {0, 0, 4, 3, 3, 3, 3, 1, 0, 2, 2,
-                                      5, 1, 1, 5, 5, 1, 2, 2, 4,
+                                      6, 1, 1, 6, 6, 1, 2, 2, 4,
                                       4, 1, 2, 1, 1, 1, 0, 1,
-                                      3, 3, 2, 1, 2};
+                                      3, 3, 2, 1, 2, 2};
 
 static_assert(sizeof(kCtrlMethodNames) / sizeof(kCtrlMethodNames[0]) == kCtrlMethodCount);
 static_assert(sizeof(kCtrlMethodLengths) / sizeof(kCtrlMethodLengths[0]) == kCtrlMethodCount);
@@ -2688,8 +2921,8 @@ JSValue ctrl_method(JSContext* context, JSValueConst this_val, int argc, JSValue
         }
         call.op = GuiService::GuiControlCallOp::ListAdd;
       } else if (kind == ControlKind::ListView) {
-        if (end < 1 || end > 4) {
-          return JS_ThrowTypeError(context, "Add(columns, selected?, focused?, checked?)");
+        if (end < 1 || end > 5) {
+          return JS_ThrowTypeError(context, "Add(columns, selected?, focused?, checked?, imageIndex?)");
         }
         if (!read_string_array(context, argv[0], "columns", call.columns)) return JS_EXCEPTION;
         if (!optional_tri_arg(context, argv, 1, end, "selected", call.selected) ||
@@ -2697,10 +2930,21 @@ JSValue ctrl_method(JSContext* context, JSValueConst this_val, int argc, JSValue
             !optional_tri_arg(context, argv, 3, end, "checked", call.checked)) {
           return JS_EXCEPTION;
         }
+        std::optional<int> image_index;
+        if (!optional_int_arg(context, argv, 4, end, "imageIndex", image_index)) {
+          return JS_EXCEPTION;
+        }
+        if (image_index.has_value()) {
+          if (*image_index < 0) {
+            return JS_ThrowRangeError(context, "Add: imageIndex is out of range");
+          }
+          call.image_index = *image_index;
+        }
         call.op = GuiService::GuiControlCallOp::LvAddRow;
       } else if (kind == ControlKind::TreeView) {
-        if (end < 1 || end > 5) {
-          return JS_ThrowTypeError(context, "Add(text, parentId?, selected?, expanded?, bold?)");
+        if (end < 1 || end > 6) {
+          return JS_ThrowTypeError(context,
+                                    "Add(text, parentId?, selected?, expanded?, bold?, imageIndex?)");
         }
         if (!read_string(context, argv[0], "text", call.text)) return JS_EXCEPTION;
         std::optional<std::uint64_t> parent;
@@ -2713,6 +2957,16 @@ JSValue ctrl_method(JSContext* context, JSValueConst this_val, int argc, JSValue
             !optional_tri_arg(context, argv, 3, end, "expanded", call.expanded) ||
             !optional_tri_arg(context, argv, 4, end, "bold", call.bold)) {
           return JS_EXCEPTION;
+        }
+        std::optional<int> image_index;
+        if (!optional_int_arg(context, argv, 5, end, "imageIndex", image_index)) {
+          return JS_EXCEPTION;
+        }
+        if (image_index.has_value()) {
+          if (*image_index < 0) {
+            return JS_ThrowRangeError(context, "Add: imageIndex is out of range");
+          }
+          call.image_index = *image_index;
         }
         call.op = GuiService::GuiControlCallOp::TvAdd;
         face = CtrlResultFace::Item;
@@ -2789,8 +3043,8 @@ JSValue ctrl_method(JSContext* context, JSValueConst this_val, int argc, JSValue
       if (control->kind != ControlKind::ListView) {
         return JS_ThrowTypeError(context, "Insert() needs a ListView");
       }
-      if (end < 2 || end > 5) {
-        return JS_ThrowTypeError(context, "Insert(index, columns, selected?, focused?, checked?)");
+      if (end < 2 || end > 6) {
+        return JS_ThrowTypeError(context, "Insert(index, columns, selected?, focused?, checked?, imageIndex?)");
       }
       GuiService::GuiControlCall call;
       call.op = GuiService::GuiControlCallOp::LvInsertRow;
@@ -2804,6 +3058,16 @@ JSValue ctrl_method(JSContext* context, JSValueConst this_val, int argc, JSValue
           !optional_tri_arg(context, argv, 4, end, "checked", call.checked)) {
         return JS_EXCEPTION;
       }
+      std::optional<int> insert_image;
+      if (!optional_int_arg(context, argv, 5, end, "imageIndex", insert_image)) {
+        return JS_EXCEPTION;
+      }
+      if (insert_image.has_value()) {
+        if (*insert_image < 0) {
+          return JS_ThrowRangeError(context, "Insert: imageIndex is out of range");
+        }
+        call.image_index = *insert_image;
+      }
       return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
                                CtrlResultFace::Number);
     }
@@ -2813,9 +3077,9 @@ JSValue ctrl_method(JSContext* context, JSValueConst this_val, int argc, JSValue
       GuiService::GuiControlCall call;
       CtrlResultFace face = CtrlResultFace::Number;
       if (control->kind == ControlKind::ListView) {
-        if (end < 1 || end > 5) {
+        if (end < 1 || end > 6) {
           return JS_ThrowTypeError(context,
-                                    "Modify(index, columns?, selected?, focused?, checked?)");
+                                    "Modify(index, columns?, selected?, focused?, checked?, imageIndex?)");
         }
         call.op = GuiService::GuiControlCallOp::LvModifyRow;
         if (!required_index_arg(context, argv, 0, end, "Modify", "index", call.index)) {
@@ -2830,9 +3094,20 @@ JSValue ctrl_method(JSContext* context, JSValueConst this_val, int argc, JSValue
             !optional_tri_arg(context, argv, 4, end, "checked", call.checked)) {
           return JS_EXCEPTION;
         }
+        std::optional<int> modify_image;
+        if (!optional_int_arg(context, argv, 5, end, "imageIndex", modify_image)) {
+          return JS_EXCEPTION;
+        }
+        if (modify_image.has_value()) {
+          if (*modify_image < 0) {
+            return JS_ThrowRangeError(context, "Modify: imageIndex is out of range");
+          }
+          call.image_index = *modify_image;
+        }
       } else if (control->kind == ControlKind::TreeView) {
-        if (end < 1 || end > 5) {
-          return JS_ThrowTypeError(context, "Modify(nodeId, text?, selected?, expanded?, bold?)");
+        if (end < 1 || end > 6) {
+          return JS_ThrowTypeError(context,
+                                    "Modify(nodeId, text?, selected?, expanded?, bold?, imageIndex?)");
         }
         call.op = GuiService::GuiControlCallOp::TvModify;
         if (!required_id_arg(context, argv, 0, end, "Modify", call.item)) return JS_EXCEPTION;
@@ -2844,6 +3119,16 @@ JSValue ctrl_method(JSContext* context, JSValueConst this_val, int argc, JSValue
             !optional_tri_arg(context, argv, 3, end, "expanded", call.expanded) ||
             !optional_tri_arg(context, argv, 4, end, "bold", call.bold)) {
           return JS_EXCEPTION;
+        }
+        std::optional<int> modify_node_image;
+        if (!optional_int_arg(context, argv, 5, end, "imageIndex", modify_node_image)) {
+          return JS_EXCEPTION;
+        }
+        if (modify_node_image.has_value()) {
+          if (*modify_node_image < 0) {
+            return JS_ThrowRangeError(context, "Modify: imageIndex is out of range");
+          }
+          call.image_index = *modify_node_image;
         }
         face = CtrlResultFace::Item;
       } else {
@@ -3209,6 +3494,37 @@ JSValue ctrl_method(JSContext* context, JSValueConst this_val, int argc, JSValue
                                CtrlResultFace::Null);
     }
 
+    case kCtrlSetImageList: {
+      if (!split()) return JS_EXCEPTION;
+      if (control->kind != ControlKind::ListView && control->kind != ControlKind::TreeView) {
+        return JS_ThrowTypeError(context, "SetImageList() needs a ListView or TreeView");
+      }
+      if (end < 1 || end > 2) {
+        return JS_ThrowTypeError(context, "SetImageList(imageList, size?)");
+      }
+      bool ok = false;
+      const std::uint64_t list_id = identity_of(context, argv[0], "ImageList", ok);
+      if (!ok) return JS_EXCEPTION;
+      const auto found = state->image_lists.find(list_id);
+      if (found == state->image_lists.end() || found->second.destroyed) {
+        throw_invalid_state(context, kDestroyed);
+        return JS_EXCEPTION;
+      }
+      GuiService::GuiControlCall call;
+      call.op = GuiService::GuiControlCallOp::SetImageList;
+      call.list = list_id;
+      if (!optional_string_arg(context, argc, argv, 1, "SetImageList", "size", call.mode)) {
+        return JS_EXCEPTION;
+      }
+      call.mode = ascii_lower(call.mode);
+      if (!call.mode.empty() && call.mode != "normal" && call.mode != "small" &&
+          call.mode != "state") {
+        return JS_ThrowTypeError(context, "SetImageList: size is normal, small or state");
+      }
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Null);
+    }
+
     default:
       return JS_ThrowTypeError(context, "GuiControl: unknown method");
   }
@@ -3524,6 +3840,1157 @@ JSValue build_ctrl_object(JSContext* context, GuiJsState* state, GuiModuleBindin
   return object;
 }
 
+// ---- Menu object family (batch 3c) ------------------------------------------
+
+GuiJsMenu* menu_of(JSContext* context, JSValueConst this_val, GuiJsState* state) {
+  bool ok = false;
+  const std::uint64_t id = identity_of(context, this_val, "Menu", ok);
+  if (!ok) return nullptr;
+  const auto found = state->menus.find(id);
+  if (found == state->menus.end()) {
+    JS_ThrowTypeError(context, "Menu receiver expected");
+    return nullptr;
+  }
+  return &found->second;
+}
+
+bool require_live_menu(JSContext* context, const GuiJsMenu& menu) {
+  if (menu.destroyed) {
+    throw_invalid_state(context, kDestroyed);
+    return false;
+  }
+  return true;
+}
+
+void release_menu(JSContext* context, GuiJsState* state, GuiJsMenu& menu) {
+  if (menu.destroyed) return;
+  menu.destroyed = true;
+  JSValue live = weak_deref(context, menu.weak);
+  if (!JS_IsException(live)) registry_unregister(context, state, live);
+  JS_FreeValue(context, live);
+  for (auto& [name, fn] : menu.callbacks) JS_FreeValue(context, fn);
+  menu.callbacks.clear();
+  JS_FreeValue(context, menu.weak);
+  menu.weak = JS_UNDEFINED;
+  if (menu.channel != 0 && state->host) {
+    (void)state->host->remove_callback(menu.channel);
+    menu.channel = 0;
+  }
+}
+
+// Menus own no host channel (popup Show is modal-RETURNCMD, menubar clicks
+// ride the owner Gui's channel), so this mirrors start_gui_op minus the
+// materialized flag. Same capability gate, same worker lane.
+template <typename Body>
+JSValue start_menu_op(JSContext* context, GuiJsState* state, const ActionOptions& action,
+                      Body body) {
+  GuiCall call;
+  call.service = state->service;
+  call.kernel = state->kernel;
+  call.deadline = wait_deadline_unix_ms(action.deadline_ms);
+  if (action.cancellation_id != 0) {
+    call.cancel = state->host->cancellation_token(action.cancellation_id);
+  }
+  return start_async(
+      context,
+      [call, body = std::move(body)]() mutable -> AsyncOutcome {
+        if (!call.kernel->allows(kUiCreateCapability)) {
+          return capability_denied(kUiCreateCapability);
+        }
+        return body(*call.service, call.deadline, call.cancel);
+      },
+      action.cancellation_id);
+}
+
+JSValue menu_object_for(JSContext* context, GuiJsState* state, GuiModuleBinding* binding,
+                        const std::uint64_t menu_id) {
+  const auto found = state->menus.find(menu_id);
+  if (found == state->menus.end() || found->second.destroyed) {
+    throw_invalid_state(context, kDestroyed);
+    return JS_EXCEPTION;
+  }
+  JSValue live = weak_deref(context, found->second.weak);
+  if (JS_IsException(live)) return JS_EXCEPTION;
+  if (!JS_IsUndefined(live)) return live;
+  return build_menu_object(context, state, binding, menu_id);
+}
+
+// Invokes the item callback for a MenuSelect channel event. Runs on the JS
+// thread (channel dispatch), never in a worker body.
+void invoke_menu_callback(JSContext* context, GuiJsState* state, GuiModuleBinding* binding,
+                          GuiJsMenu& menu, const std::string& name) {
+  const auto found = menu.callbacks.find(name);
+  if (found == menu.callbacks.end() || JS_IsUndefined(found->second)) return;
+  JSValue target = menu_object_for(context, state, binding, menu.id);
+  if (JS_IsException(target)) {
+    JSValue exception = JS_GetException(context);
+    JS_FreeValue(context, exception);
+    std::fprintf(stderr, "DBG invoke: target object failed\n");
+    std::fflush(stderr);
+    return;
+  }
+  JSValue name_arg = JS_NewStringLen(context, name.data(), name.size());
+  if (JS_IsException(name_arg)) {
+    JS_FreeValue(context, target);
+    return;
+  }
+  JSValueConst call_args[2] = {target, name_arg};
+  JSValue ignored = JS_Call(context, found->second, JS_UNDEFINED, 2, call_args);
+  JS_FreeValue(context, target);
+  JS_FreeValue(context, name_arg);
+  if (JS_IsException(ignored)) {
+    JSValue exception = JS_GetException(context);
+    const char* text = JS_ToCString(context, exception);
+    if (text && state->host) (void)state->host->record("gui", text);
+    if (text) JS_FreeCString(context, text);
+    JS_FreeValue(context, exception);
+  } else {
+    JS_FreeValue(context, ignored);
+  }
+}
+
+enum MenuMethod {
+  kMenuAdd = 0,
+  kMenuInsert,
+  kMenuDelete,
+  kMenuRename,
+  kMenuCheck,
+  kMenuUncheck,
+  kMenuEnable,
+  kMenuDisable,
+  kMenuToggleCheck,
+  kMenuToggleEnable,
+  kMenuSetColor,
+  kMenuSetIcon,
+  kMenuShow,
+  kMenuDestroy,
+  kMenuAddStandard,
+  kMenuMethodCount
+};
+
+constexpr const char* kMenuMethodNames[] = {
+    "Add",         "Insert",      "Delete",  "Rename",      "Check",   "Uncheck",
+    "Enable",      "Disable",     "ToggleCheck", "ToggleEnable", "SetColor", "SetIcon",
+    "Show",        "Destroy",     "AddStandard"};
+constexpr int kMenuMethodLengths[] = {2, 3, 1, 2, 1, 1, 1, 1, 1, 1, 2, 4, 2, 0, 0};
+
+static_assert(sizeof(kMenuMethodNames) / sizeof(kMenuMethodNames[0]) == kMenuMethodCount);
+static_assert(sizeof(kMenuMethodLengths) / sizeof(kMenuMethodLengths[0]) == kMenuMethodCount);
+
+// Reads a menu-item selector (exact name or 0-based position) into the call.
+bool read_menu_selector(JSContext* context, JSValueConst value, const char* signature,
+                        GuiService::GuiMenuCall& call) {
+  if (JS_IsString(value)) {
+    if (!read_string(context, value, "item", call.text)) return false;
+    if (call.text.empty()) {
+      JS_ThrowTypeError(context, "%s: item name must not be empty", signature);
+      return false;
+    }
+    return true;
+  }
+  std::int64_t raw = 0;
+  const std::string label = std::string(signature) + ": item must be a name or a position";
+  if (!js_int64_strict(context, value, raw, label.c_str())) return false;
+  if (raw < 0) {
+    JS_ThrowRangeError(context, "%s: item position is out of range", signature);
+    return false;
+  }
+  call.index = raw;
+  call.has_index = true;
+  return true;
+}
+
+// Callback-map sync for mutating menu calls (batch 3c). The map lives on
+// the JS thread and mutates only in then_chain continuations - worker
+// bodies never touch JS state. Tags keep one closure pair for every op:
+// Add/Insert commit the pending fn, Delete drops one name ("" = clear
+// all), Rename moves one entry (empty new name = drop).
+enum MenuSyncTag { kSyncAdd, kSyncDelete, kSyncRename };
+
+struct MenuSync {
+  GuiModuleBinding* binding{nullptr};
+  MenuSyncTag tag{kSyncAdd};
+  std::uint64_t menu_id{0};
+  std::string name;      // Add/Insert item name
+  std::string new_name;  // Rename target ("" = to separator, drop)
+  bool clear_all{false};  // Delete() with no selector
+  JSValue fn{JS_UNDEFINED};  // Add/Insert pending callback (else undefined)
+};
+
+JSValue menu_sync_ok(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void* opaque) {
+  std::unique_ptr<MenuSync> sync(static_cast<MenuSync*>(opaque));
+  GuiJsState* state = sync->binding ? state_or_null(sync->binding) : nullptr;
+  if (state) {
+    const auto found = state->menus.find(sync->menu_id);
+    if (found != state->menus.end() && !found->second.destroyed) {
+      GuiJsMenu& menu = found->second;
+      if (sync->tag == kSyncAdd && !sync->name.empty() && !JS_IsUndefined(sync->fn)) {
+        const auto old = menu.callbacks.find(sync->name);
+        if (old != menu.callbacks.end()) JS_FreeValue(context, old->second);
+        menu.callbacks[sync->name] = sync->fn;
+        sync->fn = JS_UNDEFINED;  // owned by the map now
+      } else if (sync->tag == kSyncDelete) {
+        // The resolution is the deleted name; clear-all rode the closure
+        // (a deleted separator also resolves "", which must NOT clear).
+        if (sync->clear_all) {
+          for (auto& [name, fn] : menu.callbacks) JS_FreeValue(context, fn);
+          menu.callbacks.clear();
+        } else if (argc > 0 && JS_IsString(argv[0])) {
+          const char* text = JS_ToCString(context, argv[0]);
+          std::string gone = text ? text : "";
+          if (text) JS_FreeCString(context, text);
+          if (!gone.empty()) {
+            const auto old = menu.callbacks.find(gone);
+            if (old != menu.callbacks.end()) {
+              JS_FreeValue(context, old->second);
+              menu.callbacks.erase(old);
+            }
+          }
+        }
+      } else if (sync->tag == kSyncRename) {
+        // The resolution is the OLD name; the new one rode the closure.
+        std::string old_name;
+        if (argc > 0 && JS_IsString(argv[0])) {
+          const char* text = JS_ToCString(context, argv[0]);
+          if (text) {
+            old_name = text;
+            JS_FreeCString(context, text);
+          }
+        }
+        if (old_name.empty()) {
+          // By-position rename of a separator: nothing keyed, nothing moves.
+        } else {
+          const auto old = menu.callbacks.find(old_name);
+          if (old != menu.callbacks.end()) {
+            JSValue fn = old->second;
+            menu.callbacks.erase(old);
+            if (!sync->new_name.empty()) {
+              const auto clash = menu.callbacks.find(sync->new_name);
+              if (clash != menu.callbacks.end()) JS_FreeValue(context, clash->second);
+              menu.callbacks[sync->new_name] = fn;
+            } else {
+              JS_FreeValue(context, fn);
+            }
+          }
+        }
+      }
+    }
+  }
+  if (!JS_IsUndefined(sync->fn)) JS_FreeValue(context, sync->fn);
+  return argc > 0 ? JS_DupValue(context, argv[0]) : JS_UNDEFINED;
+}
+
+JSValue menu_sync_err(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                      void* opaque) {
+  std::unique_ptr<MenuSync> sync(static_cast<MenuSync*>(opaque));
+  if (!JS_IsUndefined(sync->fn)) JS_FreeValue(context, sync->fn);
+  if (argc > 0) return JS_Throw(context, JS_DupValue(context, argv[0]));
+  return JS_ThrowInternalError(context, "menu sync failed");
+}
+
+// Chains a mutating menu promise through the map sync. ONE MenuSync serves
+// both closures: promise semantics run exactly one of them, and the runner
+// deletes it (the other closure is never invoked after registration, so its
+// dangling pointer is never touched).
+JSValue chain_menu_sync(JSContext* context, JSValue promise, MenuSync* sync) {
+  JSValue on_ok = JS_NewCClosure(context, menu_sync_ok, "menuSync", nullptr, 1, 0, sync);
+  if (JS_IsException(on_ok)) {
+    delete sync;
+    JS_FreeValue(context, promise);
+    return JS_EXCEPTION;
+  }
+  JSValue on_error =
+      JS_NewCClosure(context, menu_sync_err, "menuSyncErr", nullptr, 1, 0, sync);
+  if (JS_IsException(on_error)) {
+    // Neither closure registered: nothing will delete sync.
+    // then_chain frees on_ok below; sync dies here.
+    JS_FreeValue(context, on_ok);
+    delete sync;
+    JS_FreeValue(context, promise);
+    return JS_EXCEPTION;
+  }
+  return then_chain(context, promise, on_ok, on_error);
+}
+
+// Menu result faces: the service speaks one GuiMenuResult; each method
+// declares which face it shows. Delete resolves the deleted name (""
+// = cleared all), Rename the old name, Add/Insert the 0-based position.
+enum class MenuResultFace { Null, Number, String, Bool };
+
+JSValue start_menu_invoke(JSContext* context, GuiJsState* state, std::uint64_t menu_id,
+                          std::uint64_t channel, const ActionOptions& action,
+                          GuiService::GuiMenuCall call, const MenuResultFace face) {
+  call.channel = channel;
+  return start_menu_op(
+      context, state, action,
+      [menu_id, call, face](GuiService& service, const std::int64_t deadline,
+                            rime::core::CancellationToken cancel) mutable -> AsyncOutcome {
+        GuiService::GuiMenuResult result;
+        if (const Error error = service.menu_invoke(menu_id, call, result, deadline, cancel);
+            !error.ok()) {
+          return async_failure(error);
+        }
+        switch (face) {
+          case MenuResultFace::Number:
+            return async_success(std::to_string(result.number));
+          case MenuResultFace::String:
+            return async_success(json::stringify(json::Value::string(result.text)));
+          case MenuResultFace::Bool:
+            return async_success(result.boolean ? "true" : "false");
+          case MenuResultFace::Null:
+          default:
+            return async_success("null");
+        }
+      });
+}
+
+JSValue menu_method(JSContext* context, JSValueConst this_val, int argc, JSValueConst* argv,
+                    int magic, void* opaque) {
+  auto* binding = static_cast<GuiModuleBinding*>(opaque);
+  GuiJsState* state = state_of(context, binding);
+  if (!state) return JS_EXCEPTION;
+  GuiJsMenu* menu = menu_of(context, this_val, state);
+  if (!menu) return JS_EXCEPTION;
+  if (!require_live_menu(context, *menu)) return JS_EXCEPTION;
+  const std::uint64_t menu_id = menu->id;
+  const std::uint64_t channel = menu->channel;
+
+  int end = 0;
+  ActionOptions action;
+  const auto split = [&]() {
+    const int action_index = split_action(context, argc, argv, end);
+    return parse_action_at(context, argv, action_index, action);
+  };
+
+  // Add/Insert share the (name?, callback|submenu?) tail. A function is a
+  // per-item callback (JS-side map, fired on select); a Menu object is a
+  // submenu attachment (pump-side HMENU link); omitted is a plain item.
+  auto parse_add_tail = [&](const char* signature, int name_at, GuiService::GuiMenuCall& call,
+                            bool& want_callback, JSValue& callback_out) -> bool {
+    want_callback = false;
+    callback_out = JS_UNDEFINED;
+    if (name_at < end && !JS_IsUndefined(argv[name_at]) && !JS_IsNull(argv[name_at])) {
+      if (!read_string(context, argv[name_at], "name", call.text)) return false;
+    }
+    const int second_at = name_at + 1;
+    if (second_at < end && !JS_IsUndefined(argv[second_at]) && !JS_IsNull(argv[second_at])) {
+      if (JS_IsFunction(context, argv[second_at])) {
+        want_callback = true;
+        callback_out = JS_DupValue(context, argv[second_at]);
+      } else {
+        bool ok = false;
+        const std::uint64_t submenu = identity_of(context, argv[second_at], "Menu", ok);
+        if (!ok) return false;
+        const auto found = state->menus.find(submenu);
+        if (found == state->menus.end() || found->second.destroyed) {
+          JS_FreeValue(context, callback_out);
+          throw_invalid_state(context, kDestroyed);
+          return false;
+        }
+        call.submenu = submenu;
+        call.has_submenu = true;
+      }
+    }
+    if (call.text.empty() && (want_callback || call.has_submenu)) {
+      JS_FreeValue(context, callback_out);
+      callback_out = JS_UNDEFINED;
+      JS_ThrowTypeError(context, "%s: a callback or submenu item needs a name", signature);
+      return false;
+    }
+    return true;
+  };
+
+  switch (magic) {
+    case kMenuAddStandard: {
+      if (!split()) return JS_EXCEPTION;
+      if (end > 0) return JS_ThrowTypeError(context, "AddStandard()");
+      return throw_coded(context, "unsupported_by_policy",
+                         "unsupported-by-policy: AddStandard fills the tray menu, which does "
+                         "not exist in this runtime; build the menu with Add");
+    }
+
+    case kMenuAdd:
+    case kMenuInsert: {
+      if (!split()) return JS_EXCEPTION;
+      const bool insert = magic == kMenuInsert;
+      const char* signature = insert ? "Insert(before?, name?, callback|submenu?)"
+                                     : "Add(name?, callback|submenu?)";
+      const int max_args = insert ? 3 : 2;
+      if (end > max_args) return JS_ThrowTypeError(context, "%s", signature);
+      GuiService::GuiMenuCall call;
+      call.op = insert ? GuiService::GuiMenuCallOp::Insert : GuiService::GuiMenuCallOp::Add;
+      int name_at = 0;
+      if (insert && end > 0 && !JS_IsUndefined(argv[0]) && !JS_IsNull(argv[0])) {
+        if (JS_IsString(argv[0])) {
+          if (!read_string(context, argv[0], "before", call.before)) return JS_EXCEPTION;
+          call.has_before = true;
+        } else {
+          std::int64_t raw = 0;
+          const std::string label("Insert: before must be a name or a position");
+          if (!js_int64_strict(context, argv[0], raw, label.c_str())) return JS_EXCEPTION;
+          if (raw < 0) return JS_ThrowRangeError(context, "Insert: position is out of range");
+          call.index = raw;
+          call.has_index = true;
+        }
+        name_at = 1;
+      }
+      bool want_callback = false;
+      JSValue callback = JS_UNDEFINED;
+      if (!parse_add_tail(signature, name_at, call, want_callback, callback)) {
+        return JS_EXCEPTION;
+      }
+      JSValue promise = start_menu_invoke(context, state, menu_id, channel, action, call,
+                                            MenuResultFace::Number);
+      if (JS_IsException(promise)) {
+        JS_FreeValue(context, callback);
+        return JS_EXCEPTION;
+      }
+      if (!want_callback) return promise;
+      // The callback commits into the name map only once the pump confirms
+      // the item exists; a refused Add leaves no stale entry behind.
+      MenuSync* sync = new (std::nothrow) MenuSync();
+      if (!sync) {
+        JS_FreeValue(context, callback);
+        JS_FreeValue(context, promise);
+        return JS_ThrowInternalError(context, "out of memory");
+      }
+      sync->binding = binding;
+      sync->tag = kSyncAdd;
+      sync->menu_id = menu_id;
+      sync->name = call.text;
+      sync->fn = callback;
+      return chain_menu_sync(context, promise, sync);
+    }
+
+    case kMenuDelete: {
+      if (!split()) return JS_EXCEPTION;
+      if (end > 1) return JS_ThrowTypeError(context, "Delete(item?)");
+      GuiService::GuiMenuCall call;
+      call.op = GuiService::GuiMenuCallOp::Delete;
+      const bool clear_all = end == 0 || JS_IsUndefined(argv[0]) || JS_IsNull(argv[0]);
+      if (!clear_all && !read_menu_selector(context, argv[0], "Delete", call)) {
+        return JS_EXCEPTION;
+      }
+      JSValue promise = start_menu_invoke(context, state, menu_id, channel, action, call,
+                                            MenuResultFace::String);
+      if (JS_IsException(promise)) return JS_EXCEPTION;
+      MenuSync* sync = new (std::nothrow) MenuSync();
+      if (!sync) {
+        JS_FreeValue(context, promise);
+        return JS_ThrowInternalError(context, "out of memory");
+      }
+      sync->binding = binding;
+      sync->tag = kSyncDelete;
+      sync->menu_id = menu_id;
+      sync->clear_all = clear_all;
+      return chain_menu_sync(context, promise, sync);
+    }
+
+    case kMenuRename: {
+      if (!split()) return JS_EXCEPTION;
+      if (end < 1 || end > 2) return JS_ThrowTypeError(context, "Rename(item, newName?)");
+      GuiService::GuiMenuCall call;
+      call.op = GuiService::GuiMenuCallOp::Rename;
+      if (!read_menu_selector(context, argv[0], "Rename", call)) return JS_EXCEPTION;
+      std::string new_name;
+      if (end > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+        if (!read_string(context, argv[1], "newName", new_name)) return JS_EXCEPTION;
+        call.text2 = new_name;
+      }
+      JSValue promise = start_menu_invoke(context, state, menu_id, channel, action, call,
+                                            MenuResultFace::String);
+      if (JS_IsException(promise)) return JS_EXCEPTION;
+      MenuSync* sync = new (std::nothrow) MenuSync();
+      if (!sync) {
+        JS_FreeValue(context, promise);
+        return JS_ThrowInternalError(context, "out of memory");
+      }
+      sync->binding = binding;
+      sync->tag = kSyncRename;
+      sync->menu_id = menu_id;
+      sync->new_name = new_name;
+      return chain_menu_sync(context, promise, sync);
+    }
+
+    case kMenuCheck:
+    case kMenuUncheck:
+    case kMenuEnable:
+    case kMenuDisable:
+    case kMenuToggleCheck:
+    case kMenuToggleEnable: {
+      if (!split()) return JS_EXCEPTION;
+      const char* signature = magic == kMenuCheck         ? "Check(item)"
+                              : magic == kMenuUncheck    ? "Uncheck(item)"
+                              : magic == kMenuEnable     ? "Enable(item)"
+                              : magic == kMenuDisable    ? "Disable(item)"
+                              : magic == kMenuToggleCheck ? "ToggleCheck(item)"
+                                                          : "ToggleEnable(item)";
+      if (end != 1) return JS_ThrowTypeError(context, "%s", signature);
+      GuiService::GuiMenuCall call;
+      call.op = magic == kMenuCheck         ? GuiService::GuiMenuCallOp::Check
+                : magic == kMenuUncheck     ? GuiService::GuiMenuCallOp::Uncheck
+                : magic == kMenuEnable      ? GuiService::GuiMenuCallOp::Enable
+                : magic == kMenuDisable     ? GuiService::GuiMenuCallOp::Disable
+                : magic == kMenuToggleCheck ? GuiService::GuiMenuCallOp::ToggleCheck
+                                            : GuiService::GuiMenuCallOp::ToggleEnable;
+      if (!read_menu_selector(context, argv[0], signature, call)) return JS_EXCEPTION;
+      return start_menu_invoke(context, state, menu_id, channel, action, call,
+                               magic == kMenuToggleCheck || magic == kMenuToggleEnable
+                                   ? MenuResultFace::Bool
+                                   : MenuResultFace::Null);
+    }
+
+    case kMenuSetColor: {
+      if (!split()) return JS_EXCEPTION;
+      if (end > 2) return JS_ThrowTypeError(context, "SetColor(color?, applyToSubmenus?)");
+      GuiService::GuiMenuCall call;
+      call.op = GuiService::GuiMenuCallOp::SetColor;
+      if (end > 0 && !JS_IsUndefined(argv[0]) && !JS_IsNull(argv[0])) {
+        std::string mirror;
+        std::uint32_t color_ref = 0;
+        if (!parse_color(context, argv[0], mirror, color_ref)) return JS_EXCEPTION;
+        call.has_color = true;
+        call.color = color_ref;
+      }
+      call.apply_to_submenus = true;
+      if (!optional_bool_arg(context, argv, 1, end, "applyToSubmenus", call.apply_to_submenus)) {
+        return JS_EXCEPTION;
+      }
+      return start_menu_invoke(context, state, menu_id, channel, action, call,
+                               MenuResultFace::Null);
+    }
+
+    case kMenuSetIcon: {
+      if (!split()) return JS_EXCEPTION;
+      if (end < 2 || end > 4) {
+        return JS_ThrowTypeError(context, "SetIcon(item, file, iconIndex?, width?)");
+      }
+      GuiService::GuiMenuCall call;
+      call.op = GuiService::GuiMenuCallOp::SetIcon;
+      if (!read_menu_selector(context, argv[0], "SetIcon", call)) return JS_EXCEPTION;
+      if (!read_string(context, argv[1], "file", call.file)) return JS_EXCEPTION;
+      std::optional<int> icon_index;
+      if (!optional_int_arg(context, argv, 2, end, "iconIndex", icon_index)) return JS_EXCEPTION;
+      if (icon_index.has_value()) {
+        if (*icon_index < 0) {
+          return JS_ThrowRangeError(context, "SetIcon: iconIndex is out of range");
+        }
+        call.icon_index = *icon_index;
+      }
+      std::optional<int> width;
+      if (!optional_int_arg(context, argv, 3, end, "width", width)) return JS_EXCEPTION;
+      if (width.has_value()) {
+        if (*width < 0) return JS_ThrowRangeError(context, "SetIcon: width is out of range");
+        call.icon_width = *width;
+        call.has_icon_width = true;
+      }
+      return start_menu_invoke(context, state, menu_id, channel, action, call,
+                               MenuResultFace::Null);
+    }
+
+    case kMenuShow: {
+      if (!split()) return JS_EXCEPTION;
+      if (end > 2) return JS_ThrowTypeError(context, "Show(x?, y?)");
+      std::optional<int> x;
+      std::optional<int> y;
+      if (!optional_int_arg(context, argv, 0, end, "x", x) ||
+          !optional_int_arg(context, argv, 1, end, "y", y)) {
+        return JS_EXCEPTION;
+      }
+      const bool has_position = x.has_value() && y.has_value();
+      const int show_x = x.value_or(0);
+      const int show_y = y.value_or(0);
+      // The selection ALSO fires the item callback through the menu's own
+      // channel (same MenuSelect event as a menubar click); the direct
+      // result lets scripts skip callbacks. No JS runs in the worker.
+      return start_menu_op(
+          context, state, action,
+          [menu_id, channel, has_position, show_x, show_y](
+              GuiService& service, const std::int64_t deadline,
+              rime::core::CancellationToken cancel) mutable -> AsyncOutcome {
+            std::uint64_t command = 0;
+            std::string name;
+            if (const Error error =
+                    service.menu_show(menu_id, channel, has_position, show_x, show_y, command,
+                                      name, deadline, cancel);
+                !error.ok()) {
+              return async_failure(error);
+            }
+            if (command == 0) return async_success("null");
+            return async_success(json::stringify(json::Value::string(name)));
+          });
+    }
+
+    case kMenuDestroy: {
+      if (!split()) return JS_EXCEPTION;
+      if (end > 0) return JS_ThrowTypeError(context, "Destroy()");
+      GuiJsMenu* doomed = menu;
+      release_menu(context, state, *doomed);
+      ActionOptions no_action;
+      fire_and_forget(context,
+                      start_menu_op(context, state, no_action,
+                                    [menu_id](GuiService& service, const std::int64_t deadline,
+                                              rime::core::CancellationToken cancel) {
+                                      return null_out(service.menu_destroy(menu_id, deadline,
+                                                                           cancel));
+                                    }));
+      return JS_UNDEFINED;
+    }
+
+    default:
+      return JS_ThrowTypeError(context, "Menu: unknown method");
+  }
+}
+
+enum MenuProp {
+  kMenuPropClickCount = 0,
+  kMenuPropDefault,
+  kMenuPropHandle,
+  kMenuPropCount
+};
+
+constexpr const char* kMenuPropNames[] = {"ClickCount", "Default", "Handle"};
+
+JSValue menu_prop_get(JSContext* context, JSValueConst this_val, int, JSValueConst*, int magic,
+                      void* opaque) {
+  auto* binding = static_cast<GuiModuleBinding*>(opaque);
+  GuiJsState* state = state_of(context, binding);
+  if (!state) return JS_EXCEPTION;
+  GuiJsMenu* menu = menu_of(context, this_val, state);
+  if (!menu) return JS_EXCEPTION;
+  if (!require_live_menu(context, *menu)) return JS_EXCEPTION;
+  const std::uint64_t menu_id = menu->id;
+  const std::uint64_t channel = menu->channel;
+
+  switch (magic) {
+    case kMenuPropClickCount: {
+      ActionOptions action;
+      GuiService::GuiMenuCall call;
+      call.op = GuiService::GuiMenuCallOp::GetClickCount;
+      return start_menu_invoke(context, state, menu_id, channel, action, call,
+                               MenuResultFace::Number);
+    }
+    case kMenuPropDefault: {
+      ActionOptions action;
+      GuiService::GuiMenuCall call;
+      call.op = GuiService::GuiMenuCallOp::GetDefault;
+      return start_menu_invoke(context, state, menu_id, channel, action, call,
+                               MenuResultFace::String);
+    }
+    case kMenuPropHandle:
+    default:
+      return throw_coded(context, "unsupported_by_policy",
+                         "unsupported-by-policy: raw menu handles are not part of the API; "
+                         "use stable menu ids");
+  }
+}
+
+JSValue menu_prop_set(JSContext* context, JSValueConst this_val, int argc, JSValueConst* argv,
+                      int magic, void* opaque) {
+  auto* binding = static_cast<GuiModuleBinding*>(opaque);
+  GuiJsState* state = state_of(context, binding);
+  if (!state) return JS_EXCEPTION;
+  GuiJsMenu* menu = menu_of(context, this_val, state);
+  if (!menu) return JS_EXCEPTION;
+  if (!require_live_menu(context, *menu)) return JS_EXCEPTION;
+  const std::uint64_t menu_id = menu->id;
+  const std::uint64_t channel = menu->channel;
+  if (argc < 1) {
+    JS_ThrowTypeError(context, "setter needs a value");
+    return JS_EXCEPTION;
+  }
+
+  switch (magic) {
+    case kMenuPropClickCount: {
+      std::int64_t count = 0;
+      if (!js_int64_strict(context, argv[0], count, "ClickCount must be 1 or 2")) {
+        return JS_EXCEPTION;
+      }
+      if (count < 1 || count > 2) {
+        throw_value_error(context, "ClickCount must be 1 or 2");
+        return JS_EXCEPTION;
+      }
+      ActionOptions action;
+      GuiService::GuiMenuCall call;
+      call.op = GuiService::GuiMenuCallOp::SetClickCount;
+      call.click_count = static_cast<int>(count);
+      return start_menu_invoke(context, state, menu_id, channel, action, call,
+                               MenuResultFace::Number);
+    }
+    case kMenuPropDefault: {
+      std::string name;
+      if (!read_string(context, argv[0], "Default", name)) return JS_EXCEPTION;
+      ActionOptions action;
+      GuiService::GuiMenuCall call;
+      call.op = GuiService::GuiMenuCallOp::SetDefault;
+      call.text = name;
+      return start_menu_invoke(context, state, menu_id, channel, action, call,
+                               MenuResultFace::String);
+    }
+    case kMenuPropHandle:
+    default:
+      return throw_coded(context, "unsupported_by_policy",
+                         "unsupported-by-policy: raw menu handles are not part of the API; "
+                         "use stable menu ids");
+  }
+}
+
+bool define_menu_members(JSContext* context, JSValue object, GuiModuleBinding* binding) {
+  for (int magic = 0; magic < kMenuMethodCount; ++magic) {
+    JSValue closure = JS_NewCClosure(context, menu_method, kMenuMethodNames[magic], nullptr,
+                                     kMenuMethodLengths[magic], magic, binding);
+    if (JS_IsException(closure)) return false;
+    if (JS_SetPropertyStr(context, object, kMenuMethodNames[magic], closure) < 0) return false;
+  }
+  for (int magic = 0; magic < kMenuPropCount; ++magic) {
+    const char* name = kMenuPropNames[magic];
+    JSValue getter = JS_NewCClosure(context, menu_prop_get, name, nullptr, 0, magic, binding);
+    if (JS_IsException(getter)) return false;
+    JSValue setter =
+        JS_NewCClosure(context, menu_prop_set, name, nullptr, 1, magic, binding);
+    if (JS_IsException(setter)) {
+      JS_FreeValue(context, getter);
+      return false;
+    }
+    const JSAtom atom = JS_NewAtom(context, name);
+    if (atom == JS_ATOM_NULL) {
+      JS_FreeValue(context, getter);
+      JS_FreeValue(context, setter);
+      return false;
+    }
+    // Consumes getter and setter on both outcomes.
+    const int defined =
+        JS_DefinePropertyGetSet(context, object, atom, getter, setter, JS_PROP_ENUMERABLE);
+    JS_FreeAtom(context, atom);
+    if (defined < 0) return false;
+  }
+  return true;
+}
+
+JSValue build_menu_object(JSContext* context, GuiJsState* state, GuiModuleBinding* binding,
+                          const std::uint64_t menu_id) {
+  const auto found = state->menus.find(menu_id);
+  if (found == state->menus.end() || found->second.destroyed) {
+    throw_invalid_state(context, kDestroyed);
+    return JS_EXCEPTION;
+  }
+  GuiJsMenu& menu = found->second;
+  JSValue object = JS_NewObject(context);
+  if (JS_IsException(object)) return JS_EXCEPTION;
+  if (!define_identity(context, object, menu_id, "Menu") ||
+      !define_menu_members(context, object, binding)) {
+    JS_FreeValue(context, object);
+    return JS_EXCEPTION;
+  }
+  if (!ensure_registry(context, binding, state)) {
+    JS_FreeValue(context, object);
+    return JS_EXCEPTION;
+  }
+  JSValue weak = make_weak(context, JS_DupValue(context, object));
+  if (JS_IsException(weak)) {
+    JS_FreeValue(context, object);
+    return JS_EXCEPTION;
+  }
+  JS_FreeValue(context, menu.weak);
+  menu.weak = weak;
+  // Negative holdings share the Gui registry: ui_gui_gc branches on sign.
+  JSValue held = JS_NewInt64(context, -static_cast<std::int64_t>(menu_id));
+  if (JS_IsException(held)) {
+    JS_FreeValue(context, object);
+    return JS_EXCEPTION;
+  }
+  JSValueConst args[2] = {object, held};
+  JSValue ignored = invoke_named(context, state->registry, "register", 2, args);
+  JS_FreeValue(context, held);
+  JS_FreeValue(context, ignored);
+  return object;
+}
+
+// ---- ImageList object family (batch 3d) -------------------------------------
+
+GuiJsImageList* image_of(JSContext* context, JSValueConst this_val, GuiJsState* state) {
+  bool ok = false;
+  const std::uint64_t id = identity_of(context, this_val, "ImageList", ok);
+  if (!ok) return nullptr;
+  const auto found = state->image_lists.find(id);
+  if (found == state->image_lists.end()) {
+    JS_ThrowTypeError(context, "ImageList receiver expected");
+    return nullptr;
+  }
+  return &found->second;
+}
+
+bool require_live_image(JSContext* context, const GuiJsImageList& list) {
+  if (list.destroyed) {
+    throw_invalid_state(context, kDestroyed);
+    return false;
+  }
+  return true;
+}
+
+void release_image_list(JSContext* context, GuiJsState* state, GuiJsImageList& list) {
+  if (list.destroyed) return;
+  list.destroyed = true;
+  JSValue live = weak_deref(context, list.weak);
+  if (!JS_IsException(live) && JS_IsObject(live) && !JS_IsUndefined(state->image_registry)) {
+    JSValue ignored = invoke_named(context, state->image_registry, "unregister", 1, &live);
+    JS_FreeValue(context, ignored);
+  }
+  JS_FreeValue(context, live);
+  JS_FreeValue(context, list.weak);
+  list.weak = JS_UNDEFINED;
+}
+
+// The image-list FinalizationRegistry cleanup: the ImageList object is
+// gone, so destroy the pump record (detach-first inside, like Destroy).
+JSValue ui_image_gc(JSContext* context, JSValueConst this_val, int argc, JSValueConst* argv, int,
+                    void* opaque) {
+  (void)this_val;
+  GuiModuleBinding* binding = static_cast<GuiModuleBinding*>(opaque);
+  GuiJsState* state = state_or_null(binding);
+  if (!state || argc < 1) return JS_UNDEFINED;
+  std::int64_t list_id = 0;
+  if (!JS_IsNumber(argv[0]) || JS_ToInt64(context, &list_id, argv[0]) != 0 || list_id <= 0) {
+    return JS_UNDEFINED;
+  }
+  const auto found = state->image_lists.find(static_cast<std::uint64_t>(list_id));
+  if (found == state->image_lists.end() || found->second.destroyed) return JS_UNDEFINED;
+  GuiJsImageList& list = found->second;
+  release_image_list(context, state, list);
+  ActionOptions action;
+  fire_and_forget(context,
+                  start_menu_op(context, state, action,
+                                [list_id = static_cast<std::uint64_t>(list_id)](
+                                    GuiService& service, const std::int64_t deadline,
+                                    rime::core::CancellationToken cancel) {
+                                  return null_out(service.image_list_destroy(list_id, deadline,
+                                                                             cancel));
+                                }));
+  return JS_UNDEFINED;
+}
+
+bool ensure_image_registry(JSContext* context, GuiModuleBinding* binding, GuiJsState* state) {
+  if (!JS_IsUndefined(state->image_registry)) return true;
+  JSValue global = JS_GetGlobalObject(context);
+  if (JS_IsException(global)) return false;
+  JSValue ctor = JS_GetPropertyStr(context, global, "FinalizationRegistry");
+  JS_FreeValue(context, global);
+  if (JS_IsException(ctor)) return false;
+  if (JS_IsUndefined(ctor)) {
+    JS_ThrowInternalError(context, "FinalizationRegistry is unavailable");
+    return false;
+  }
+  JSValue cleanup = JS_NewCClosure(context, ui_image_gc, "uiImageGC", nullptr, 1, 0, binding);
+  if (JS_IsException(cleanup)) {
+    JS_FreeValue(context, ctor);
+    return false;
+  }
+  JSValue registry = JS_CallConstructor(context, ctor, 1, &cleanup);
+  JS_FreeValue(context, ctor);
+  JS_FreeValue(context, cleanup);
+  if (JS_IsException(registry)) return false;
+  state->image_registry = registry;
+  return true;
+}
+
+enum ImageMethod { kImageAdd = 0, kImageDestroy, kImageMethodCount };
+
+constexpr const char* kImageMethodNames[] = {"Add", "Destroy"};
+constexpr int kImageMethodLengths[] = {2, 0};
+
+static_assert(sizeof(kImageMethodNames) / sizeof(kImageMethodNames[0]) == kImageMethodCount);
+static_assert(sizeof(kImageMethodLengths) / sizeof(kImageMethodLengths[0]) == kImageMethodCount);
+
+JSValue image_method(JSContext* context, JSValueConst this_val, int argc, JSValueConst* argv,
+                     int magic, void* opaque) {
+  auto* binding = static_cast<GuiModuleBinding*>(opaque);
+  GuiJsState* state = state_of(context, binding);
+  if (!state) return JS_EXCEPTION;
+  GuiJsImageList* list = image_of(context, this_val, state);
+  if (!list) return JS_EXCEPTION;
+  if (!require_live_image(context, *list)) return JS_EXCEPTION;
+  const std::uint64_t list_id = list->id;
+
+  int end = 0;
+  ActionOptions action;
+  const auto split = [&]() {
+    const int action_index = split_action(context, argc, argv, end);
+    return parse_action_at(context, argv, action_index, action);
+  };
+
+  switch (magic) {
+    case kImageAdd: {
+      if (!split()) return JS_EXCEPTION;
+      if (end < 1 || end > 2) return JS_ThrowTypeError(context, "Add(file, iconIndex?)");
+      std::string file;
+      if (!read_string(context, argv[0], "file", file)) return JS_EXCEPTION;
+      std::optional<int> icon_index;
+      if (!optional_int_arg(context, argv, 1, end, "iconIndex", icon_index)) return JS_EXCEPTION;
+      if (icon_index.has_value() && *icon_index < 0) {
+        return JS_ThrowRangeError(context, "Add: iconIndex is out of range");
+      }
+      const int index_arg = icon_index.value_or(0);
+      return start_menu_op(
+          context, state, action,
+          [list_id, file, index_arg](GuiService& service, const std::int64_t deadline,
+                                     rime::core::CancellationToken cancel) mutable
+          -> AsyncOutcome {
+            std::int64_t index = 0;
+            if (const Error error =
+                    service.image_list_add(list_id, file, index_arg, index, deadline, cancel);
+                !error.ok()) {
+              return async_failure(error);
+            }
+            return async_success(std::to_string(index));
+          });
+    }
+
+    case kImageDestroy: {
+      if (!split()) return JS_EXCEPTION;
+      if (end > 0) return JS_ThrowTypeError(context, "Destroy()");
+      GuiJsImageList* doomed = list;
+      release_image_list(context, state, *doomed);
+      ActionOptions no_action;
+      fire_and_forget(context,
+                      start_menu_op(context, state, no_action,
+                                    [list_id](GuiService& service, const std::int64_t deadline,
+                                              rime::core::CancellationToken cancel) {
+                                      return null_out(service.image_list_destroy(list_id, deadline,
+                                                                                 cancel));
+                                    }));
+      return JS_UNDEFINED;
+    }
+
+    default:
+      return JS_ThrowTypeError(context, "ImageList: unknown method");
+  }
+}
+
+bool define_image_members(JSContext* context, JSValue object, GuiModuleBinding* binding) {
+  for (int magic = 0; magic < kImageMethodCount; ++magic) {
+    JSValue closure = JS_NewCClosure(context, image_method, kImageMethodNames[magic], nullptr,
+                                     kImageMethodLengths[magic], magic, binding);
+    if (JS_IsException(closure)) return false;
+    if (JS_SetPropertyStr(context, object, kImageMethodNames[magic], closure) < 0) return false;
+  }
+  return true;
+}
+
+JSValue build_image_object(JSContext* context, GuiJsState* state, GuiModuleBinding* binding,
+                           const std::uint64_t list_id) {
+  const auto found = state->image_lists.find(list_id);
+  if (found == state->image_lists.end() || found->second.destroyed) {
+    throw_invalid_state(context, kDestroyed);
+    return JS_EXCEPTION;
+  }
+  GuiJsImageList& list = found->second;
+  JSValue object = JS_NewObject(context);
+  if (JS_IsException(object)) return JS_EXCEPTION;
+  if (!define_identity(context, object, list_id, "ImageList") ||
+      !define_image_members(context, object, binding)) {
+    JS_FreeValue(context, object);
+    return JS_EXCEPTION;
+  }
+  if (!ensure_image_registry(context, binding, state)) {
+    JS_FreeValue(context, object);
+    return JS_EXCEPTION;
+  }
+  JSValue weak = make_weak(context, JS_DupValue(context, object));
+  if (JS_IsException(weak)) {
+    JS_FreeValue(context, object);
+    return JS_EXCEPTION;
+  }
+  JS_FreeValue(context, list.weak);
+  list.weak = weak;
+  JSValue held = JS_NewInt64(context, static_cast<std::int64_t>(list_id));
+  if (JS_IsException(held)) {
+    JS_FreeValue(context, object);
+    return JS_EXCEPTION;
+  }
+  JSValueConst args[2] = {object, held};
+  JSValue ignored = invoke_named(context, state->image_registry, "register", 2, args);
+  JS_FreeValue(context, held);
+  JS_FreeValue(context, ignored);
+  return object;
+}
+
+// ui.createImageList(width, height, initial?, grow?): awaited factory -
+// geometry can refuse, so unlike menus the pump record exists before the
+// object does (GuiSpec-free strict create).
+JSValue ui_create_image_list(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                             void* opaque) {
+  auto* binding = static_cast<GuiModuleBinding*>(opaque);
+  GuiJsState* state = ensure_gui_state(context, binding);
+  if (!state) return JS_EXCEPTION;
+  if (!state->kernel->allows(kUiCreateCapability)) return throw_capability(context);
+  if (argc < 2 || argc > 4) {
+    return JS_ThrowTypeError(context, "createImageList(width, height, initial?, grow?)");
+  }
+  std::int64_t width = 0;
+  std::int64_t height = 0;
+  if (!js_int64_strict(context, argv[0], width, "width must be an integer") ||
+      !js_int64_strict(context, argv[1], height, "height must be an integer")) {
+    return JS_EXCEPTION;
+  }
+  std::optional<int> initial;
+  std::optional<int> grow;
+  if (!optional_int_arg(context, argv, 2, argc, "initial", initial) ||
+      !optional_int_arg(context, argv, 3, argc, "grow", grow)) {
+    return JS_EXCEPTION;
+  }
+  const std::uint64_t list_id = state->next_image_id++;
+  // No JS slot yet: the service owns the only record until creation
+  // resolves, so a refused create leaves nothing behind to clean.
+  ActionOptions action;
+  JSValue promise = start_menu_op(
+      context, state, action,
+      [list_id, width, height, initial_arg = initial.value_or(0), grow_arg = grow.value_or(8)](
+          GuiService& service, const std::int64_t deadline,
+          rime::core::CancellationToken cancel) mutable -> AsyncOutcome {
+        if (const Error error =
+                service.image_list_create(list_id, static_cast<int>(width),
+                                          static_cast<int>(height), initial_arg, grow_arg, deadline,
+                                          cancel);
+            !error.ok()) {
+          return async_failure(error);
+        }
+        return async_success(std::to_string(list_id));
+      });
+  if (JS_IsException(promise)) {
+    return JS_EXCEPTION;
+  }
+  // The object (and its JS slot) builds once creation resolves.
+  JSValue on_ok = JS_NewCFunctionData2(context, image_list_then, "onImageList", 1, 0, 0, nullptr);
+  if (JS_IsException(on_ok)) {
+    JS_FreeValue(context, promise);
+    return JS_EXCEPTION;
+  }
+  return then_chain(context, promise, on_ok, JS_UNDEFINED);
+}
+
+// createImageList resolves with the list id; this mints the JS slot and
+// maps it to the object (a refused create never reaches here, so no slot
+// can leak).
+JSValue image_list_then(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                        JSValueConst*) {
+  if (argc < 1 || !JS_IsNumber(argv[0])) return JS_NULL;
+  std::int64_t id = 0;
+  if (JS_ToInt64(context, &id, argv[0]) != 0 || id <= 0) return JS_NULL;
+  GuiModuleBinding* binding = binding_of(context);
+  GuiJsState* state = state_of(context, binding);
+  if (!state) return JS_EXCEPTION;
+  const std::uint64_t list_id = static_cast<std::uint64_t>(id);
+  GuiJsImageList& slot = state->image_lists[list_id];
+  slot.id = list_id;
+  return build_image_object(context, state, binding, list_id);
+}
+
+// fromHwnd continuations: the service resolves a Gui id (fromHwnd) or a
+// [gui, control] pair (fromHwndControl); these map them to live objects,
+// null stays null (TargetGone is a miss, never a throw).
+JSValue from_hwnd_then(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                       JSValueConst*) {
+  if (argc < 1 || JS_IsNull(argv[0]) || JS_IsUndefined(argv[0])) return JS_NULL;
+  std::int64_t id = 0;
+  if (!JS_IsNumber(argv[0]) || JS_ToInt64(context, &id, argv[0]) != 0 || id <= 0) return JS_NULL;
+  GuiModuleBinding* binding = binding_of(context);
+  GuiJsState* state = state_of(context, binding);
+  if (!state) return JS_EXCEPTION;
+  return gui_object_for(context, state, binding, static_cast<std::uint64_t>(id));
+}
+
+JSValue from_hwnd_ctrl_then(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                            JSValueConst*) {
+  if (argc < 1 || !JS_IsArray(argv[0])) return JS_NULL;
+  JSValue pair_value = JS_GetPropertyUint32(context, argv[0], 1);
+  if (JS_IsException(pair_value)) return JS_EXCEPTION;
+  std::int64_t id = 0;
+  const bool number =
+      JS_IsNumber(pair_value) && JS_ToInt64(context, &id, pair_value) == 0 && id > 0;
+  JS_FreeValue(context, pair_value);
+  if (!number) return JS_NULL;
+  GuiModuleBinding* binding = binding_of(context);
+  GuiJsState* state = state_of(context, binding);
+  if (!state) return JS_EXCEPTION;
+  return ctrl_object_for(context, state, binding, static_cast<std::uint64_t>(id));
+}
+
+// ui.fromHwnd(windowId) / ui.fromHwndControl(controlId) (batch 3e): the
+// DoD's §4.7 fork - only runtime-owned windows/controls resolve, anything
+// else is null (TargetGone). windowId/controlId are automation stable ids;
+// raw handles never enter the runtime.
+JSValue ui_from_hwnd(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                     void* opaque) {
+  auto* binding = static_cast<GuiModuleBinding*>(opaque);
+  GuiJsState* state = ensure_gui_state(context, binding);
+  if (!state) return JS_EXCEPTION;
+  if (!state->kernel->allows(kUiCreateCapability)) return throw_capability(context);
+  if (argc != 1) return JS_ThrowTypeError(context, "fromHwnd(windowId)");
+  std::int64_t raw = 0;
+  if (!js_int64_strict(context, argv[0], raw, "fromHwnd(windowId)")) return JS_EXCEPTION;
+  if (raw <= 0) return JS_NULL;
+  const std::uint64_t window_id = static_cast<std::uint64_t>(raw);
+  ActionOptions action;
+  JSValue promise = start_menu_op(
+      context, state, action,
+      [window_id](GuiService& service, const std::int64_t deadline,
+                  rime::core::CancellationToken cancel) mutable -> AsyncOutcome {
+        std::uint64_t gui_id = 0;
+        if (const Error error = service.gui_from_window(window_id, gui_id, deadline, cancel);
+            !error.ok()) {
+          if (error.code == Code::TargetGone) return async_success("null");
+          return async_failure(error);
+        }
+        if (gui_id == 0) return async_success("null");
+        return async_success(std::to_string(gui_id));
+      });
+  if (JS_IsException(promise)) return JS_EXCEPTION;
+  JSValue on_ok = JS_NewCFunctionData2(context, from_hwnd_then, "onFromHwnd", 1, 0, 0, nullptr);
+  if (JS_IsException(on_ok)) {
+    JS_FreeValue(context, promise);
+    return JS_EXCEPTION;
+  }
+  return then_chain(context, promise, on_ok, JS_UNDEFINED);
+}
+
+JSValue ui_from_hwnd_control(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                             void* opaque) {
+  auto* binding = static_cast<GuiModuleBinding*>(opaque);
+  GuiJsState* state = ensure_gui_state(context, binding);
+  if (!state) return JS_EXCEPTION;
+  if (!state->kernel->allows(kUiCreateCapability)) return throw_capability(context);
+  if (argc != 1) return JS_ThrowTypeError(context, "fromHwndControl(controlId)");
+  std::int64_t raw = 0;
+  if (!js_int64_strict(context, argv[0], raw, "fromHwndControl(controlId)")) return JS_EXCEPTION;
+  if (raw <= 0) return JS_NULL;
+  const std::uint64_t control_id = static_cast<std::uint64_t>(raw);
+  ActionOptions action;
+  JSValue promise = start_menu_op(
+      context, state, action,
+      [control_id](GuiService& service, const std::int64_t deadline,
+                   rime::core::CancellationToken cancel) mutable -> AsyncOutcome {
+        std::uint64_t gui_id = 0;
+        std::uint64_t ctrl_id = 0;
+        if (const Error error =
+                service.gui_ctrl_from_window(control_id, gui_id, ctrl_id, deadline, cancel);
+            !error.ok()) {
+          if (error.code == Code::TargetGone) return async_success("null");
+          return async_failure(error);
+        }
+        if (gui_id == 0 || ctrl_id == 0) return async_success("null");
+        return async_success("[" + std::to_string(gui_id) + "," + std::to_string(ctrl_id) + "]");
+      });
+  if (JS_IsException(promise)) return JS_EXCEPTION;
+  JSValue on_ok =
+      JS_NewCFunctionData2(context, from_hwnd_ctrl_then, "onFromHwndCtrl", 1, 0, 0, nullptr);
+  if (JS_IsException(on_ok)) {
+    JS_FreeValue(context, promise);
+    return JS_EXCEPTION;
+  }
+  return then_chain(context, promise, on_ok, JS_UNDEFINED);
+}
+
 // ---- construction -----------------------------------------------------------
 
 // Builds the FinalizationRegistry whose cleanup is ui_gui_gc. Created once
@@ -3626,6 +5093,45 @@ JSValue ui_create_gui(JSContext* context, JSValueConst, int argc, JSValueConst* 
   return object;
 }
 
+// ui.createMenu(): the Menu factory. Synchronous and pump-free: ids are
+// minted JS-side and the pump materializes the record on first touch
+// (ensure_menu_record adopts the carried channel order-free, the GuiSpec
+// shape). Only the dispatch channel allocates here; teardown mirrors Gui.
+JSValue ui_create_menu(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                       void* opaque) {
+  auto* binding = static_cast<GuiModuleBinding*>(opaque);
+  GuiJsState* state = ensure_gui_state(context, binding);
+  if (!state) return JS_EXCEPTION;
+  if (!state->kernel->allows(kUiCreateCapability)) return throw_capability(context);
+  if (argc > 0) return JS_ThrowTypeError(context, "createMenu()");
+  (void)argv;
+
+  const std::uint64_t menu_id = state->next_menu_id++;
+  GuiJsMenu& slot = state->menus[menu_id];
+  slot.id = menu_id;
+  JSValue closure =
+      JS_NewCClosure(context, menu_channel_dispatch, "menuChannel", nullptr, 1, 0, binding);
+  if (JS_IsException(closure)) {
+    state->menus.erase(menu_id);
+    return JS_EXCEPTION;
+  }
+  std::uint64_t channel = 0;
+  if (const Error error = state->host->add_callback(closure, channel); !error.ok()) {
+    JS_FreeValue(context, closure);
+    state->menus.erase(menu_id);
+    JS_ThrowInternalError(context, "%s", error.message.c_str());
+    return JS_EXCEPTION;
+  }
+  slot.channel = channel;
+  JSValue object = build_menu_object(context, state, binding, menu_id);
+  if (JS_IsException(object)) {
+    if (state->host) (void)state->host->remove_callback(channel);
+    state->menus.erase(menu_id);
+    return JS_EXCEPTION;
+  }
+  return object;
+}
+
 }  // namespace
 
 // ---- rime:ui registration ---------------------------------------------------
@@ -3635,6 +5141,22 @@ bool install_gui_family(JSContext* context, JSValue ui_namespace, GuiModuleBindi
   JSValue factory = JS_NewCClosure(context, ui_create_gui, "createGui", nullptr, 3, 0, binding);
   if (JS_IsException(factory)) return false;
   if (JS_SetPropertyStr(context, ui_namespace, "createGui", factory) < 0) return false;
+  JSValue menu_factory =
+      JS_NewCClosure(context, ui_create_menu, "createMenu", nullptr, 0, 0, binding);
+  if (JS_IsException(menu_factory)) return false;
+  if (JS_SetPropertyStr(context, ui_namespace, "createMenu", menu_factory) < 0) return false;
+  JSValue list_factory =
+      JS_NewCClosure(context, ui_create_image_list, "createImageList", nullptr, 4, 0, binding);
+  if (JS_IsException(list_factory)) return false;
+  if (JS_SetPropertyStr(context, ui_namespace, "createImageList", list_factory) < 0) return false;
+  JSValue from_hwnd =
+      JS_NewCClosure(context, ui_from_hwnd, "fromHwnd", nullptr, 1, 0, binding);
+  if (JS_IsException(from_hwnd)) return false;
+  if (JS_SetPropertyStr(context, ui_namespace, "fromHwnd", from_hwnd) < 0) return false;
+  JSValue from_hwnd_ctrl =
+      JS_NewCClosure(context, ui_from_hwnd_control, "fromHwndControl", nullptr, 1, 0, binding);
+  if (JS_IsException(from_hwnd_ctrl)) return false;
+  if (JS_SetPropertyStr(context, ui_namespace, "fromHwndControl", from_hwnd_ctrl) < 0) return false;
   return true;
 }
 

@@ -37,6 +37,7 @@ export interface GuiNative {
     action?: NativeActionOptions,
   ): Promise<unknown>;
   GetPos(action?: NativeActionOptions): Promise<GuiBounds>;
+  MenuBar: Promise<unknown>;
 }
 
 /** Native `GuiControl` object shape (subset used by this facade). */
@@ -51,11 +52,11 @@ export interface GuiControlNative {
   Focus(action?: NativeActionOptions): Promise<unknown>;
   Move(x: number, y: number, w?: number, h?: number, action?: NativeActionOptions): Promise<unknown>;
   SetCue(text: string, action?: NativeActionOptions): Promise<unknown>;
-  Add(a: string | string[] | number, b?: number | boolean | string, c?: boolean, d?: boolean, e?: boolean, action?: NativeActionOptions): Promise<unknown>;
+  Add(a: string | string[] | number, b?: number | boolean | string, c?: boolean, d?: boolean, e?: boolean, f?: number, action?: NativeActionOptions): Promise<unknown>;
   Choose(value: number | string, action?: NativeActionOptions): Promise<unknown>;
   Delete(index?: number, action?: NativeActionOptions): Promise<unknown>;
-  Insert(index: number, columns: string[], selected?: boolean, focused?: boolean, checked?: boolean, action?: NativeActionOptions): Promise<unknown>;
-  Modify(index: number, columns?: string[] | string, b?: boolean | string, c?: boolean, d?: boolean, e?: boolean, action?: NativeActionOptions): Promise<unknown>;
+  Insert(index: number, columns: string[], selected?: boolean, focused?: boolean, checked?: boolean, imageIndex?: number, action?: NativeActionOptions): Promise<unknown>;
+  Modify(index: number, columns?: string[] | string, b?: boolean | string, c?: boolean, d?: boolean, e?: boolean, f?: number, action?: NativeActionOptions): Promise<unknown>;
   GetCount(mode?: string, action?: NativeActionOptions): Promise<unknown>;
   GetText(row: number, column?: number, action?: NativeActionOptions): Promise<unknown>;
   GetNext(start?: number, filter?: string, action?: NativeActionOptions): Promise<unknown>;
@@ -73,6 +74,7 @@ export interface GuiControlNative {
   UseTab(index: number | string, exactMatch?: boolean, action?: NativeActionOptions): Promise<unknown>;
   SetFormat(picture: string, action?: NativeActionOptions): Promise<unknown>;
   SetHotkey(modifiers: string[], key: string, action?: NativeActionOptions): Promise<unknown>;
+  SetImageList(list: unknown, size?: string, action?: NativeActionOptions): Promise<unknown>;
 }
 
 async function createGuiBridge(): Promise<{
@@ -136,6 +138,11 @@ export class Gui {
     return createGuiBridge()
       .then((bridge) => bridge.createGui(options, title, eventObj))
       .then((native) => new Gui(native));
+  }
+
+  /** @internal Rewraps a natively returned Gui (fromHwnd). */
+  static fromNative(native: GuiNative): Gui {
+    return new Gui(native);
   }
 
   private addKind(
@@ -313,6 +320,22 @@ export class Gui {
   submit(options?: ActionOptions): Promise<Record<string, unknown>> {
     return runAction(options, (native) => this.native.Submit(native));
   }
+  /** Attached menu bar (null = none). Setter detaches on null/undefined. */
+  getMenuBar(options?: ActionOptions): Promise<Menu | null> {
+    return runAction(options, () =>
+      Promise.resolve(this.native.MenuBar).then((v) => {
+        if (v === null || v === undefined) return null;
+        return Menu.fromNative(v as MenuNative);
+      }),
+    );
+  }
+  setMenuBar(menu?: Menu | null, options?: ActionOptions): Promise<void> {
+    return runAction(options, () => {
+      (this.native as { MenuBar: unknown }).MenuBar =
+        menu === undefined || menu === null ? menu : menu.inner;
+      return Promise.resolve();
+    });
+  }
   onEvent(
     name: string,
     fn: (target: unknown, ...args: unknown[]) => void,
@@ -340,6 +363,11 @@ export class Gui {
 /** A resolved Gui control handle. */
 export class GuiControl {
   constructor(private readonly native: GuiControlNative) {}
+
+  /** @internal Rewraps a natively returned control (fromHwndControl). */
+  static fromNative(native: GuiControlNative): GuiControl {
+    return new GuiControl(native);
+  }
 
   /** Script-side identity (synchronous, no pump). */
   get name(): string {
@@ -383,14 +411,14 @@ export class GuiControl {
   /** List kinds: append value(s), returns the new count. */
   add(value: string | string[], options?: ActionOptions): Promise<number>;
   /** ListView: append a row, returns its 0-based index. */
-  add(columns: string[], selected?: boolean, focused?: boolean, checked?: boolean, options?: ActionOptions): Promise<number>;
+  add(columns: string[], selected?: boolean, focused?: boolean, checked?: boolean, imageIndex?: number, options?: ActionOptions): Promise<number>;
   /** TreeView: append a node under parentId (omitted = root), returns its id. */
-  add(text: string, parentId?: number, selected?: boolean, expanded?: boolean, bold?: boolean, options?: ActionOptions): Promise<number>;
+  add(text: string, parentId?: number, selected?: boolean, expanded?: boolean, bold?: boolean, imageIndex?: number, options?: ActionOptions): Promise<number>;
   add(a: string | string[], ...rest: unknown[]): Promise<number> {
-    const [b, c, d, e, options] = rest;
+    const [b, c, d, e, f, options] = rest;
     return runAction(options as ActionOptions | undefined, (native) =>
       this.native.Add(a, b as number | boolean | string | undefined, c as boolean | undefined,
-        d as boolean | undefined, e as boolean | undefined, native).then(Number),
+        d as boolean | undefined, e as boolean | undefined, f as number | undefined, native).then(Number),
     );
   }
   /** List kinds only: select by 0-based index or exact text. */
@@ -405,19 +433,25 @@ export class GuiControl {
       this.native.Delete(index, native).then(Number),
     );
   }
-  /** ListView only: insert a row at index. */
-  insert(index: number, columns: string[], selected?: boolean, focused?: boolean, checked?: boolean, options?: ActionOptions): Promise<number> {
+  /** ListView/TreeView only: wire an icon list (size normal/small/state). */
+  setImageList(list: ImageList, size?: string, options?: ActionOptions): Promise<void> {
     return runAction(options, (native) =>
-      this.native.Insert(index, columns, selected, focused, checked, native).then(Number),
+      this.native.SetImageList(list.inner, size, native).then(() => undefined),
+    );
+  }
+  /** ListView only: insert a row at index. */
+  insert(index: number, columns: string[], selected?: boolean, focused?: boolean, checked?: boolean, imageIndex?: number, options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      this.native.Insert(index, columns, selected, focused, checked, imageIndex, native).then(Number),
     );
   }
   /** ListView: rewrite row cells and/or flags. TreeView: rename a node and/or flags. */
   modify(index: number, ...rest: unknown[]): Promise<number> {
-    const [second, b, c, d, e, options] = rest;
+    const [second, b, c, d, e, f, options] = rest;
     return runAction(options as ActionOptions | undefined, (native) =>
       this.native.Modify(index, second as string[] | string | undefined,
         b as boolean | string | undefined, c as boolean | undefined, d as boolean | undefined,
-        e as boolean | undefined, native).then(Number),
+        e as boolean | undefined, f as number | undefined, native).then(Number),
     );
   }
   /** ListView: row count (mode all/selected/columns). TreeView: node count. */
@@ -520,4 +554,264 @@ export class GuiControl {
       this.native.SetHotkey(modifiers, key, native).then(() => undefined),
     );
   }
+}
+
+/** Native Menu object behind {@link Menu}. */
+export interface MenuNative {
+  Add(name?: string, callbackOrSubmenu?: unknown, action?: NativeActionOptions): Promise<unknown>;
+  Insert(
+    before?: string | number,
+    name?: string,
+    callbackOrSubmenu?: unknown,
+    action?: NativeActionOptions,
+  ): Promise<unknown>;
+  Delete(item?: string | number, action?: NativeActionOptions): Promise<unknown>;
+  Rename(item: string | number, newName?: string, action?: NativeActionOptions): Promise<unknown>;
+  Check(item: string | number, action?: NativeActionOptions): Promise<unknown>;
+  Uncheck(item: string | number, action?: NativeActionOptions): Promise<unknown>;
+  Enable(item: string | number, action?: NativeActionOptions): Promise<unknown>;
+  Disable(item: string | number, action?: NativeActionOptions): Promise<unknown>;
+  ToggleCheck(item: string | number, action?: NativeActionOptions): Promise<unknown>;
+  ToggleEnable(item: string | number, action?: NativeActionOptions): Promise<unknown>;
+  SetColor(color?: string | number, applyToSubmenus?: boolean, action?: NativeActionOptions): Promise<unknown>;
+  SetIcon(
+    item: string | number,
+    file: string,
+    iconIndex?: number,
+    width?: number,
+    action?: NativeActionOptions,
+  ): Promise<unknown>;
+  Show(x?: number, y?: number, action?: NativeActionOptions): Promise<unknown>;
+  Destroy(action?: NativeActionOptions): Promise<unknown>;
+  ClickCount: Promise<unknown>;
+  Default: Promise<unknown>;
+}
+
+/** A menu: popup via {@link show}, bar via {@link Gui.setMenuBar}. */
+export class Menu {
+  private constructor(private readonly native: MenuNative) {}
+
+  /** Creates an empty menu (HMENU materializes on first use). */
+  static create(): Promise<Menu> {
+    return createMenuBridge()
+      .then((bridge) => bridge.createMenu())
+      .then((native) => new Menu(native));
+  }
+
+  /** @internal Unwraps for submenu attach and bar identity (same module). */
+  get inner(): MenuNative {
+    return this.native;
+  }
+
+  /** @internal Rewraps a natively returned menu (MenuBar getter). */
+  static fromNative(native: MenuNative): Menu {
+    return new Menu(native);
+  }
+
+  /** Append an item, separator (no name), submenu (Menu) or callback item. Returns its position. */
+  add(name?: string, callbackOrSubmenu?: ((item: Menu, name: string) => void) | Menu, options?: ActionOptions): Promise<number> {
+    const second = callbackOrSubmenu instanceof Menu ? callbackOrSubmenu.inner : callbackOrSubmenu;
+    return runAction(options, (native) =>
+      this.native.Add(name, second, native).then(Number),
+    );
+  }
+  /** Insert before a name or 0-based position. */
+  insert(
+    before?: string | number,
+    name?: string,
+    callbackOrSubmenu?: ((item: Menu, name: string) => void) | Menu,
+    options?: ActionOptions,
+  ): Promise<number> {
+    const third = callbackOrSubmenu instanceof Menu ? callbackOrSubmenu.inner : callbackOrSubmenu;
+    return runAction(options, (native) =>
+      this.native.Insert(before, name, third, native).then(Number),
+    );
+  }
+  /** Remove one item (name or 0-based position) or clear all. Resolves the removed name. */
+  delete(item?: string | number, options?: ActionOptions): Promise<string> {
+    return runAction(options, (native) =>
+      this.native.Delete(item, native).then(String),
+    );
+  }
+  /** Rename an item (empty new name turns it into a separator). Resolves the old name. */
+  rename(item: string | number, newName?: string, options?: ActionOptions): Promise<string> {
+    return runAction(options, (native) =>
+      this.native.Rename(item, newName, native).then(String),
+    );
+  }
+  check(item: string | number, options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      this.native.Check(item, native).then(() => undefined),
+    );
+  }
+  uncheck(item: string | number, options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      this.native.Uncheck(item, native).then(() => undefined),
+    );
+  }
+  enable(item: string | number, options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      this.native.Enable(item, native).then(() => undefined),
+    );
+  }
+  disable(item: string | number, options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      this.native.Disable(item, native).then(() => undefined),
+    );
+  }
+  /** Returns the checked state after the flip. */
+  toggleCheck(item: string | number, options?: ActionOptions): Promise<boolean> {
+    return runAction(options, (native) =>
+      this.native.ToggleCheck(item, native).then((v) => v === true),
+    );
+  }
+  /** Returns the enabled state after the flip. */
+  toggleEnable(item: string | number, options?: ActionOptions): Promise<boolean> {
+    return runAction(options, (native) =>
+      this.native.ToggleEnable(item, native).then((v) => v === true),
+    );
+  }
+  /** Background color (`#RRGGBB`/number; omitted resets). Submenus included by default. */
+  setColor(color?: string | number, applyToSubmenus?: boolean, options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      this.native.SetColor(color, applyToSubmenus, native).then(() => undefined),
+    );
+  }
+  /** Item icon from a .ico file or dll/exe index (empty file removes it). */
+  setIcon(
+    item: string | number,
+    file: string,
+    iconIndex?: number,
+    width?: number,
+    options?: ActionOptions,
+  ): Promise<void> {
+    return runAction(options, (native) =>
+      this.native.SetIcon(item, file, iconIndex, width, native).then(() => undefined),
+    );
+  }
+  /** Modal popup at x/y (cursor when omitted). Resolves the picked name, null on dismiss. */
+  show(x?: number, y?: number, options?: ActionOptions): Promise<string | null> {
+    return runAction(options, (native) =>
+      this.native.Show(x, y, native).then((v) => (v === null ? null : String(v))),
+    );
+  }
+  destroy(options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      this.native.Destroy(native).then(() => undefined),
+    );
+  }
+  /** 1 or 2 (AHK range; tray-reserved, documented). */
+  getClickCount(options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      Promise.resolve(this.native.ClickCount).then(Number),
+    );
+  }
+  setClickCount(value: number, options?: ActionOptions): Promise<number> {
+    return runAction(options, () => {
+      (this.native as { ClickCount: unknown }).ClickCount = value;
+      return this.getClickCount(options);
+    });
+  }
+  /** Default item name ("" = none). */
+  getDefault(options?: ActionOptions): Promise<string> {
+    return runAction(options, () =>
+      Promise.resolve(this.native.Default).then(String),
+    );
+  }
+  setDefault(name: string, options?: ActionOptions): Promise<string> {
+    return runAction(options, () => {
+      (this.native as { Default: unknown }).Default = name;
+      return this.getDefault(options);
+    });
+  }
+}
+
+async function createMenuBridge(): Promise<{
+  createMenu(): Promise<MenuNative>;
+}> {
+  const module = await import("rime:ui");
+  return module as unknown as {
+    createMenu(): Promise<MenuNative>;
+  };
+}
+
+/** Reverse lookup: the Gui owning an automation window id, null when foreign. */
+export function fromHwnd(windowId: number, options?: ActionOptions): Promise<Gui | null> {
+  return runAction(options, () =>
+    import("rime:ui").then((module) =>
+      (module as unknown as {
+        fromHwnd(windowId: number, action?: NativeActionOptions): Promise<unknown>;
+      })
+        .fromHwnd(windowId)
+        .then((v) => {
+          if (v === null || v === undefined) return null;
+          return Gui.fromNative(v as GuiNative);
+        }),
+    ),
+  );
+}
+
+/** Reverse lookup: the control owning an automation control id, null when foreign. */
+export function fromHwndControl(controlId: number, options?: ActionOptions): Promise<GuiControl | null> {
+  return runAction(options, () =>
+    import("rime:ui").then((module) =>
+      (module as unknown as {
+        fromHwndControl(controlId: number, action?: NativeActionOptions): Promise<unknown>;
+      })
+        .fromHwndControl(controlId)
+        .then((v) => {
+          if (v === null || v === undefined) return null;
+          return GuiControl.fromNative(v as GuiControlNative);
+        }),
+    ),
+  );
+}
+
+/** Native image list behind {@link ImageList}. */
+export interface ImageListNative {
+  Add(file: string, iconIndex?: number, action?: NativeActionOptions): Promise<unknown>;
+  Destroy(action?: NativeActionOptions): Promise<unknown>;
+}
+
+/** A pump-owned icon list for ListView/TreeView rows and nodes. */
+export class ImageList {
+  private constructor(private readonly native: ImageListNative) {}
+
+  /** Creates a list (awaited: geometry can refuse). */
+  static create(width: number, height: number, initial?: number, grow?: number): Promise<ImageList> {
+    return createImageListBridge()
+      .then((bridge) => bridge.createImageList(width, height, initial, grow))
+      .then((native) => new ImageList(native));
+  }
+
+  /** @internal Unwraps for SetImageList attach (same module). */
+  get inner(): ImageListNative {
+    return this.native;
+  }
+
+  /** @internal Rewraps a natively returned list. */
+  static fromNative(native: ImageListNative): ImageList {
+    return new ImageList(native);
+  }
+
+  /** Appends an icon from a .ico file or dll/exe index. Returns its 0-based index. */
+  add(file: string, iconIndex?: number, options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      this.native.Add(file, iconIndex, native).then(Number),
+    );
+  }
+  destroy(options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      this.native.Destroy(native).then(() => undefined),
+    );
+  }
+}
+
+async function createImageListBridge(): Promise<{
+  createImageList(width: number, height: number, initial?: number, grow?: number): Promise<ImageListNative>;
+}> {
+  const module = await import("rime:ui");
+  return module as unknown as {
+    createImageList(width: number, height: number, initial?: number, grow?: number): Promise<ImageListNative>;
+  };
 }

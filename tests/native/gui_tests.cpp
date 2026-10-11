@@ -339,6 +339,79 @@ int main() {
             "freeze flag records without error");
   }
 
+  // ---- FromHwnd reverse lookup (batch 3e) ----------------------------------
+  // Only runtime-owned windows resolve; anything else misses with
+  // TargetGone (the DoD's §4.7 fork). The resolver stands in for
+  // WindowService::peek_hwnd (same pump thread, same void* rule); the
+  // service never sees a handle from anywhere but the resolver.
+  {
+    GuiService::GuiSpec spec;
+    spec.id = 7;
+    spec.title = "rime-fromhwnd-probe";
+    GuiService::GuiShowSpec show;
+    require(service.gui_show(spec, show, deadline_ms(), {}).ok(), "probe window shows");
+    HWND probe = nullptr;
+    {
+      struct Find {
+        DWORD pid{GetCurrentProcessId()};
+        HWND found{nullptr};
+      } find;
+      EnumWindows(
+          [](HWND window, LPARAM parameter) -> BOOL {
+            auto* find = reinterpret_cast<Find*>(parameter);
+            DWORD pid = 0;
+            GetWindowThreadProcessId(window, &pid);
+            if (pid != find->pid) return TRUE;
+            wchar_t text[256]{};
+            if (GetWindowTextW(window, text, 256) == 0) return TRUE;
+            if (wcscmp(text, L"rime-fromhwnd-probe") != 0) return TRUE;
+            find->found = window;
+            return FALSE;
+          },
+          reinterpret_cast<LPARAM>(&find));
+      probe = find.found;
+    }
+    require(probe != nullptr && IsWindow(probe), "the probe window exists");
+    GuiService::GuiControlSpec ctrl;
+    ctrl.gui = spec;
+    ctrl.ctrl_id = 11;
+    ctrl.kind = GuiService::GuiControlKind::Button;
+    ctrl.text = "probe";
+    require(service.gui_add(ctrl, deadline_ms(), {}).ok(), "probe button added");
+    HWND button = FindWindowExW(probe, nullptr, L"Button", nullptr);
+    require(button != nullptr, "the probe button exists");
+    service.set_hwnd_resolver([probe, button](std::uint64_t id) -> void* {
+      if (id == 4242) return probe;
+      if (id == 4343) return button;
+      return nullptr;
+    });
+    std::uint64_t gui_id = 0;
+    require(service.gui_from_window(4242, gui_id, deadline_ms(), {}).ok(), "own window resolves");
+    require(gui_id == 7, "own window resolves to its gui id");
+    require_error(service.gui_from_window(9999, gui_id, deadline_ms(), {}), ErrorCode::TargetGone,
+                  "foreign ids miss with TargetGone");
+    require(gui_id == 0, "misses clear the out id");
+    std::uint64_t found_gui = 0;
+    std::uint64_t found_ctrl = 0;
+    require(service.gui_ctrl_from_window(4343, found_gui, found_ctrl, deadline_ms(), {}).ok(),
+            "own control resolves");
+    require(found_gui == 7 && found_ctrl == 11, "own control resolves to gui + control ids");
+    require_error(service.gui_ctrl_from_window(9999, found_gui, found_ctrl, deadline_ms(), {}),
+                  ErrorCode::TargetGone, "foreign control ids miss with TargetGone");
+    // A control handle is not a window and vice versa.
+    require_error(service.gui_ctrl_from_window(4242, found_gui, found_ctrl, deadline_ms(), {}),
+                  ErrorCode::TargetGone, "a top window is not a control");
+    require_error(service.gui_from_window(4343, gui_id, deadline_ms(), {}), ErrorCode::TargetGone,
+                  "a child control is not a top window");
+    GuiService bare;
+    bare.set_ui_thread(&ui);
+    require_error(bare.gui_from_window(4242, gui_id, deadline_ms(), {}), ErrorCode::TargetGone,
+                  "no resolver means every id misses");
+    require(service.gui_destroy(7, deadline_ms(), {}).ok(), "probe window destroyed");
+    require_error(service.gui_from_window(4242, gui_id, deadline_ms(), {}), ErrorCode::TargetGone,
+                  "destroyed windows miss (stale resolver entries prune)");
+  }
+
   // ---- stop(): removes the tray icon, repeatable --------------------------
   {
     require(service.stop().ok(), "stop succeeds");

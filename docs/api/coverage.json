@@ -1630,10 +1630,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/ui",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "ui.create",
-      "contractTest": "missing",
+      "contractTest": "tests/native/gui_tests.cpp,tests/js/gui_object_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1645,10 +1645,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/ui",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "ui.create",
-      "contractTest": "missing",
+      "contractTest": "tests/native/gui_tests.cpp,tests/js/gui_object_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1783,10 +1783,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/ui",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "ui.create",
-      "contractTest": "missing",
+      "contractTest": "tests/js/gui_object_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1800,10 +1800,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/Gui.TreeView.cpp"
       ],
       "tsModule": "@rime/ui",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "ui.create",
-      "contractTest": "missing",
+      "contractTest": "tests/js/gui_object_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -1815,10 +1815,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/ui",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "ui.create",
-      "contractTest": "missing",
+      "contractTest": "tests/js/gui_object_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2072,10 +2072,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/Gui.StatusBar.cpp"
       ],
       "tsModule": "@rime/ui",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "ui.create",
-      "contractTest": "missing",
+      "contractTest": "tests/js/gui_object_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },
@@ -2087,7 +2087,7 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/ui",
-      "status": "contract-only",
+      "status": "unsupported-by-policy",
       "async": "async",
       "capability": "ui.create",
       "contractTest": "missing",
@@ -2103,10 +2103,10 @@
         "rime-research/AutoHotkey-alpha/source/lib/functions.h"
       ],
       "tsModule": "@rime/ui",
-      "status": "contract-only",
+      "status": "implemented",
       "async": "async",
       "capability": "ui.create",
-      "contractTest": "missing",
+      "contractTest": "tests/js/gui_object_slice.cpp",
       "lane": "ui",
       "cancellation": "deadline+AbortSignal"
     },

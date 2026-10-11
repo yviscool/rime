@@ -49,6 +49,7 @@ const madeControl: GuiControlNative = {
   UseTab: async () => 0,
   SetFormat: async () => undefined,
   SetHotkey: async () => undefined,
+  SetImageList: async () => undefined,
 };
 
 const madeGui: GuiNative = {
@@ -72,6 +73,7 @@ const madeGui: GuiNative = {
     return undefined;
   },
   GetPos: async () => ({ x: 10, y: 20, width: 300, height: 200 }),
+  MenuBar: Promise.resolve(null),
 };
 
 let createArgs: Array<[string | undefined, string | undefined]> = [];
@@ -245,7 +247,7 @@ test("3b control methods forward positionals and map misses to null", async () =
   await expect(control.useTab("T1")).resolves.toBe(0);
   await expect(control.setHotkey(["ctrl"], "A")).resolves.toBeUndefined();
   expect(calls).toStrictEqual([
-    ["Add", [["a", "b"], true, undefined, undefined, undefined]],
+    ["Add", [["a", "b"], true, undefined, undefined, undefined, undefined]],
     ["Choose", ["d"]],
     ["Delete", [undefined]],
     ["GetNext", [undefined, undefined]],
@@ -255,4 +257,76 @@ test("3b control methods forward positionals and map misses to null", async () =
     ["UseTab", ["T1", undefined]],
     ["SetHotkey", [["ctrl"], "A"]],
   ]);
+});
+
+test("menu wrappers forward positionals and map null misses", async () => {
+  const calls: Array<[string, unknown[]]> = [];
+  const { Menu } = await import("../../sdk/src/gui");
+  const recording = {
+    Add: async (...args: unknown[]) => {
+      calls.push(["Add", args.slice(0, -1)]);
+      return 0;
+    },
+    Insert: async (...args: unknown[]) => {
+      calls.push(["Insert", args.slice(0, -1)]);
+      return 1;
+    },
+    Delete: async (...args: unknown[]) => {
+      calls.push(["Delete", args.slice(0, -1)]);
+      return "gone";
+    },
+    Rename: async (...args: unknown[]) => {
+      calls.push(["Rename", args.slice(0, -1)]);
+      return "old";
+    },
+    Check: async () => undefined,
+    Uncheck: async () => undefined,
+    Enable: async () => undefined,
+    Disable: async () => undefined,
+    ToggleCheck: async () => true,
+    ToggleEnable: async () => false,
+    SetColor: async (...args: unknown[]) => {
+      calls.push(["SetColor", args.slice(0, -1)]);
+      return undefined;
+    },
+    SetIcon: async () => undefined,
+    Show: async () => null,
+    Destroy: async () => undefined,
+    ClickCount: Promise.resolve(2),
+    Default: Promise.resolve("alpha"),
+  };
+  const menu = Menu.fromNative(recording as never);
+  await expect(menu.add("alpha", () => {})).resolves.toBe(0);
+  await expect(menu.insert("beta", "mid")).resolves.toBe(1);
+  await expect(menu.delete("old")).resolves.toBe("gone");
+  await expect(menu.rename("mid", "middle")).resolves.toBe("old");
+  await expect(menu.toggleCheck("a")).resolves.toBe(true);
+  await expect(menu.toggleEnable("a")).resolves.toBe(false);
+  await expect(menu.setColor("#FF0000")).resolves.toBeUndefined();
+  await expect(menu.show()).resolves.toBeNull();
+  await expect(menu.getClickCount()).resolves.toBe(2);
+  await expect(menu.getDefault()).resolves.toBe("alpha");
+  expect(calls).toStrictEqual([
+    ["Add", ["alpha", expect.anything()]],
+    ["Insert", ["beta", "mid", undefined]],
+    ["Delete", ["old"]],
+    ["Rename", ["mid", "middle"]],
+    ["SetColor", ["#FF0000", undefined]],
+  ]);
+});
+
+test("imagelist wrappers forward file/index and list attach", async () => {
+  const calls: Array<[string, unknown[]]> = [];
+  const { ImageList } = await import("../../sdk/src/gui");
+  const recording = {
+    Add: async (...args: unknown[]) => {
+      calls.push(["Add", args.slice(0, -1)]);
+      return 0;
+    },
+    Destroy: async () => undefined,
+  };
+  const list = ImageList.fromNative(recording as never);
+  await expect(list.add("x.ico", 3)).resolves.toBe(0);
+  await expect(list.destroy()).resolves.toBeUndefined();
+  expect(calls).toStrictEqual([["Add", ["x.ico", 3]]]);
 });

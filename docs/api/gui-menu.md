@@ -82,7 +82,7 @@ GUI、菜单、托盘和模态对话框对象必须由 UI Thread 所有，以稳
 
 ### 4.8 明确不做（批3+ 前提）
 
-`MenuBar`、`Add*` 剩 16 个待实现构造器、控件族方法（`SetImageList` 三行等 3c ImageList 模型）、`Menu` 17 成员、8 项 coverage 尾、事件集扩张（`Escape`/`ContextMenu`/`DropFiles`/`Focus`/`DblClk`/`ItemSelect`…）、g-label 与事件标签、DPI 重缩放（`mDefaultDPIResize`）。未实现项在 `objects.json`/`coverage.json` 维持 `contract-only`，`ValueError` 拒绝集合外事件名即是"未实现"的显式信号。
+g-label 与事件标签、DPI 重缩放（`mDefaultDPIResize`）。`Add*` 构造器族已清零（3a；`AddActiveX/AddTab3/AddCustom` 为终态 `unsupported-by-policy`）。其余批3 项已落地（§4.10 控件方法、§4.11 菜单、§4.12 图片列表、§4.13 反查、§4.14 事件；`Focus`/`DblClk` 决议见 §4.14——前者无 AHK Gui 级对等物，后者走 `OnNotify`）。未实现项在 `objects.json`/`coverage.json` 维持 `contract-only`，`ValueError` 拒绝集合外事件名即是"未实现"的显式信号。
 
 ### 4.9 批3 政策 verdict（3 行 → `unsupported-by-policy`，文档先行零代码）
 
@@ -105,3 +105,32 @@ GUI、菜单、托盘和模态对话框对象必须由 UI Thread 所有，以稳
 - 单件：`Tab.UseTab(index|label, exactMatch?)`（`TCM_SETCURSEL`，label 默认精确匹配）；`DateTime.SetFormat(picture)`（Win32 picture 原样透传 `DTM_SETFORMATW`，如 `"yyyy-MM-dd"`——这是 Win32 自己的格式语言，不是新 DSL）；`Hotkey.SetHotkey(modifiers[], key)`（修饰名 shift/ctrl/alt 大小写不敏感，`win` 拒绝——`HKM_SETHOTKEY` 无 Win 位；键名走输入模块同一套 `chord_key` 语法，`vk>0xFF` 拒绝）；`Edit/ComboBox.SetCue`（后者经 `CB_SETCUEBANNER`——此前实现只认 Edit，3b 补齐；回读分别用 `EM_GETCUEBANNER`/`CB_GETCUEBANNER` 背书）。
 - 位置参数不吃对象（尾对象槽是 ActionOptions，见绑定 `is_action_object`）：行列修饰一律位置布尔（`selected?, focused?, checked?` 等，`undefined` = 保持）。
 - 延期：`SetImageList` 三行（LV/TV/GuiControl）维持 `contract-only`，等 3c 的 ImageList 模型（`UIntPtr ImageListID` 生句柄不进新 API）；`TreeView` 复选（`TVS_CHECKBOXES`）与 StatusBar owner-draw 同理不在 3b。
+
+### 4.11 菜单（批3c：Menu 对象 15+2、Gui.MenuBar）
+
+`ui.createMenu()` 建空菜单（`CreateMenu`——不是 `CreatePopupMenu`：同一份 `HMENU` 要能 `Show` 弹窗、挂子菜单、还能 `SetMenu` 上栏，而 `SetMenu` 拒 popup 句柄 `ERROR_INVALID_PARAMETER`，实测结论）。项用名或 0-based 位置寻址（名可重复，首个命中，与 AHK `FindItem` 同；分隔符只有位置可寻址）。`Add/Insert` 的第二参数是函数（选中回调）或 Menu 对象（子菜单），不是 AHK 的 options DSL（radio/break 等一次性布局语言不进新 API）。
+
+- 回调不经过 pump 事件表：`Add` 把函数记在 JS 侧名→函数表，`Show`（`TPM_RETURNCMD` 模态拿命令 id）和 MenuBar（`WM_COMMAND` 经 channel 事件）都以名触发。`Delete/Rename/clear` 在 `then_chain` 里同步表（成功才动，拒绝不留脏项）；`Rename` 保命令 id（回调跟着走），转分隔符清名留 id。
+- `Show(x?, y?)` 恒模态（`Wait` 参数不收——与 `MsgBox` 同一 bounded 形），resolve 选中名/`null`；owner 是服务自有的离屏 1x1 可见宿主窗（`HWND_MESSAGE` owner 下 `TrackPopupMenuEx` 直接不出窗，实测结论；`WS_EX_TOOLWINDOW` 不占任务栏）。
+- MenuBar 是 Gui 的 property（`Menu` 挂载/`null` 摘除；一菜单一窗口，重复挂载拒绝；窗口销毁只摘除不销毁菜单；菜单销毁先从各栏各父摘除，槽位保位转普通项）。
+- `SetColor(rgb?, applyToSubmenus?)` 经 `MENUINFO/MIM_BACKGROUND`（与 `BackColor` 同一拼写，空复位；子菜单各持刷子，`DeleteObject` 链不断）。
+- `SetIcon(item, file, iconIndex?, width?)`（空文件删图标；宽默认 `SM_CXSMICON`，0 取原尺寸；icon→32 位 bitmap 经 `MIIM_BITMAP`，旧图销毁）。
+- `Default`（空清）、`ClickCount`（AHK 的 1..2 校验，存值；tray 保留语义，无 tray 菜单故暂无消费者，如实文档）。
+- `Handle` 与 `AddStandard` 判 `unsupported-by-policy`：前者裸 `HMENU`（§0.4 同族），后者填充 tray 专属项（Open/Reload/Edit/Suspend…）而本运行时无 tray 菜单；替代都是 `Add` 自建。
+- 命令 id 全局 `0x8000+`（`WM_COMMAND` 在任意 Gui 窗无歧义路由；`0` 永不发放，popup 取消即 0）。
+
+### 4.12 图片列表（批3d：ImageList 对象 + SetImageList×3）
+
+AHK 的 `IL_Create/IL_Add/IL_Destroy` 整数句柄换成 runtime 对象（与菜单同式）：`ui.createImageList(width, height, initial?, grow?)` 是 await 工厂（几何可拒绝，故对象在 pump 记录之后建）；`Add(file, iconIndex?)` 只收图标（`.ico` 文件或 dll/exe 序号，与 SB/Menu 同一 loader；位图条不在范围，如实文档）回 0-based 序号；`Destroy()` 先从所有 LV/TV 摘除（`SETIMAGELIST NULL`）再 `ImageList_Destroy`，双 destroy 幂等（Gui 惯例）。
+`control.SetImageList(list, size?)`（LV/TV 专属，错 kind 同步 `TypeError`）：size `normal/small/state`（TV 无 small，拒绝；LV 默认 normal），`child.image_list` 记名供销毁清扫。行/节点图标经 `Add/Insert/Modify` 尾参 `imageIndex?`（`LVIF_IMAGE`/`TVIF_IMAGE|TVIF_SELECTEDIMAGE`；`SetImageList` 之后才有意义，顺序错了读回 `-1`/空，OS 说了算）。
+
+### 4.13 反查（批3e：GuiFromHwnd/GuiCtrlFromHwnd，MenuFromHandle 不做）
+
+`ui.fromHwnd(windowId)` / `ui.fromHwndControl(controlId)`：输入是 automation 的稳定 id（裸句柄永不进运行时），只反查本运行时自有表（DoD 的 §4.7 分叉）；外窗、死句柄、不可解析一律 `null`（`TargetGone` 是 miss 不是 throw）。实现是跨服务 native 调用：`WindowService::peek_hwnd`（pump-only，`void*` 形态沿 `control_id_for_hwnd` 先例）经 `set_hwnd_resolver` 注入，同一 pump 线程直调（另起封送会与调用方自己的 pump 任务死锁，故不封送）。命中判 `IsWindow` + 存活记录（构造 id：roots/rows 同 3b 规则）。
+`MenuFromHandle` 判 `unsupported-by-policy`：`HMENU` 无 id 空间可命名（automation 只给窗口/控件发 id），菜单本就持稳定 id（`createMenu` 即得），无入口可测，背书 = 台账状态（沿 §4.9 `AddActiveX` 先例）。
+
+### 4.14 事件扩张（批3e：Escape/ContextMenu/DropFiles/ItemSelect；DblClick 不单列）
+
+`OnEvent` 名集合开到 7+3：Gui 侧 `Escape`（`VK_ESCAPE` 按下沿，repeat 跳过；AHK 会关窗，本运行时只报告）、`ContextMenu`（`WM_CONTEXTMENU`，参 x/y/ctrlId，背景为 0）、`DropFiles`（`WM_DROPFILES`，`DragAcceptFiles` 随 interest 开关，参为文件（分发 cap 8 个，多了截断如实文档），`DragFinish` 泵侧释放）；控件侧 `ItemSelect`（ListView `LVN_ITEMCHANGED` 选中翻转参 [row, 0/1]，TreeView `TVN_SELCHANGEDW` 参稳定 id——注意 W 后缀：TV 的 A/W 通知编号不同（`SELCHANGEDW=FIRST-51`），窗是 Unicode 必须对 W，ListView 编号统一无此坑；ListBox/ComboBox 的选中沿用 `Change`）。
+`DblClick` 不单列：双击经 `OnNotify` 原始码直达（`LBN_DBLCLK`/`NM_DBLCLK`…），传输层已覆盖，单列新名只有糖没有语义。
+并发注册收敛（3e 修的产品竞态）：每个 `OnEvent` 族注册都带单调戳镜像全表，泵只收最新戳（`interest.seq`，0=无戳创建期必收）；此前并发注册是 last-writer-wins 丢位，S9i 的五个并发注册即是复现与回归证据。

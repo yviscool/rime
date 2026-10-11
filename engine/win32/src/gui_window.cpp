@@ -26,6 +26,7 @@
 #include <commctrl.h>
 
 #include <shellapi.h>
+#include <windowsx.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -115,6 +116,21 @@ Json target_ctrl(std::uint64_t ctrl_id) { return Json::number(static_cast<double
 Json make_args() { return Json::array(); }
 
 void push_arg(Json& args, double value) { args.push(Json::number(value)); }
+void push_menu_str(Json& args, const std::string& value) { args.push(Json::string(value)); }
+
+// DropFiles follows interest: accepting while a handler exists, revoked
+// when the last one leaves (a window that never asked keeps the default).
+void apply_drop_files(GuiRecord& rec) {
+  if (!rec.hwnd || !IsWindow(rec.hwnd)) return;
+  DragAcceptFiles(rec.hwnd, (rec.interest.gui_bits & GuiService::kGuiEventBitDropFiles) != 0);
+}
+
+Json target_menu(std::uint64_t menu_id);
+void push_menu_event(std::uint64_t menu_id, GuiMenuRecord& menu, std::uint64_t gui_id,
+                     std::uint32_t command, const std::wstring& name);
+Error find_image_list(std::map<std::uint64_t, GuiImageListRecord>& lists, std::uint64_t list_id,
+                      GuiImageListRecord*& out);
+std::uint64_t tree_id_of(const GuiChildRecord& child, HTREEITEM item);
 
 // Builds {gui, target, event, args} and pushes it through the record's sink.
 void push_event(GuiRecord& rec, Json target, const char* event_name, Json args) {
@@ -136,7 +152,8 @@ Error destroyed_error() { return {Code::InvalidState, kDestroyed}; }
 // lookups distinguish "never created" (create) from "destroyed"
 // (InvalidState). The record takes a copy of the current event sink.
 Error ensure_live_record(GuiMap& guis, const EventSinkFn& sink,
-                         const GuiService::GuiSpec& spec, GuiRecord*& out) {
+                         std::map<std::uint64_t, GuiMenuRecord>* menus, const GuiService::GuiSpec& spec,
+                         GuiRecord*& out) {
   auto it = guis.find(spec.id);
   GuiRecord* rec = nullptr;
   if (it == guis.end()) {
@@ -146,7 +163,9 @@ Error ensure_live_record(GuiMap& guis, const EventSinkFn& sink,
     rec->id_hint = spec.id;
     rec->channel = spec.channel;
     rec->event_sink = sink;
+    rec->menus = menus;
     rec->interest = spec.interest;  // handlers registered before the window
+    rec->interest_seq = spec.interest.seq;
     GetObjectW(static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)), sizeof(LOGFONTW),
                &rec->font_log);
     rec->font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
@@ -166,6 +185,7 @@ Error ensure_live_record(GuiMap& guis, const EventSinkFn& sink,
   if (rec->dead) return destroyed_error();
   if (rec->channel == 0 && spec.channel != 0) rec->channel = spec.channel;
   if (!rec->event_sink && sink) rec->event_sink = sink;
+  apply_drop_files(*rec);
   out = rec;
   return Error::none();
 }
@@ -201,10 +221,11 @@ void free_record_state(GuiRecord& rec) {
   rec.by_hmenu.clear();
 }
 
-Error find_ctrl(GuiMap& guis, const EventSinkFn& sink, const GuiService::GuiSpec& spec,
+Error find_ctrl(GuiMap& guis, const EventSinkFn& sink,
+                std::map<std::uint64_t, GuiMenuRecord>* menus, const GuiService::GuiSpec& spec,
                 std::uint64_t ctrl_id, GuiRecord*& rec_out, GuiChildRecord*& child_out) {
   GuiRecord* rec = nullptr;
-  const Error err = ensure_live_record(guis, sink, spec, rec);
+  const Error err = ensure_live_record(guis, sink, menus, spec, rec);
   if (!err.ok()) return err;
   auto it = rec->children.find(ctrl_id);
   if (it == rec->children.end()) return {Code::InvalidContract, kNoControl};
@@ -688,9 +709,10 @@ LoadedPicture load_picture(const std::string& path) {
 // ---- control creation ----------------------------------------------------
 
 Error add_control_pump(GuiMap& guis, const EventSinkFn& sink,
+                       std::map<std::uint64_t, GuiMenuRecord>* menus,
                        const GuiService::GuiControlSpec& spec) {
   GuiRecord* rec = nullptr;
-  if (const Error err = ensure_live_record(guis, sink, spec.gui, rec); !err.ok()) return err;
+  if (const Error err = ensure_live_record(guis, sink, menus, spec.gui, rec); !err.ok()) return err;
   if (rec->children.size() >= static_cast<std::size_t>(kMaxControlsPerGui)) {
     return {Code::InvalidContract, "too many controls in one gui"};
   }
@@ -1165,7 +1187,26 @@ LRESULT CALLBACK gui_wnd_proc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
     case WM_COMMAND: {
       const int code = HIWORD(w);
       auto* child = reinterpret_cast<HWND>(l);
-      if (!child || !IsChild(hwnd, child)) break;  // menu/accelerator, not ours
+      if ((!child || !IsChild(hwnd, child)) && (l != 0 || code != 0)) {
+        break;  // accelerator, not ours (menu commands fall through below)
+      }
+      if (l == 0 && code == 0 && rec->menus) {
+        // Menu-bar (or submenu) selection: LOWORD is a service-global menu
+        // command id. Unknown ids are ignored (stale after a menu died).
+        // The event rides the MENU's own channel, not the window's: the
+        // callback belongs to the menu object (batch 3c).
+        const std::uint32_t command = LOWORD(w);
+        for (auto& [menu_id, menu] : *rec->menus) {
+          for (const auto& item : menu.items) {
+            if (!item.separator && item.submenu == 0 && item.command == command) {
+              push_menu_event(menu_id, menu, rec->id_hint, command, item.name);
+              break;
+            }
+          }
+        }
+        break;
+      }
+      if (!child || !IsChild(hwnd, child)) break;
       const auto id_it = rec->by_hwnd.find(reinterpret_cast<std::uintptr_t>(child));
       if (id_it == rec->by_hwnd.end()) break;
       const std::uint64_t ctrl_id = id_it->second;
@@ -1208,6 +1249,50 @@ LRESULT CALLBACK gui_wnd_proc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
       }
       break;
     }
+    case WM_KEYDOWN:
+    case WM_SYSKEYDOWN: {
+      // Escape (batch 3e): one event per press (bit 30 = auto-repeat,
+      // skipped). AHK closes on Escape; this runtime only reports.
+      if ((static_cast<int>(w) == VK_ESCAPE) && ((l & (1 << 30)) == 0) &&
+          (rec->interest.gui_bits & GuiService::kGuiEventBitEscape) != 0) {
+        push_event(*rec, target_gui(), "Escape", make_args());
+      }
+      break;  // DefWindowProc keeps dialog navigation working.
+    }
+    case WM_CONTEXTMENU: {
+      if ((rec->interest.gui_bits & GuiService::kGuiEventBitContextMenu) != 0) {
+        auto* from = reinterpret_cast<HWND>(w);
+        std::uint64_t ctrl_id = 0;
+        if (from && IsChild(hwnd, from)) {
+          const auto found = rec->by_hwnd.find(reinterpret_cast<std::uintptr_t>(from));
+          if (found != rec->by_hwnd.end()) ctrl_id = found->second;
+        }
+        Json args = make_args();
+        push_arg(args, static_cast<double>(GET_X_LPARAM(l)));
+        push_arg(args, static_cast<double>(GET_Y_LPARAM(l)));
+        push_arg(args, static_cast<double>(ctrl_id));
+        push_event(*rec, target_gui(), "ContextMenu", std::move(args));
+      }
+      break;  // DefWindowProc shows the default menu, if any.
+    }
+    case WM_DROPFILES: {
+      if ((rec->interest.gui_bits & GuiService::kGuiEventBitDropFiles) != 0) {
+        auto* drop = reinterpret_cast<HDROP>(w);
+        Json args = make_args();
+        const UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+        // The dispatch cap is 8 args; more files truncate (documented).
+        for (UINT i = 0; i < count && i < 8; ++i) {
+          const UINT length = DragQueryFileW(drop, i, nullptr, 0);
+          std::wstring path(static_cast<std::size_t>(length) + 1, L'\0');
+          DragQueryFileW(drop, i, path.data(), length + 1);
+          path.resize(length);
+          push_menu_str(args, to_utf8(path));
+        }
+        push_event(*rec, target_gui(), "DropFiles", std::move(args));
+      }
+      DragFinish(reinterpret_cast<HDROP>(w));
+      break;
+    }
     case WM_NOTIFY: {
       auto* header = reinterpret_cast<NMHDR*>(l);
       if (!header || !IsChild(hwnd, header->hwndFrom)) break;
@@ -1219,6 +1304,39 @@ LRESULT CALLBACK gui_wnd_proc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
         Json args = make_args();
         push_arg(args, static_cast<double>(code));
         push_event(*rec, target_ctrl(id_it->second), "Notify", std::move(args));
+      }
+      // ItemSelect (batch 3e): ListView selection flips and TreeView
+      // caret moves. ListBox/ComboBox selection stays Change (established).
+      const auto bit_it = rec->interest.ctrl_bits.find(id_it->second);
+      const bool want_select =
+          bit_it != rec->interest.ctrl_bits.end() &&
+          (bit_it->second & GuiService::kCtrlEventBitItemSelect) != 0;
+      if (want_select) {
+        const auto kind_it = rec->children.find(id_it->second);
+        const GuiService::GuiControlKind kind =
+            kind_it != rec->children.end() ? kind_it->second.kind : GuiService::GuiControlKind::Text;
+        if (kind == GuiService::GuiControlKind::ListView &&
+            code == static_cast<int>(LVN_ITEMCHANGED)) {
+          const auto* changed = reinterpret_cast<NMLISTVIEW*>(l);
+          if ((changed->uChanged & LVIF_STATE) != 0 &&
+              ((changed->uNewState ^ changed->uOldState) & LVIS_SELECTED) != 0) {
+            Json args = make_args();
+            push_arg(args, static_cast<double>(changed->iItem));
+            push_arg(args, (changed->uNewState & LVIS_SELECTED) != 0 ? 1.0 : 0.0);
+            push_event(*rec, target_ctrl(id_it->second), "ItemSelect", std::move(args));
+          }
+        } else if (kind == GuiService::GuiControlKind::TreeView &&
+                   // W suffix on purpose: TreeView ANSI/Unicode notify codes
+                   // differ (SELCHANGEDW is FIRST-51, A is FIRST-2) and our
+                   // windows are Unicode. ListView codes are unified, so the
+                   // plain LVN_ITEMCHANGED above is already correct.
+                   code == static_cast<int>(TVN_SELCHANGEDW)) {
+          // The caret's stable id (0 = none, same face as GetSelection).
+          const auto* changed = reinterpret_cast<NMTREEVIEW*>(l);
+          Json args = make_args();
+          push_arg(args, static_cast<double>(tree_id_of(kind_it->second, changed->itemNew.hItem)));
+          push_event(*rec, target_ctrl(id_it->second), "ItemSelect", std::move(args));
+        }
       }
       break;
     }
@@ -1577,7 +1695,7 @@ Error GuiService::gui_show(const GuiSpec& gui, const GuiShowSpec& show,
                            const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
-    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, gui, rec);
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
         !err.ok()) {
       return err;
     }
@@ -1698,7 +1816,7 @@ Error GuiService::gui_move(const GuiSpec& gui, const GuiMoveSpec& move,
                            const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
-    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, gui, rec);
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
         !err.ok()) {
       return err;
     }
@@ -1722,7 +1840,7 @@ Error GuiService::gui_get_pos(const GuiSpec& gui, const bool client, GuiRect& ou
                               const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
-    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, gui, rec);
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
         !err.ok()) {
       return err;
     }
@@ -1752,7 +1870,7 @@ Error GuiService::gui_window_cmd(const GuiSpec& gui, const int show_cmd,
                                  const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
-    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, gui, rec);
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
         !err.ok()) {
       return err;
     }
@@ -1766,7 +1884,7 @@ Error GuiService::gui_flash(const GuiSpec& gui, const bool blink,
                             const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
-    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, gui, rec);
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
         !err.ok()) {
       return err;
     }
@@ -1780,7 +1898,7 @@ Error GuiService::gui_opt(const GuiSpec& gui, const GuiStyleOptions& style,
                           const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
-    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, gui, rec);
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
         !err.ok()) {
       return err;
     }
@@ -1819,7 +1937,7 @@ Error GuiService::gui_set_font(const GuiSpec& gui, const GuiFontSpec& font,
                                const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
-    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, gui, rec);
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
         !err.ok()) {
       return err;
     }
@@ -1848,7 +1966,7 @@ Error GuiService::gui_set_title(const GuiSpec& gui, const std::string& title,
                                 const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
-    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, gui, rec);
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
         !err.ok()) {
       return err;
     }
@@ -1863,7 +1981,7 @@ Error GuiService::gui_get_title(const GuiSpec& gui, std::string& out,
                                 const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
-    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, gui, rec);
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
         !err.ok()) {
       return err;
     }
@@ -1876,7 +1994,7 @@ Error GuiService::gui_set_back_color(const GuiSpec& gui, const std::uint32_t col
                                      const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
-    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, gui, rec);
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
         !err.ok()) {
       return err;
     }
@@ -1895,7 +2013,7 @@ Error GuiService::gui_set_margins(const GuiSpec& gui, const int margin_x, const 
                                   const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
-    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, gui, rec);
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
         !err.ok()) {
       return err;
     }
@@ -1915,7 +2033,7 @@ Error GuiService::gui_submit(const GuiSpec& gui, const bool hide, Json& out,
                              const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
-    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, gui, rec);
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
         !err.ok()) {
       return err;
     }
@@ -1954,7 +2072,7 @@ Error GuiService::gui_focused_control(const GuiSpec& gui, std::uint64_t& ctrl_id
                                       const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
-    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, gui, rec);
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
         !err.ok()) {
       return err;
     }
@@ -1975,8 +2093,13 @@ Error GuiService::gui_set_event_interest(const GuiSpec& gui, const GuiEventInter
     const auto it = impl_->guis.find(gui.id);
     if (it == impl_->guis.end()) return Error::none();  // applied by ensure later
     GuiRecord* rec = it->second.get();
+    if (interest.seq != 0 && interest.seq <= rec->interest_seq) {
+      return Error::none();  // stale mirror: a newer snapshot already won
+    }
     rec->interest = interest;
+    rec->interest_seq = interest.seq;
     if (gui.channel != 0) rec->channel = gui.channel;
+    apply_drop_files(*rec);
     return Error::none();
   });
 }
@@ -1987,7 +2110,7 @@ Error GuiService::gui_add(const GuiControlSpec& spec, const std::int64_t deadlin
                           const rime::core::CancellationToken cancel) {
   return run_pump(deadline_unix_ms, cancel,
                   [&]() -> Error {
-                    return add_control_pump(impl_->guis, impl_->event_sink, spec);
+                    return add_control_pump(impl_->guis, impl_->event_sink, &impl_->menus, spec);
                   });
 }
 
@@ -2011,7 +2134,7 @@ Error GuiService::ctrl_move(const GuiSpec& gui, const std::uint64_t ctrl_id,
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2026,7 +2149,7 @@ Error GuiService::ctrl_get_pos(const GuiSpec& gui, const std::uint64_t ctrl_id, 
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2047,7 +2170,7 @@ Error GuiService::ctrl_focus(const GuiSpec& gui, const std::uint64_t ctrl_id,
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2063,7 +2186,7 @@ Error GuiService::ctrl_focused(const GuiSpec& gui, const std::uint64_t ctrl_id, 
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2078,7 +2201,7 @@ Error GuiService::ctrl_redraw(const GuiSpec& gui, const std::uint64_t ctrl_id,
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2094,7 +2217,7 @@ Error GuiService::ctrl_set_font(const GuiSpec& gui, const std::uint64_t ctrl_id,
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2117,7 +2240,7 @@ Error GuiService::ctrl_get_text(const GuiSpec& gui, const std::uint64_t ctrl_id,
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2131,7 +2254,7 @@ Error GuiService::ctrl_set_text(const GuiSpec& gui, const std::uint64_t ctrl_id,
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2147,7 +2270,7 @@ Error GuiService::ctrl_get_value(const GuiSpec& gui, const std::uint64_t ctrl_id
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2161,7 +2284,7 @@ Error GuiService::ctrl_set_value(const GuiSpec& gui, const std::uint64_t ctrl_id
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2175,7 +2298,7 @@ Error GuiService::ctrl_set_enabled(const GuiSpec& gui, const std::uint64_t ctrl_
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2191,7 +2314,7 @@ Error GuiService::ctrl_get_enabled(const GuiSpec& gui, const std::uint64_t ctrl_
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2206,7 +2329,7 @@ Error GuiService::ctrl_set_visible(const GuiSpec& gui, const std::uint64_t ctrl_
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2226,7 +2349,7 @@ Error GuiService::ctrl_get_visible(const GuiSpec& gui, const std::uint64_t ctrl_
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2241,7 +2364,7 @@ Error GuiService::ctrl_opt(const GuiSpec& gui, const std::uint64_t ctrl_id,
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2275,7 +2398,7 @@ Error GuiService::ctrl_set_cue(const GuiSpec& gui, const std::uint64_t ctrl_id,
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2375,7 +2498,7 @@ Error GuiService::ctrl_invoke(const GuiSpec& gui, const std::uint64_t ctrl_id,
   return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
     GuiRecord* rec = nullptr;
     GuiChildRecord* child = nullptr;
-    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, &impl_->menus, gui, ctrl_id, rec, child);
         !err.ok()) {
       return err;
     }
@@ -2474,6 +2597,13 @@ Error GuiService::ctrl_invoke(const GuiSpec& gui, const std::uint64_t ctrl_id,
         item.mask = LVIF_TEXT;
         item.iItem = at;
         item.pszText = const_cast<LPWSTR>(first.c_str());
+        if (call.image_index.has_value()) {
+          if (*call.image_index < 0) {
+            return {Code::InvalidContract, "row image index cannot be negative"};
+          }
+          item.mask |= LVIF_IMAGE;
+          item.iImage = *call.image_index;
+        }
         if (ListView_InsertItem(hwnd, &item) < 0) {
           return {Code::ExecutionFailed, "row insert failed"};
         }
@@ -2519,6 +2649,16 @@ Error GuiService::ctrl_invoke(const GuiSpec& gui, const std::uint64_t ctrl_id,
           }
           const std::wstring cell = from_utf8(call.columns[col]);
           ListView_SetItemText(hwnd, at, static_cast<int>(col), const_cast<LPWSTR>(cell.c_str()));
+        }
+        if (call.image_index.has_value()) {
+          if (*call.image_index < 0) {
+            return {Code::InvalidContract, "row image index cannot be negative"};
+          }
+          LVITEMW image{};
+          image.mask = LVIF_IMAGE;
+          image.iItem = at;
+          image.iImage = *call.image_index;
+          ListView_SetItem(hwnd, &image);
         }
         if (call.selected.has_value() || call.focused.has_value()) {
           UINT state = 0;
@@ -2727,6 +2867,14 @@ Error GuiService::ctrl_invoke(const GuiSpec& gui, const std::uint64_t ctrl_id,
         insert.hInsertAfter = TVI_LAST;
         insert.item.mask = TVIF_TEXT;
         insert.item.pszText = const_cast<LPWSTR>(name.c_str());
+        if (call.image_index.has_value()) {
+          if (*call.image_index < 0) {
+            return {Code::InvalidContract, "node image index cannot be negative"};
+          }
+          insert.item.mask |= TVIF_IMAGE | TVIF_SELECTEDIMAGE;
+          insert.item.iImage = *call.image_index;
+          insert.item.iSelectedImage = *call.image_index;
+        }
         HTREEITEM created = reinterpret_cast<HTREEITEM>(
             SendMessageW(hwnd, TVM_INSERTITEM, 0, reinterpret_cast<LPARAM>(&insert)));
         if (!created) return {Code::ExecutionFailed, "node insert failed"};
@@ -2789,6 +2937,17 @@ Error GuiService::ctrl_invoke(const GuiSpec& gui, const std::uint64_t ctrl_id,
           set.mask = TVIF_TEXT;
           set.pszText = const_cast<LPWSTR>(name.c_str());
           SendMessageW(hwnd, TVM_SETITEM, 0, reinterpret_cast<LPARAM>(&set));
+        }
+        if (call.image_index.has_value()) {
+          if (*call.image_index < 0) {
+            return {Code::InvalidContract, "node image index cannot be negative"};
+          }
+          TVITEMW image{};
+          image.hItem = hitem;
+          image.mask = TVIF_IMAGE | TVIF_SELECTEDIMAGE;
+          image.iImage = *call.image_index;
+          image.iSelectedImage = *call.image_index;
+          SendMessageW(hwnd, TVM_SETITEM, 0, reinterpret_cast<LPARAM>(&image));
         }
         if (call.bold.has_value()) {
           TVITEMW set{};
@@ -3061,8 +3220,894 @@ Error GuiService::ctrl_invoke(const GuiSpec& gui, const std::uint64_t ctrl_id,
         SendMessageW(hwnd, HKM_SETHOTKEY, MAKEWORD(call.hot_vk, call.hot_modifiers), 0);
         return Error::none();
       }
+      case Op::SetImageList: {
+        op_name = "SetImageList";
+        if (const Error err = require_kind(*child, {K::ListView, K::TreeView}, op_name);
+            !err.ok()) {
+          return err;
+        }
+        if (call.list == 0) return {Code::InvalidContract, "SetImageList needs an image list"};
+        GuiImageListRecord* list = nullptr;
+        if (const Error err = find_image_list(impl_->image_lists, call.list, list);
+            !err.ok()) {
+          return err;
+        }
+        WPARAM which = LVSIL_NORMAL;
+        if (child->kind == K::ListView) {
+          if (call.mode == "small") {
+            which = LVSIL_SMALL;
+          } else if (call.mode == "state") {
+            which = LVSIL_STATE;
+          } else if (!call.mode.empty() && call.mode != "normal") {
+            return {Code::InvalidContract, "ListView image size is normal, small or state"};
+          }
+          SendMessageW(hwnd, LVM_SETIMAGELIST, which, reinterpret_cast<LPARAM>(list->handle));
+        } else {
+          if (call.mode == "state") {
+            which = TVSIL_STATE;
+          } else if (!call.mode.empty() && call.mode != "normal") {
+            return {Code::InvalidContract, "TreeView image size is normal or state"};
+          } else {
+            which = TVSIL_NORMAL;
+          }
+          SendMessageW(hwnd, TVM_SETIMAGELIST, which, reinterpret_cast<LPARAM>(list->handle));
+        }
+        child->image_list = call.list;
+        return Error::none();
+      }
     }
     return {Code::InvalidContract, std::string(op_name) + " is not implemented"};
+  });
+}
+
+// ---- batch 3c: menus --------------------------------------------------------
+
+namespace {
+
+Error find_menu_record(std::map<std::uint64_t, GuiMenuRecord>& menus, std::uint64_t menu_id,
+                       GuiMenuRecord*& out) {
+  const auto it = menus.find(menu_id);
+  if (it == menus.end()) return {Code::InvalidState, "unknown menu"};
+  out = &it->second;
+  return Error::none();
+}
+
+// Materializes the pump record for a JS-minted menu id (ui.createMenu mints
+// like Gui ids do) and adopts the carried channel when unset - order-free
+// like GuiSpec::channel, so no call depends on another landing first.
+Error ensure_menu_record(std::map<std::uint64_t, GuiMenuRecord>& menus,
+                         const std::function<void(std::uint64_t, std::string)>& sink,
+                         std::uint64_t menu_id, std::uint64_t channel, GuiMenuRecord*& out) {
+  auto it = menus.find(menu_id);
+  if (it == menus.end()) {
+    // CreateMenu (not Popup): the same record serves popup Show, submenu
+    // attach AND SetMenu bars, and SetMenu rejects popup handles with
+    // ERROR_INVALID_PARAMETER. TrackPopupMenuEx takes either.
+    const HMENU hmenu = CreateMenu();
+    if (!hmenu) return {Code::ExecutionFailed, "menu creation failed"};
+    GuiMenuRecord record;
+    record.hmenu = hmenu;
+    record.event_sink = sink;
+    record.channel = channel;
+    it = menus.emplace(menu_id, std::move(record)).first;
+  }
+  GuiMenuRecord* menu = &it->second;
+  if (menu->channel == 0 && channel != 0) menu->channel = channel;
+  if (!menu->event_sink && sink) menu->event_sink = sink;
+  out = menu;
+  return Error::none();
+}
+
+// Item selector: 0-based position (has_index) or exact name, first match.
+// Separators carry an empty name and are only addressable by position.
+Error resolve_menu_item(const GuiMenuRecord& menu, const GuiService::GuiMenuCall& call,
+                        std::size_t& pos_out) {
+  if (call.has_index) {
+    if (call.index < 0 || static_cast<std::size_t>(call.index) >= menu.items.size()) {
+      return {Code::InvalidContract, "menu item position is out of range"};
+    }
+    pos_out = static_cast<std::size_t>(call.index);
+    return Error::none();
+  }
+  if (call.text.empty()) return {Code::InvalidContract, "a menu item name or position is required"};
+  const std::wstring want = from_utf8(call.text);
+  for (std::size_t i = 0; i < menu.items.size(); ++i) {
+    if (!menu.items[i].separator && menu.items[i].name == want) {
+      pos_out = i;
+      return Error::none();
+    }
+  }
+  return {Code::InvalidContract, "menu has no item with that name"};
+}
+
+bool menu_cmd_in_use(const std::map<std::uint64_t, GuiMenuRecord>& menus, std::uint32_t cmd) {
+  for (const auto& [id, menu] : menus) {
+    for (const auto& item : menu.items) {
+      if (!item.separator && item.command == cmd) return true;
+    }
+  }
+  return false;
+}
+
+void free_menu_record(GuiMenuRecord& menu) {
+  for (auto& item : menu.items) {
+    if (item.bitmap) {
+      DeleteObject(item.bitmap);
+      item.bitmap = nullptr;
+    }
+  }
+  menu.items.clear();
+  if (menu.color_brush) {
+    DeleteObject(menu.color_brush);
+    menu.color_brush = nullptr;
+  }
+  menu.has_color = false;
+  if (menu.hmenu) {
+    DestroyMenu(menu.hmenu);
+    menu.hmenu = nullptr;
+  }
+}
+
+Error apply_menu_color(GuiMenuRecord& menu, std::map<std::uint64_t, GuiMenuRecord>& menus) {
+  MENUINFO info{};
+  info.cbSize = sizeof(info);
+  info.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS;
+  info.hbrBack = menu.has_color ? menu.color_brush : nullptr;
+  // AHK ApplyColor recurses with a per-submenu brush so a later detach
+  // cannot double-free; each record owns exactly its own brush here too.
+  if (!SetMenuInfo(menu.hmenu, &info)) {
+    return {Code::ExecutionFailed, "SetColor was rejected by the menu"};
+  }
+  for (auto& item : menu.items) {
+    if (item.submenu == 0) continue;
+    const auto child = menus.find(item.submenu);
+    if (child == menus.end()) continue;
+    GuiMenuRecord& sub = child->second;
+    if (sub.color_brush) {
+      DeleteObject(sub.color_brush);
+      sub.color_brush = nullptr;
+    }
+    if (menu.has_color) {
+      LOGBRUSH brush_info{};
+      if (GetObjectW(menu.color_brush, sizeof(brush_info), &brush_info) == sizeof(brush_info)) {
+        sub.color_brush = CreateBrushIndirect(&brush_info);
+        sub.has_color = sub.color_brush != nullptr;
+      } else {
+        sub.has_color = false;
+      }
+    } else {
+      sub.has_color = false;
+    }
+    if (const Error err = apply_menu_color(sub, menus); !err.ok()) return err;
+  }
+  return Error::none();
+}
+
+// HICON -> 32-bit HBITMAP at width x height (AHK IconToBitmap32 shape).
+HBITMAP icon_to_bitmap(HICON icon, int width, int height) {
+  const HDC screen = GetDC(nullptr);
+  if (!screen) return nullptr;
+  const HDC mem = CreateCompatibleDC(screen);
+  if (!mem) {
+    ReleaseDC(nullptr, screen);
+    return nullptr;
+  }
+  BITMAPINFO info{};
+  info.bmiHeader.biSize = sizeof(info.bmiHeader);
+  info.bmiHeader.biWidth = width;
+  info.bmiHeader.biHeight = -height;  // top-down
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 32;
+  info.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HBITMAP bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (bitmap && bits) {
+    const HGDIOBJ previous = SelectObject(mem, bitmap);
+    DrawIconEx(mem, 0, 0, icon, width, height, 0, nullptr, DI_NORMAL);
+    SelectObject(mem, previous);
+  } else if (bitmap) {
+    DeleteObject(bitmap);
+    bitmap = nullptr;
+  }
+  DeleteDC(mem);
+  ReleaseDC(nullptr, screen);
+  return bitmap;
+}
+
+Json target_menu(std::uint64_t menu_id) {
+  return Json::string("menu:" + std::to_string(menu_id));
+}
+
+// MenuSelect push to a menu's own channel (menubar clicks and popup Show
+// share it). Drops when no channel is bound yet, like channel-less Guis.
+void push_menu_event(std::uint64_t menu_id, GuiMenuRecord& menu, std::uint64_t gui_id,
+                     std::uint32_t command, const std::wstring& name) {
+  if (menu.channel == 0 || !menu.event_sink) return;
+  Json payload = Json::object();
+  payload.set("gui", Json::number(static_cast<double>(gui_id)));
+  payload.set("target", target_menu(menu_id));
+  payload.set("event", Json::string("MenuSelect"));
+  Json args = make_args();
+  push_arg(args, static_cast<double>(command));
+  push_menu_str(args, to_utf8(name));
+  payload.set("args", std::move(args));
+  menu.event_sink(menu.channel, rime::core::json::stringify(payload));
+}
+
+}  // namespace
+
+Error GuiService::menu_destroy(const std::uint64_t menu_id, const std::int64_t deadline_unix_ms,
+                               const rime::core::CancellationToken cancel) {
+  return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
+    const auto it = impl_->menus.find(menu_id);
+    if (it == impl_->menus.end()) return Error::none();  // never materialized: no-op
+    // Detach from every Gui menu bar first (the window keeps living).
+    for (auto& [gui_id, rec] : impl_->guis) {
+      if (rec->menu_id == menu_id) {
+        if (rec->hwnd && IsWindow(rec->hwnd)) {
+          SetMenu(rec->hwnd, nullptr);
+          DrawMenuBar(rec->hwnd);
+        }
+        rec->menu_id = 0;
+      }
+    }
+    // Detach from every parent menu, keeping position: a submenu slot
+    // reverts to a plain item with its minted command (callbacks keep
+    // working). Hoist the handle: the record is erased below.
+    const HMENU doomed = it->second.hmenu;
+    for (auto& [parent_id, parent] : impl_->menus) {
+      if (parent_id == menu_id) continue;
+      for (std::size_t pos = 0; pos < parent.items.size(); ++pos) {
+        GuiMenuItemRecord& slot = parent.items[pos];
+        if (slot.submenu != menu_id) continue;
+        DeleteMenu(parent.hmenu, reinterpret_cast<UINT_PTR>(doomed), MF_BYCOMMAND);
+        InsertMenuW(parent.hmenu, static_cast<UINT>(pos), MF_BYPOSITION | MF_STRING,
+                    slot.command, slot.name.c_str());
+        slot.submenu = 0;
+      }
+    }
+    free_menu_record(it->second);
+    impl_->menus.erase(it);
+    return Error::none();
+  });
+}
+
+Error GuiService::menu_invoke(std::uint64_t menu_id, const GuiMenuCall& call, GuiMenuResult& out,
+                              const std::int64_t deadline_unix_ms,
+                              const rime::core::CancellationToken cancel) {
+  return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
+    GuiMenuRecord* menu = nullptr;
+    if (const Error err =
+            ensure_menu_record(impl_->menus, impl_->event_sink, menu_id, call.channel, menu);
+        !err.ok()) {
+      return err;
+    }
+    using Op = GuiService::GuiMenuCallOp;
+    out = GuiMenuResult{};
+    const char* op_name = "menu method";
+
+    auto mint_cmd = [&]() -> std::uint32_t {
+      for (std::uint32_t probe = 0; probe < 0x8000; ++probe) {
+        const std::uint32_t candidate =
+            0x8000 + ((impl_->next_menu_cmd - 0x8000 + probe) % 0x8000);
+        if (!menu_cmd_in_use(impl_->menus, candidate)) {
+          impl_->next_menu_cmd = candidate + 1;
+          if (impl_->next_menu_cmd > 0xFFFF) impl_->next_menu_cmd = 0x8000;
+          return candidate;
+        }
+      }
+      return 0;  // exhausted: caller refuses
+    };
+
+    switch (call.op) {
+      case Op::Add:
+      case Op::Insert: {
+        op_name = call.op == Op::Add ? "Add" : "Insert";
+        const bool insert = call.op == Op::Insert;
+        std::size_t at = menu->items.size();
+        if (insert) {
+          if (call.has_index) {
+            if (call.index < 0 || static_cast<std::size_t>(call.index) > menu->items.size()) {
+              return {Code::InvalidContract, "Insert position is out of range"};
+            }
+            at = static_cast<std::size_t>(call.index);
+          } else if (call.has_before) {
+            GuiMenuCall probe;
+            probe.text = call.before;
+            std::size_t found = 0;
+            if (const Error err = resolve_menu_item(*menu, probe, found); !err.ok()) return err;
+            at = found;
+          }
+        }
+        const bool separator = call.text2.empty() && call.text.empty() && !call.has_submenu;
+        // has_submenu with empty text is a separator-shaped refuse, not a
+        // submenu: a submenu slot needs its label.
+        if (call.has_submenu && call.text.empty()) {
+          return {Code::InvalidContract, "a submenu item needs a name"};
+        }
+        HMENU child_hmenu = nullptr;
+        if (call.has_submenu) {
+          if (call.submenu == menu_id) {
+            return {Code::InvalidContract, "a menu cannot contain itself"};
+          }
+          GuiMenuRecord* child = nullptr;
+          if (const Error err = find_menu_record(impl_->menus, call.submenu, child);
+              !err.ok()) {
+            return err;
+          }
+          // Cycle check: the child's subtree must not contain this menu.
+          std::vector<std::uint64_t> stack{call.submenu};
+          while (!stack.empty()) {
+            const std::uint64_t current = stack.back();
+            stack.pop_back();
+            if (current == menu_id) {
+              return {Code::InvalidContract, "submenu attachment would cycle"};
+            }
+            const auto node = impl_->menus.find(current);
+            if (node == impl_->menus.end()) continue;
+            for (const auto& item : node->second.items) {
+              if (item.submenu != 0) stack.push_back(item.submenu);
+            }
+          }
+          child_hmenu = child->hmenu;
+        }
+        const std::uint32_t command = mint_cmd();
+        if (command == 0) return {Code::ExecutionFailed, "menu command ids are exhausted"};
+        const std::wstring name = from_utf8(call.text);
+        BOOL placed = FALSE;
+        if (separator) {
+          placed = insert ? InsertMenuW(menu->hmenu, static_cast<UINT>(at),
+                                        MF_BYPOSITION | MF_SEPARATOR, 0, nullptr)
+                          : AppendMenuW(menu->hmenu, MF_SEPARATOR, 0, nullptr);
+        } else if (child_hmenu) {
+          placed = insert ? InsertMenuW(menu->hmenu, static_cast<UINT>(at),
+                                        MF_BYPOSITION | MF_STRING | MF_POPUP,
+                                        reinterpret_cast<UINT_PTR>(child_hmenu), name.c_str())
+                          : AppendMenuW(menu->hmenu, MF_STRING | MF_POPUP,
+                                        reinterpret_cast<UINT_PTR>(child_hmenu), name.c_str());
+        } else {
+          placed = insert ? InsertMenuW(menu->hmenu, static_cast<UINT>(at),
+                                        MF_BYPOSITION | MF_STRING, command, name.c_str())
+                          : AppendMenuW(menu->hmenu, MF_STRING, command, name.c_str());
+        }
+        if (!placed) return {Code::ExecutionFailed, "menu item insert failed"};
+        GuiMenuItemRecord item;
+        item.name = name;
+        item.command = command;
+        item.separator = separator;
+        item.submenu = call.has_submenu ? call.submenu : 0;
+        menu->items.insert(menu->items.begin() + static_cast<std::ptrdiff_t>(at), std::move(item));
+        out.number = static_cast<std::int64_t>(at);
+        out.command = command;
+        return Error::none();
+      }
+      case Op::Delete: {
+        op_name = "Delete";
+        if (!call.has_index && call.text.empty()) {
+          for (auto& item : menu->items) {
+            if (item.bitmap) {
+              DeleteObject(item.bitmap);
+              item.bitmap = nullptr;
+            }
+          }
+          menu->items.clear();
+          while (GetMenuItemCount(menu->hmenu) > 0) {
+            DeleteMenu(menu->hmenu, 0, MF_BYPOSITION);
+          }
+          out.number = 0;
+          return Error::none();
+        }
+        std::size_t pos = 0;
+        if (const Error err = resolve_menu_item(*menu, call, pos); !err.ok()) return err;
+        // Hoist: vector erase invalidates the reference (MSVC debug rule).
+        GuiMenuItemRecord doomed = std::move(menu->items[pos]);
+        menu->items.erase(menu->items.begin() + static_cast<std::ptrdiff_t>(pos));
+        if (doomed.submenu != 0) {
+          // Submenu slots are id'd by child handle, not by command.
+          const auto child = impl_->menus.find(doomed.submenu);
+          if (child != impl_->menus.end()) {
+            DeleteMenu(menu->hmenu, reinterpret_cast<UINT_PTR>(child->second.hmenu),
+                       MF_BYCOMMAND);
+          } else {
+            DeleteMenu(menu->hmenu, static_cast<UINT>(pos), MF_BYPOSITION);
+          }
+        } else if (doomed.command != 0) {
+          DeleteMenu(menu->hmenu, doomed.command, MF_BYCOMMAND);
+        } else {
+          DeleteMenu(menu->hmenu, static_cast<UINT>(pos), MF_BYPOSITION);
+        }
+        if (doomed.bitmap) DeleteObject(doomed.bitmap);
+        out.number = static_cast<std::int64_t>(menu->items.size());
+        out.command = doomed.command;
+        out.text = to_utf8(doomed.name);  // "" for a separator
+        return Error::none();
+      }
+      case Op::Rename: {
+        op_name = "Rename";
+        std::size_t pos = 0;
+        if (const Error err = resolve_menu_item(*menu, call, pos); !err.ok()) return err;
+        // The old name rides out.text so the JS callback map can follow a
+        // by-position rename (positions shift, names are the keys).
+        out.text = to_utf8(menu->items[pos].name);
+        GuiMenuItemRecord& item = menu->items[pos];
+        if (call.text2.empty()) {
+          // Empty new name converts to a separator (AHK RenameItem shape);
+          // submenu slots cannot convert.
+          if (item.submenu != 0) {
+            return {Code::InvalidContract, "a submenu item cannot become a separator"};
+          }
+          MENUITEMINFOW info{};
+          info.cbSize = sizeof(info);
+          info.fMask = MIIM_TYPE;
+          info.fType = MFT_SEPARATOR;
+          if (!SetMenuItemInfoW(menu->hmenu, item.command, FALSE, &info)) {
+            return {Code::ExecutionFailed, "menu rename failed"};
+          }
+          item.name.clear();
+          item.separator = true;
+          out.command = item.command;
+          return Error::none();
+        }
+        const std::wstring want = from_utf8(call.text2);
+        for (std::size_t i = 0; i < menu->items.size(); ++i) {
+          if (i != pos && !menu->items[i].separator && menu->items[i].name == want) {
+            return {Code::InvalidContract, "another item already has that name"};
+          }
+        }
+        if (item.separator) {
+          // Separator -> named item needs a command id it never had.
+          const std::uint32_t command = mint_cmd();
+          if (command == 0) return {Code::ExecutionFailed, "menu command ids are exhausted"};
+          MENUITEMINFOW info{};
+          info.cbSize = sizeof(info);
+          info.fMask = MIIM_ID | MIIM_TYPE;
+          info.wID = command;
+          info.fType = MFT_STRING;
+          info.dwTypeData = const_cast<LPWSTR>(want.c_str());
+          if (!SetMenuItemInfoW(menu->hmenu, static_cast<UINT>(pos), TRUE, &info)) {
+            return {Code::ExecutionFailed, "menu rename failed"};
+          }
+          item.command = command;
+          item.separator = false;
+        } else {
+          MENUITEMINFOW info{};
+          info.cbSize = sizeof(info);
+          info.fMask = MIIM_STRING;
+          info.dwTypeData = const_cast<LPWSTR>(want.c_str());
+          // Submenu slots carry the child handle as their id, not a
+          // command: address them by position, plain items by command
+          // (stable across positions).
+          const BOOL renamed =
+              item.submenu != 0
+                  ? SetMenuItemInfoW(menu->hmenu, static_cast<UINT>(pos), TRUE, &info)
+                  : SetMenuItemInfoW(menu->hmenu, item.command, FALSE, &info);
+          if (!renamed) {
+            return {Code::ExecutionFailed, "menu rename failed"};
+          }
+        }
+        item.name = want;
+        out.command = item.command;
+        return Error::none();
+      }
+      case Op::Check:
+      case Op::Uncheck:
+      case Op::Enable:
+      case Op::Disable:
+      case Op::ToggleCheck:
+      case Op::ToggleEnable: {
+        if (call.op == Op::Check) op_name = "Check";
+        if (call.op == Op::Uncheck) op_name = "Uncheck";
+        if (call.op == Op::Enable) op_name = "Enable";
+        if (call.op == Op::Disable) op_name = "Disable";
+        if (call.op == Op::ToggleCheck) op_name = "ToggleCheck";
+        if (call.op == Op::ToggleEnable) op_name = "ToggleEnable";
+        std::size_t pos = 0;
+        if (const Error err = resolve_menu_item(*menu, call, pos); !err.ok()) return err;
+        const GuiMenuItemRecord& item = menu->items[pos];
+        if (item.separator || item.submenu != 0) {
+          // State flags on separators/submenu headers are OS-accepted but
+          // meaningless to read back; refuse rather than fake.
+          return {Code::InvalidContract, "state flags apply to plain items only"};
+        }
+        if (call.op == Op::Check || call.op == Op::Uncheck) {
+          CheckMenuItem(menu->hmenu, item.command,
+                        MF_BYCOMMAND | (call.op == Op::Check ? MF_CHECKED : MF_UNCHECKED));
+          out.boolean = call.op == Op::Check;
+          return Error::none();
+        }
+        if (call.op == Op::Enable || call.op == Op::Disable) {
+          EnableMenuItem(menu->hmenu, item.command,
+                         MF_BYCOMMAND | (call.op == Op::Enable ? MF_ENABLED : MF_DISABLED));
+          out.boolean = call.op == Op::Enable;
+          return Error::none();
+        }
+        const UINT state = GetMenuState(menu->hmenu, item.command, MF_BYCOMMAND);
+        if (state == static_cast<UINT>(-1)) {
+          return {Code::InvalidContract, "menu item is gone"};
+        }
+        if (call.op == Op::ToggleCheck) {
+          const bool now_checked = (state & MF_CHECKED) == 0;
+          CheckMenuItem(menu->hmenu, item.command,
+                        MF_BYCOMMAND | (now_checked ? MF_CHECKED : MF_UNCHECKED));
+          out.boolean = now_checked;
+        } else {
+          const bool now_enabled = (state & (MF_DISABLED | MF_GRAYED)) != 0;
+          EnableMenuItem(menu->hmenu, item.command,
+                         MF_BYCOMMAND | (now_enabled ? MF_ENABLED : MF_DISABLED));
+          out.boolean = now_enabled;
+        }
+        return Error::none();
+      }
+      case Op::SetDefault:
+      case Op::GetDefault: {
+        op_name = call.op == Op::SetDefault ? "Default" : "Default";
+        if (call.op == Op::GetDefault) {
+          out.text = to_utf8(menu->default_item);
+          return Error::none();
+        }
+        if (call.text.empty()) {
+          SetMenuDefaultItem(menu->hmenu, static_cast<UINT>(-1), FALSE);
+          menu->default_item.clear();
+          return Error::none();
+        }
+        std::size_t pos = 0;
+        if (const Error err = resolve_menu_item(*menu, call, pos); !err.ok()) return err;
+        const GuiMenuItemRecord& item = menu->items[pos];
+        if (item.separator || item.submenu != 0) {
+          return {Code::InvalidContract, "only a plain item can be the default"};
+        }
+        if (!SetMenuDefaultItem(menu->hmenu, item.command, FALSE)) {
+          return {Code::ExecutionFailed, "default item was rejected"};
+        }
+        menu->default_item = item.name;
+        out.text = to_utf8(item.name);
+        return Error::none();
+      }
+      case Op::SetClickCount:
+      case Op::GetClickCount: {
+        op_name = "ClickCount";
+        if (call.op == Op::GetClickCount) {
+          out.number = menu->click_count;
+          return Error::none();
+        }
+        if (call.click_count < 1 || call.click_count > 2) {
+          return {Code::InvalidContract, "ClickCount is 1 or 2 (AHK range)"};
+        }
+        menu->click_count = call.click_count;
+        out.number = menu->click_count;
+        return Error::none();
+      }
+      case Op::SetColor: {
+        op_name = "SetColor";
+        if (menu->color_brush) {
+          DeleteObject(menu->color_brush);
+          menu->color_brush = nullptr;
+        }
+        menu->has_color = call.has_color;
+        if (call.has_color) {
+          menu->color_brush = CreateSolidBrush(call.color);  // COLORREF in
+          if (!menu->color_brush) {
+            menu->has_color = false;
+            return {Code::ExecutionFailed, "color brush creation failed"};
+          }
+        }
+        if (call.apply_to_submenus) {
+          return apply_menu_color(*menu, impl_->menus);
+        }
+        MENUINFO info{};
+        info.cbSize = sizeof(info);
+        info.fMask = MIM_BACKGROUND;
+        info.hbrBack = menu->has_color ? menu->color_brush : nullptr;
+        if (!SetMenuInfo(menu->hmenu, &info)) {
+          return {Code::ExecutionFailed, "SetColor was rejected by the menu"};
+        }
+        return Error::none();
+      }
+      case Op::SetIcon: {
+        op_name = "SetIcon";
+        std::size_t pos = 0;
+        if (const Error err = resolve_menu_item(*menu, call, pos); !err.ok()) return err;
+        GuiMenuItemRecord& item = menu->items[pos];
+        if (item.separator || item.submenu != 0) {
+          return {Code::InvalidContract, "only a plain item takes an icon"};
+        }
+        if (item.bitmap) {
+          DeleteObject(item.bitmap);
+          item.bitmap = nullptr;
+        }
+        if (call.file.empty()) return Error::none();  // AHK "*" / "" removes
+        const int width =
+            call.has_icon_width ? call.icon_width : GetSystemMetrics(SM_CXSMICON);
+        const int height = GetSystemMetrics(SM_CYSMICON);
+        const std::wstring file = from_utf8(call.file);
+        HICON icon = static_cast<HICON>(LoadImageW(nullptr, file.c_str(), IMAGE_ICON,
+                                                   width == 0 ? 0 : width, height == 0 ? 0 : height,
+                                                   LR_LOADFROMFILE));
+        if (!icon) {
+          const HICON extracted = ExtractIconW(nullptr, file.c_str(), call.icon_index);
+          if (reinterpret_cast<std::intptr_t>(extracted) <= 32) {
+            return {Code::InvalidContract, "SetIcon cannot load an icon from that file"};
+          }
+          icon = extracted;
+        }
+        HBITMAP bitmap = nullptr;
+        if (width == 0) {
+          // Original size: convert 1:1 through the icon's own extents.
+          ICONINFO icon_info{};
+          if (GetIconInfo(icon, &icon_info)) {
+            BITMAP bits{};
+            if (GetObjectW(icon_info.hbmColor, sizeof(bits), &bits) == sizeof(bits)) {
+              bitmap = icon_to_bitmap(icon, bits.bmWidth, bits.bmHeight);
+            }
+            if (icon_info.hbmColor) DeleteObject(icon_info.hbmColor);
+            if (icon_info.hbmMask) DeleteObject(icon_info.hbmMask);
+          }
+        } else {
+          bitmap = icon_to_bitmap(icon, width, height);
+        }
+        DestroyIcon(icon);  // converted (or failed): never keep the source
+        if (!bitmap) return {Code::ExecutionFailed, "SetIcon conversion failed"};
+        MENUITEMINFOW info{};
+        info.cbSize = sizeof(info);
+        info.fMask = MIIM_BITMAP;
+        info.hbmpItem = bitmap;
+        if (!SetMenuItemInfoW(menu->hmenu, item.command, FALSE, &info)) {
+          DeleteObject(bitmap);
+          return {Code::ExecutionFailed, "SetIcon was rejected by the menu"};
+        }
+        item.bitmap = bitmap;
+        return Error::none();
+      }
+      case Op::GetCount: {
+        op_name = "GetCount";
+        out.number = static_cast<std::int64_t>(menu->items.size());
+        return Error::none();
+      }
+    }
+    return {Code::InvalidContract, std::string(op_name) + " is not implemented"};
+  });
+}
+
+Error GuiService::menu_show(std::uint64_t menu_id, std::uint64_t channel, bool has_position,
+                            int x, int y, std::uint64_t& command_out, std::string& name_out,
+                            const std::int64_t deadline_unix_ms,
+                            const rime::core::CancellationToken cancel) {
+  return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
+    GuiMenuRecord* menu = nullptr;
+    if (const Error err =
+            ensure_menu_record(impl_->menus, impl_->event_sink, menu_id, channel, menu);
+        !err.ok()) {
+      return err;
+    }
+    if (!impl_->menu_host) {
+      // Off-screen 1x1 visible popup (not message-only): TrackPopupMenuEx
+      // shows no menu at all with an HWND_MESSAGE owner, and a hidden owner
+      // breaks keyboard focus. WS_EX_TOOLWINDOW keeps it out of the taskbar
+      // and Alt-Tab; it never renders anywhere visible.
+      const HMODULE module = GetModuleHandleW(nullptr);
+      impl_->menu_host =
+          CreateWindowExW(WS_EX_TOOLWINDOW, kGuiWindowClass, L"", WS_POPUP | WS_VISIBLE,
+                          -32000, -32000, 1, 1, nullptr, nullptr, module, nullptr);
+      if (!impl_->menu_host) return {Code::ExecutionFailed, "menu host creation failed"};
+    }
+    POINT pt{};
+    if (has_position) {
+      pt.x = x;
+      pt.y = y;
+    } else {
+      GetCursorPos(&pt);
+    }
+    // Classic TrackPopupMenu ownership dance so clicks outside dismiss.
+    SetForegroundWindow(impl_->menu_host);
+    const UINT picked = TrackPopupMenuEx(menu->hmenu, TPM_LEFTALIGN | TPM_LEFTBUTTON | TPM_RETURNCMD,
+                                         pt.x, pt.y, impl_->menu_host, nullptr);
+    PostMessageW(impl_->menu_host, WM_NULL, 0, 0);
+    command_out = picked;  // 0 = dismissed
+    name_out.clear();
+    if (picked != 0) {
+      for (const auto& item : menu->items) {
+        if (!item.separator && item.submenu == 0 && item.command == picked) {
+          name_out = to_utf8(item.name);
+          break;
+        }
+      }
+      // The selection also fires the item callback through the menu's own
+      // channel (same event as a menubar click); the direct result lets
+      // scripts skip callbacks. gui id 0 = popup (no owner window).
+      push_menu_event(menu_id, *menu, 0, picked, from_utf8(name_out));
+    }
+    return Error::none();
+  });
+}
+
+Error GuiService::gui_menu_bar(const GuiSpec& gui, std::uint64_t menu_id,
+                               const std::int64_t deadline_unix_ms,
+                               const rime::core::CancellationToken cancel) {
+  return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
+    GuiRecord* rec = nullptr;
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
+        !err.ok()) {
+      return err;
+    }
+    if (menu_id == 0) {
+      if (rec->hwnd && IsWindow(rec->hwnd)) {
+        SetMenu(rec->hwnd, nullptr);
+        DrawMenuBar(rec->hwnd);
+      }
+      rec->menu_id = 0;
+      return Error::none();
+    }
+    GuiMenuRecord* menu = nullptr;
+    if (const Error err = find_menu_record(impl_->menus, menu_id, menu); !err.ok()) {
+      return err;
+    }
+    for (const auto& [other_id, other] : impl_->guis) {
+      if (other_id != gui.id && other->menu_id == menu_id) {
+        return {Code::InvalidContract, "menu is already a bar on another window"};
+      }
+    }
+    if (rec->hwnd && IsWindow(rec->hwnd)) {
+      SetMenu(rec->hwnd, menu->hmenu);
+      DrawMenuBar(rec->hwnd);
+    }
+    rec->menu_id = menu_id;
+    return Error::none();
+  });
+}
+
+Error GuiService::gui_menu_bar_of(const GuiSpec& gui, std::uint64_t& menu_id_out,
+                                  const std::int64_t deadline_unix_ms,
+                                  const rime::core::CancellationToken cancel) {
+  return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
+    GuiRecord* rec = nullptr;
+    if (const Error err = ensure_live_record(impl_->guis, impl_->event_sink, &impl_->menus, gui, rec);
+        !err.ok()) {
+      return err;
+    }
+    menu_id_out = rec->menu_id;
+    return Error::none();
+  });
+}
+
+// ---- batch 3d: image lists --------------------------------------------------
+
+namespace {
+
+Error find_image_list(std::map<std::uint64_t, GuiImageListRecord>& lists, std::uint64_t list_id,
+                      GuiImageListRecord*& out) {
+  const auto it = lists.find(list_id);
+  if (it == lists.end()) return {Code::InvalidState, "unknown image list"};
+  out = &it->second;
+  return Error::none();
+}
+
+// Shared .ico/dll icon loader (SB.SetIcon, Menu.SetIcon, ImageList.Add all
+// take files or library indices; bitmap strips are out of scope).
+Error load_icon_file(const std::string& file, int icon_index, int width, int height, HICON& out) {
+  out = nullptr;
+  if (file.empty()) return {Code::InvalidContract, "an icon file is required"};
+  const std::wstring wide = from_utf8(file);
+  HICON icon = static_cast<HICON>(LoadImageW(nullptr, wide.c_str(), IMAGE_ICON, width, height,
+                                             LR_LOADFROMFILE));
+  if (!icon) {
+    const HICON extracted = ExtractIconW(nullptr, wide.c_str(), icon_index);
+    if (reinterpret_cast<std::intptr_t>(extracted) <= 32) {
+      return {Code::InvalidContract, "cannot load an icon from that file"};
+    }
+    icon = extracted;
+  }
+  out = icon;
+  return Error::none();
+}
+
+}  // namespace
+
+Error GuiService::image_list_create(std::uint64_t list_id, int width, int height, int initial,
+                                    int grow, const std::int64_t deadline_unix_ms,
+                                    const rime::core::CancellationToken cancel) {
+  return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
+    if (width <= 0 || height <= 0 || width > 256 || height > 256) {
+      return {Code::InvalidContract, "image size is 1..256 pixels per axis"};
+    }
+    if (initial < 0 || grow < 0) {
+      return {Code::InvalidContract, "image list counts cannot be negative"};
+    }
+    if (impl_->image_lists.count(list_id) != 0) {
+      return {Code::InvalidContract, "image list id is already in use"};
+    }
+    HIMAGELIST handle = ImageList_Create(width, height, ILC_COLOR32 | ILC_MASK, initial, grow);
+    if (!handle) return {Code::ExecutionFailed, "image list creation failed"};
+    GuiImageListRecord record;
+    record.handle = handle;
+    impl_->image_lists.emplace(list_id, record);
+    return Error::none();
+  });
+}
+
+Error GuiService::image_list_add(std::uint64_t list_id, const std::string& file, int icon_index,
+                                 std::int64_t& index_out, const std::int64_t deadline_unix_ms,
+                                 const rime::core::CancellationToken cancel) {
+  return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
+    GuiImageListRecord* list = nullptr;
+    if (const Error err = find_image_list(impl_->image_lists, list_id, list); !err.ok()) {
+      return err;
+    }
+    HICON icon = nullptr;
+    if (const Error err = load_icon_file(file, icon_index, 0, 0, icon); !err.ok()) return err;
+    const int index = ImageList_AddIcon(list->handle, icon);
+    DestroyIcon(icon);  // the list keeps its own copy
+    if (index < 0) return {Code::ExecutionFailed, "image list is full or broken"};
+    index_out = index;
+    return Error::none();
+  });
+}
+
+Error GuiService::image_list_destroy(std::uint64_t list_id, const std::int64_t deadline_unix_ms,
+                                     const rime::core::CancellationToken cancel) {
+  return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
+    const auto it = impl_->image_lists.find(list_id);
+    if (it == impl_->image_lists.end()) return Error::none();  // never created: no-op
+    // Detach everywhere first: a control holding a dead list shows garbage.
+    for (auto& [gui_id, rec] : impl_->guis) {
+      for (auto& [ctrl_id, child] : rec->children) {
+        if (child.image_list != list_id) continue;
+        if (child.kind == GuiService::GuiControlKind::ListView) {
+          SendMessageW(child.hwnd, LVM_SETIMAGELIST, LVSIL_NORMAL, 0);
+          SendMessageW(child.hwnd, LVM_SETIMAGELIST, LVSIL_SMALL, 0);
+          SendMessageW(child.hwnd, LVM_SETIMAGELIST, LVSIL_STATE, 0);
+        } else if (child.kind == GuiService::GuiControlKind::TreeView) {
+          SendMessageW(child.hwnd, TVM_SETIMAGELIST, TVSIL_NORMAL, 0);
+          SendMessageW(child.hwnd, TVM_SETIMAGELIST, TVSIL_STATE, 0);
+        }
+        child.image_list = 0;
+      }
+    }
+    ImageList_Destroy(it->second.handle);
+    impl_->image_lists.erase(it);
+    return Error::none();
+  });
+}
+
+// ---- batch 3e: FromHwnd reverse lookup -------------------------------------
+
+Error GuiService::gui_from_window(const std::uint64_t window_id, std::uint64_t& gui_id_out,
+                                  const std::int64_t deadline_unix_ms,
+                                  const rime::core::CancellationToken cancel) {
+  return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
+    gui_id_out = 0;
+    if (!impl_->hwnd_resolver) return {Code::TargetGone, "unknown window"};
+    const auto hwnd = static_cast<HWND>(impl_->hwnd_resolver(window_id));
+    if (!hwnd || !IsWindow(hwnd)) return {Code::TargetGone, "unknown window"};
+    for (const auto& [id, rec] : impl_->guis) {
+      if (!rec->dead && rec->hwnd == hwnd) {
+        gui_id_out = id;
+        return Error::none();
+      }
+    }
+    return {Code::TargetGone, "not a runtime window"};
+  });
+}
+
+Error GuiService::gui_ctrl_from_window(const std::uint64_t control_id, std::uint64_t& gui_id_out,
+                                       std::uint64_t& ctrl_id_out,
+                                       const std::int64_t deadline_unix_ms,
+                                       const rime::core::CancellationToken cancel) {
+  return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
+    gui_id_out = 0;
+    ctrl_id_out = 0;
+    if (!impl_->hwnd_resolver) return {Code::TargetGone, "unknown control"};
+    const auto hwnd = static_cast<HWND>(impl_->hwnd_resolver(control_id));
+    if (!hwnd || !IsWindow(hwnd)) return {Code::TargetGone, "unknown control"};
+    for (const auto& [id, rec] : impl_->guis) {
+      if (rec->dead) continue;
+      const auto found = rec->by_hwnd.find(reinterpret_cast<std::uintptr_t>(hwnd));
+      if (found != rec->by_hwnd.end()) {
+        gui_id_out = id;
+        ctrl_id_out = found->second;
+        return Error::none();
+      }
+    }
+    return {Code::TargetGone, "not a runtime control"};
   });
 }
 
@@ -3092,6 +4137,16 @@ void GuiService::stop_pump_sweep() {
     rec.hwnd = nullptr;
   }
   impl_->guis.clear();
+  for (auto& [id, menu] : impl_->menus) free_menu_record(menu);
+  impl_->menus.clear();
+  for (auto& [id, list] : impl_->image_lists) {
+    if (list.handle) ImageList_Destroy(list.handle);
+  }
+  impl_->image_lists.clear();
+  if (impl_->menu_host && IsWindow(impl_->menu_host)) {
+    DestroyWindow(impl_->menu_host);
+  }
+  impl_->menu_host = nullptr;
 }
 
 }  // namespace rime::win32

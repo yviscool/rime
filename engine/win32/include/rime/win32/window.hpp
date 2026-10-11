@@ -288,6 +288,12 @@ class WindowService final {
                                 std::chrono::milliseconds timeout = std::chrono::seconds(5));
   rime::core::Error info(std::uint64_t id, WindowInfo& out,
                          std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Pump-only peek: the live HWND for a window/control id, or nullptr when
+  // unknown, stale, or called off the UI pump. The handle never leaves
+  // native code (same rule as control_id_for_hwnd's void*); GuiService uses
+  // it for FromHwnd reverse lookup on the shared pump, where a marshalled
+  // call would deadlock against the caller's own pump task.
+  void* peek_hwnd(std::uint64_t id);
   // WinGetControls/WinGetControlsHwnd: child controls in EnumChildWindows
   // order (z-order, hidden controls included, matching AHK numbering).
   rime::core::Error controls(std::uint64_t id, std::vector<ControlInfo>& out,

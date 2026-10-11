@@ -128,6 +128,14 @@ class GuiService {
   // the pump is running; detach on shutdown after stop().
   void set_ui_thread(UiThread* ui);
 
+  // FromHwnd reverse lookup (batch 3e): maps an automation window/control id
+  // to a live handle WITHOUT leaving native code. Injected by the host
+  // (WindowService::peek_hwnd); both services share the UI pump, so the
+  // resolver runs on the calling pump thread. Empty = no reverse lookup
+  // (every id misses with TargetGone).
+  using HwndResolver = std::function<void*(std::uint64_t)>;
+  void set_hwnd_resolver(HwndResolver resolver);
+
   // Batch-2 event pipe: called on the JS thread with the host's queue push
   // (channel id, serialized payload). Must be set before the first Gui is
   // materialized - records take a copy at creation (gui-menu.md §4.3);
@@ -183,10 +191,18 @@ class GuiService {
   enum GuiEventBit : std::uint32_t {
     kGuiEventBitClose = 1u << 0,
     kGuiEventBitResize = 1u << 1,
+    // Batch 3e: Escape (VK_ESCAPE keydown), ContextMenu (WM_CONTEXTMENU),
+    // DropFiles (WM_DROPFILES, DragAcceptFiles while interested).
+    kGuiEventBitEscape = 1u << 2,
+    kGuiEventBitContextMenu = 1u << 3,
+    kGuiEventBitDropFiles = 1u << 4,
   };
   enum CtrlEventBit : std::uint32_t {
     kCtrlEventBitClick = 1u << 0,
     kCtrlEventBitChange = 1u << 1,
+    // Batch 3e: ItemSelect (ListView LVN_ITEMCHANGED selection flip,
+    // TreeView TVN_SELCHANGED). ListBox/ComboBox selection stays Change.
+    kCtrlEventBitItemSelect = 1u << 2,
   };
 
   // Parsed subset of AHK Gui options (script_gui.cpp:4974+, gui-menu.md §4.4).
@@ -211,10 +227,17 @@ class GuiService {
   // OnNotify registration (gui-menu.md §4.3); keys in ctrl_* are our stable
   // control ids.
   struct GuiEventInterest {
-    // Gui-level bits: 1 = Close, 2 = Resize.
+    // Gui-level bits: 1 = Close, 2 = Resize, 4 = Escape, 8 = ContextMenu,
+    // 16 = DropFiles.
     std::uint32_t gui_bits{0};
-    // Control-level bits: 1 = Click, 2 = Change.
+    // Control-level bits: 1 = Click, 2 = Change, 4 = ItemSelect.
     std::map<std::uint64_t, std::uint32_t> ctrl_bits;
+    // Monotonic stamp (JS-side, per state): concurrent OnEvent registrations
+    // each mirror a snapshot, and pump arrival order differs from JS order,
+    // so the pump applies only the newest stamp and drops stale ones. 0 =
+    // unstamped (every non-mirror op carries the current table for
+    // creation-time adopt; those always apply).
+    std::uint64_t seq{0};
     // OnMessage: raw message -> the targets that registered it (0 = the Gui
     // window itself). A set, because the Gui and one of its controls may both
     // subscribe to the same message.
@@ -475,6 +498,7 @@ class GuiService {
     TabUseTab,
     DtSetFormat,
     HotkeySet,
+    SetImageList,
   };
   struct GuiControlCall {
     GuiControlCallOp op{GuiControlCallOp::ListAdd};
@@ -512,6 +536,9 @@ class GuiService {
     std::optional<std::string> align;
     // SbSetIcon resource index inside file/dll.
     int icon_index{0};
+    // Batch 3d: SetImageList target list id + row/node image index.
+    std::uint64_t list{0};
+    std::optional<int> image_index;
     // HotkeySet chord, parsed JS-side (same letters as Hotkey content).
     std::uint8_t hot_modifiers{0};
     std::uint8_t hot_vk{0};
@@ -526,6 +553,119 @@ class GuiService {
                                 const GuiControlCall& call, GuiControlResult& out,
                                 std::int64_t deadline_unix_ms,
                                 rime::core::CancellationToken cancel);
+
+  // ---- batch 3c: Menu objects ----------------------------------------------
+  // Menus are pump-owned HMENUs addressed by stable ids (per service, from
+  // 1); like every other handle they never leave the pump. Items are
+  // addressed by exact name or 0-based position (has_index); names need not
+  // be unique (first match wins, same as AHK FindItem). Item callbacks live
+  // JS-side keyed by command id; the service only mints and retires ids.
+  // Menu command ids come from a service-global 0x8000+ counter so a
+  // WM_COMMAND on any Gui window routes unambiguously.
+  enum class GuiMenuCallOp {
+    Add,
+    Insert,
+    Delete,
+    Rename,
+    Check,
+    Uncheck,
+    Enable,
+    Disable,
+    ToggleCheck,
+    ToggleEnable,
+    SetDefault,
+    GetDefault,
+    SetClickCount,
+    GetClickCount,
+    SetColor,
+    SetIcon,
+    GetCount,
+  };
+  struct GuiMenuCall {
+    GuiMenuCallOp op{GuiMenuCallOp::GetCount};
+    // Event channel adoption (GuiSpec::channel shape): every call carries
+    // the menu's host channel and the pump adopts it when unset, so no
+    // call depends on another landing first.
+    std::uint64_t channel{0};
+    // Item selector: exact name in text, or 0-based position in index.
+    std::string text;
+    std::string text2;  // Rename new name (empty = to separator).
+    std::int64_t index{-1};
+    bool has_index{false};
+    // Insert position: name in before (has_before) or 0-based index.
+    std::string before;
+    bool has_before{false};
+    // Insert position: name in text or 0-based index (omitted = append).
+    // Add/Insert submenu attachment (0 = plain item).
+    std::uint64_t submenu{0};
+    bool has_submenu{false};
+    // SetColor rgb (COLORREF, same spelling as BackColor), SetIcon file/index/width.
+    bool has_color{false};
+    std::uint32_t color{0};
+    bool apply_to_submenus{true};
+    std::string file;
+    int icon_index{0};
+    int icon_width{0};
+    bool has_icon_width{false};
+    int click_count{1};
+  };
+  struct GuiMenuResult {
+    std::int64_t number{0};
+    std::uint64_t command{0};
+    std::string text;
+    bool boolean{false};
+  };
+  // Menu ids are minted JS-side (ui.createMenu) like Gui ids; the pump
+  // materializes the record on first touch. Destroy on an id that never
+  // materialized is a no-op (same rule as Gui).
+  rime::core::Error menu_destroy(std::uint64_t menu_id, std::int64_t deadline_unix_ms,
+                                 rime::core::CancellationToken cancel);
+  rime::core::Error menu_invoke(std::uint64_t menu_id, const GuiMenuCall& call,
+                                GuiMenuResult& out, std::int64_t deadline_unix_ms,
+                                rime::core::CancellationToken cancel);
+  // Modal popup (TrackPopupMenuEx TPM_RETURNCMD): resolves the selected
+  // item's command id (0 = dismissed) and name (""). Same bounded shape as
+  // MsgBox: the queued phase honors the deadline, the modal loop runs to
+  // completion.
+  // Position defaults to the cursor; pass has_position for x/y.
+  rime::core::Error menu_show(std::uint64_t menu_id, std::uint64_t channel, bool has_position,
+                              int x, int y, std::uint64_t& command_out, std::string& name_out,
+                              std::int64_t deadline_unix_ms,
+                              rime::core::CancellationToken cancel);
+  // Attach (menu_id) or detach (0) a menu bar. Read with menu_bar_of.
+  rime::core::Error gui_menu_bar(const GuiSpec& gui, std::uint64_t menu_id,
+                                 std::int64_t deadline_unix_ms,
+                                 rime::core::CancellationToken cancel);
+  rime::core::Error gui_menu_bar_of(const GuiSpec& gui, std::uint64_t& menu_id_out,
+                                    std::int64_t deadline_unix_ms,
+                                    rime::core::CancellationToken cancel);
+
+  // ---- batch 3d: ImageList objects -----------------------------------------
+  // AHK's IL_Create/IL_Add integer handles become a runtime object (RAII
+  // like every other handle here): ids minted JS-side, HIMAGELISTs die with
+  // the record. Icons only (.ico files and dll/exe indices, the SB/Menu
+  // SetIcon shape); bitmap strips are out of scope, documented.
+  rime::core::Error image_list_add(std::uint64_t list_id, const std::string& file, int icon_index,
+                                   std::int64_t& index_out, std::int64_t deadline_unix_ms,
+                                   rime::core::CancellationToken cancel);
+  rime::core::Error image_list_create(std::uint64_t list_id, int width, int height, int initial,
+                                      int grow, std::int64_t deadline_unix_ms,
+                                      rime::core::CancellationToken cancel);
+  rime::core::Error image_list_destroy(std::uint64_t list_id, std::int64_t deadline_unix_ms,
+                                       rime::core::CancellationToken cancel);
+
+  // ---- batch 3e: FromHwnd reverse lookup -----------------------------------
+  // Only runtime-owned windows/controls resolve (the DoD's §4.7 fork):
+  // anything else - foreign windows, dead handles, unresolvable ids -
+  // misses with TargetGone (JS: null, never a throw). Gui scans top-level
+  // records, GuiCtrl scans every child; both skip dead records.
+  rime::core::Error gui_from_window(std::uint64_t window_id, std::uint64_t& gui_id_out,
+                                    std::int64_t deadline_unix_ms,
+                                    rime::core::CancellationToken cancel);
+  rime::core::Error gui_ctrl_from_window(std::uint64_t control_id, std::uint64_t& gui_id_out,
+                                         std::uint64_t& ctrl_id_out,
+                                         std::int64_t deadline_unix_ms,
+                                         rime::core::CancellationToken cancel);
 
   // How many Gui windows the pump currently owns (tests and diagnostics;
   // never a handle).

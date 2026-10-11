@@ -83,6 +83,28 @@ struct GuiJsControl {
   JSValue weak{JS_UNDEFINED};
 };
 
+// One script-created image list (batch 3d). No channel, no callbacks -
+// just a pump record that must die (release_image_list mirrors the Gui
+// path through its own FinalizationRegistry holding).
+struct GuiJsImageList {
+  std::uint64_t id{0};
+  bool destroyed{false};
+  JSValue weak{JS_UNDEFINED};
+};
+
+// One script-created Menu. Item callbacks are strong JS refs keyed by item
+// NAME (command ids never leave the pump); they die with the Menu
+// (release_menu mirrors release_gui) and never pin the unload gate - menus
+// own no window, only a host channel. The map mutates on the JS thread only
+// (then_chain continuations), never in a worker body.
+struct GuiJsMenu {
+  std::uint64_t id{0};
+  bool destroyed{false};
+  std::uint64_t channel{0};  // host callback id of this menu's dispatch
+  std::map<std::string, JSValue> callbacks;  // item name -> fn
+  JSValue weak{JS_UNDEFINED};
+};
+
 // One script-created Gui. The handler table is keyed by GuiJsRoute (see
 // above); every registration also mirrors into GuiSpec::interest so the pump
 // starts pushing the right events as soon as the window exists
@@ -130,9 +152,18 @@ struct GuiJsState {
 
   std::map<std::uint64_t, GuiJs> guis;              // gui id -> state
   std::map<std::uint64_t, GuiJsControl> controls;   // control id -> state
+  std::map<std::uint64_t, GuiJsMenu> menus;         // menu id -> state
+  std::map<std::uint64_t, GuiJsImageList> image_lists;  // image list id -> state
+  // ImageList GC registry (own cleanup: no channel, no callbacks).
+  JSValue image_registry{JS_UNDEFINED};
   std::map<std::uint64_t, std::uint64_t> channels;  // channel id -> gui id
   std::uint64_t next_gui_id{1};
   std::uint64_t next_ctrl_id{1};
+  std::uint64_t next_menu_id{1};
+  std::uint64_t next_image_id{1};
+  // Interest-mirror stamps (batch 3e convergence): every OnEvent-family
+  // registration stamps its snapshot so the pump can drop stale arrivals.
+  std::uint64_t next_interest_seq{1};
 
   void teardown();
 };

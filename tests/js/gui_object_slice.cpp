@@ -59,7 +59,10 @@
 #include <windows.h>
 
 #include <commctrl.h>
+#include <shellapi.h>
+#include <shlobj.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <string>
@@ -275,7 +278,7 @@ int main() {
         "  hwndSet: seen(() => { g.Hwnd = 1; }),\n"
         "  fontGet: seen(() => g.FontHandle),\n"
         "  fontSet: seen(() => { g.FontHandle = 1; }),\n"
-        "  unknownEvent: seen(() => g.OnEvent('Escape', () => {})),\n"
+        "  unknownEvent: seen(() => g.OnEvent('Focus', () => {})),\n"
         "  badAddRemove: seen(() => g.OnEvent('Close', () => {}, 5)),\n"
         "  badAddRemoveType: seen(() => g.OnEvent('Close', () => {}, 'x')),\n"
         "  unknownControl: seen(() => g.Add('Nope')),\n"
@@ -321,7 +324,7 @@ int main() {
         "expectRange(s.createBadOption, 'unknown gui option: bogus');\n"
         "expectRange(s.unknownGuiOption, 'unknown gui option: bogus');\n"
         "expectRange(s.unknownShowOption, 'unknown show option: bogus');\n"
-        "expectRange(s.unknownEvent, 'unknown event: Escape');\n"
+        "expectRange(s.unknownEvent, 'unknown event: Focus');\n"
         "expectRange(s.badAddRemove, 'addRemove must be -1, 0 or 1');\n"
         "expectRange(s.unknownControl, 'unsupported control type: Nope');\n"
         "expectRange(s.labelOption, 'control label options are not supported');\n"
@@ -1158,9 +1161,11 @@ int main() {
   // a facade answering from its own mirror cannot produce them. C++
   // cross-checks below re-read the same state with raw OS messages.
   // A 1x1 ICO is written to %TEMP% for SetIcon (deleted after the call;
-  // the bar owns its private copy from then on).
+  // the owner keeps a private copy from then on). S9e and S9f each write
+  // their own (same path, rewritten).
   std::wstring ico_path;
-  {
+  std::string ico_js;
+  const auto write_scratch_ico = [&] {
     wchar_t temp_dir[MAX_PATH]{};
     require(GetTempPathW(MAX_PATH, temp_dir) != 0, "GetTempPathW works");
     ico_path = std::wstring(temp_dir) + L"rime-gui-icon.ico";
@@ -1198,19 +1203,19 @@ int main() {
     const BOOL wrote = WriteFile(file, ico, sizeof(ico), &written, nullptr);
     CloseHandle(file);
     require(wrote && written == sizeof(ico), "scratch ICO wrote fully");
-  }
-  std::string ico_js;
-  {
-    int needed = WideCharToMultiByte(CP_UTF8, 0, ico_path.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    int needed =
+        WideCharToMultiByte(CP_UTF8, 0, ico_path.c_str(), -1, nullptr, 0, nullptr, nullptr);
     require(needed > 1, "ICO path converts to UTF-8");
     std::string utf8(static_cast<std::size_t>(needed - 1), '\0');
     WideCharToMultiByte(CP_UTF8, 0, ico_path.c_str(), -1, utf8.data(), needed, nullptr, nullptr);
+    ico_js.clear();
     ico_js.reserve(utf8.size() + 8);
     for (const char c : utf8) {
       if (c == '\\') ico_js += "\\\\";
       else ico_js += c;
     }
-  }
+  };
+  write_scratch_ico();
   check(runtime,
         "const g = globalThis.g;\n"
         "globalThis.m9e = {};\n"
@@ -1433,6 +1438,563 @@ int main() {
     }
     require(edit_cue, "one Edit carries its cue banner");
   }
+
+  // ---- S9f: batch-3c menus ------------------------------------------------
+  // Items are addressed by exact name or 0-based position; callbacks ride
+  // the menu's own channel (MenuSelect), popup Show resolves the selected
+  // name modally (TPM_RETURNCMD). The modal rounds need keystrokes while
+  // the pump is inside TrackPopupMenuEx, so an injector thread posts them
+  // (ui_slice.cpp dialog_watcher shape: condition poll with a timeout, the
+  // assertions stay on settle + value reads). C++ re-reads HMENU state
+  // with raw menu APIs; the menubar click is a real WM_COMMAND this test
+  // posts itself (command id read with GetMenuItemID, like the OS).
+  write_scratch_ico();
+  check(runtime,
+        "globalThis.m9fEvals = (globalThis.m9fEvals || 0) + 1;\n"
+        "globalThis.m9f = {};\n"
+        "globalThis.m9fDone = 'pending';\n"
+        "(async () => {\n"
+        "  const m = globalThis.m9f;\n"
+        "  const { ui } = await import('rime:ui');\n"
+        "  m.menu = ui.createMenu();\n"
+        "  m.sub = ui.createMenu();\n"
+        "  m.p0 = await m.menu.Add('alpha', () => { m.menu.Check('beta'); });\n"
+        "  m.p1 = await m.menu.Add('beta');\n"
+        "  m.p2 = await m.menu.Add();\n"
+        "  m.p3 = await m.sub.Add('leaf', () => { m.sub.Check('leaf'); });\n"
+        "  m.p4 = await m.menu.Add('more', m.sub);\n"
+        "  m.ins = await m.menu.Insert('beta', 'mid');\n"
+        "  m.chk = await m.menu.Check('alpha');\n"
+        "  m.tgl = await m.menu.ToggleCheck('alpha');\n"
+        "  m.un = await m.menu.Uncheck('alpha');\n"
+        "  m.dis = await m.menu.Disable('beta');\n"
+        "  m.tge = await m.menu.ToggleEnable('beta');\n"
+        "  m.en = await m.menu.Enable('beta');\n"
+        "  m.ren = await m.menu.Rename('mid', 'middle');\n"
+        "  m.menu.Default = 'alpha';\n"
+        "  m.def = await m.menu.Default;\n"
+        "  m.menu.ClickCount = 2;\n"
+        "  m.cc = await m.menu.ClickCount;\n"
+        "  m.col = await m.menu.SetColor('#FF0000');\n"
+        "  m.icon = await m.menu.SetIcon('alpha', '" +
+        ico_js + "');\n"
+        "  try { await m.menu.Add('cycle', m.menu); m.self = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.self = e && e.code ? e.code : '?'; }\n"
+        "  try { await m.menu.Rename('alpha', 'beta'); m.dupe = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.dupe = e && e.code ? e.code : '?'; }\n"
+        "  try { m.menu.Handle; m.handle = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.handle = e && e.code ? e.code : '?'; }\n"
+        "  try { await m.menu.AddStandard(); m.std = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.std = e && e.code ? e.code : '?'; }\n"
+        "  try { await m.menu.Check('missing'); m.miss = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.miss = e && e.code ? e.code : '?'; }\n"
+        "  globalThis.g.MenuBar = m.menu;\n"
+        "  m.bar = await globalThis.g.MenuBar;\n"
+        "  m.barType = m.bar === null ? 'null' : (m.bar === m.menu ? 'same' : 'other');\n"
+        "})().then(() => { globalThis.m9fDone = 'ok'; },\n"
+        "  e => { globalThis.m9fDone = { code: (e && e.code) || '',\n"
+        "    ctor: e && e.constructor ? e.constructor.name : '?',\n"
+        "    message: String((e && e.message) || '') }; });\n",
+        "gui-object-3c-invoke.mjs");
+  require_ok(runtime.settle(30000ms), "3c invoke settle");
+  check(runtime,
+        "if (globalThis.m9fDone !== 'ok')\n"
+        "  throw new Error('3c sequence failed: ' + JSON.stringify(globalThis.m9fDone));\n",
+        "gui-object-3c-check.mjs");
+  {
+    // The menubar click: a real WM_COMMAND with the OS-issued command id
+    // (GetMenuItemID position 0 = 'alpha'), exactly what a user click
+    // delivers to the window proc. The pump routes it to the menu's
+    // channel and the item callback fires.
+    HMENU bar = GetMenu(hwnd);
+    require(bar != nullptr, "GetMenu returns the attached bar");
+    const UINT alpha_cmd = GetMenuItemID(bar, 0);
+    require(alpha_cmd != static_cast<UINT>(-1), "position 0 has a command id");
+    require(PostMessageW(hwnd, WM_COMMAND, MAKEWPARAM(alpha_cmd, 0), 0) != FALSE,
+            "the test's own WM_COMMAND posts");
+  }
+  require_ok(runtime.settle(10000ms), "menubar click settle");
+  {
+    // The alpha callback runs m.menu.Check('beta'): poll the OS for the
+    // effect with a deadline (condition poll, never a bare sleep). This is
+    // the end-to-end proof that the menubar click reached the callback -
+    // posted WM_COMMAND -> pump route -> channel -> dispatch -> callback
+    // -> pump apply -> HMENU state.
+    HMENU bar_probe = GetMenu(hwnd);
+    require(bar_probe != nullptr, "GetMenu returns the attached bar");
+    const UINT beta_probe = GetMenuItemID(bar_probe, 2);
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    bool beta_checked = false;
+    while (std::chrono::steady_clock::now() < until) {
+      if ((GetMenuState(bar_probe, beta_probe, MF_BYCOMMAND) & MF_CHECKED) != 0) {
+        beta_checked = true;
+        break;
+      }
+      Sleep(10);
+    }
+    require(beta_checked, "the alpha callback's Check('beta') landed on the OS");
+  }
+  check(runtime,
+        "globalThis.m9fShow = 'pending';\n"
+        "(async () => {\n"
+        "  const m = globalThis.m9f;\n"
+        "  const { runtime } = await import('rime:runtime');\n"
+        "  m.pick = await m.sub.Show(200, 200);\n"
+        "  await runtime.delay(1000, null);\n"
+        "  m.dismiss = await m.sub.Show(200, 200);\n"
+        "})().then(() => { globalThis.m9fShow = 'ok'; },\n"
+        "  e => { globalThis.m9fShow = { code: (e && e.code) || '',\n"
+        "    ctor: e && e.constructor ? e.constructor.name : '?',\n"
+        "    message: String((e && e.message) || '') }; });\n",
+        "gui-object-3c-show.mjs");
+  // Injector for the two modal rounds: DOWN+ENTER spam picks 'leaf' first
+  // (resolves the name and fires its callback), then ESC spam dismisses
+  // (resolves null). Pick-first is load-bearing, not cosmetic:
+  // - single keystrokes race the menu's highlight timing, so both rounds
+  //   repeat (probed standalone; WM_CANCELMODE does not unblock the loop,
+  //   and cross-thread EndMenu is unreliable);
+  // - key leftovers survive the popup they were meant for: ESC residue
+  //   instantly dismisses a later popup, so the dismiss round runs LAST
+  //   (its residue - ESC/DOWN/ENTER pairs - dies in the pump queue in
+  //   milliseconds, long before S9i posts its own Escape).
+  // Each round waits for a popup to appear, drives it, then waits for all
+  // popups to close - no handle caching (the OS reuses destroyed #32768
+  // handles, so a `last` filter would miss round two).
+  auto own_popup = [&]() -> HWND {
+    for (HWND w = FindWindowW(L"#32768", nullptr); w != nullptr;
+         w = FindWindowExW(nullptr, w, L"#32768", nullptr)) {
+      DWORD pid = 0;
+      GetWindowThreadProcessId(w, &pid);
+      if (pid != GetCurrentProcessId()) continue;
+      if (IsWindowVisible(w)) return w;
+    }
+    return nullptr;
+  };
+  std::atomic<int> injected{0};
+  std::atomic<bool> injector_ok{true};
+  std::thread injector([&] {
+    for (int round = 0; round < 2; ++round) {
+      HWND popup = nullptr;
+      const auto appear_until = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+      while (!popup && std::chrono::steady_clock::now() < appear_until) {
+        popup = own_popup();
+        if (!popup) Sleep(10);
+      }
+      if (!popup) {
+        injector_ok = false;
+        return;
+      }
+      if (round == 0) {
+        for (int i = 0; i < 6 && IsWindow(popup); ++i) {
+          PostMessageW(popup, WM_KEYDOWN, VK_DOWN, 0);
+          PostMessageW(popup, WM_KEYUP, VK_DOWN, 0);
+          Sleep(200);  // inter-key pacing only; assertions stay on settle
+        }
+        for (int i = 0; i < 4 && IsWindow(popup); ++i) {
+          PostMessageW(popup, WM_KEYDOWN, VK_RETURN, 0);
+          PostMessageW(popup, WM_KEYUP, VK_RETURN, 0);
+          Sleep(200);  // inter-key pacing only; assertions stay on settle
+        }
+        injected += 2;
+      } else {
+        for (int i = 0; i < 6 && IsWindow(popup); ++i) {
+          PostMessageW(popup, WM_KEYDOWN, VK_ESCAPE, 0);
+          PostMessageW(popup, WM_KEYUP, VK_ESCAPE, 0);
+          Sleep(200);  // inter-key pacing only; assertions stay on settle
+        }
+        ++injected;
+      }
+      // Let this popup close before hunting the next one.
+      const auto gone_until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+      while (own_popup() && std::chrono::steady_clock::now() < gone_until) Sleep(10);
+    }
+  });
+  require_ok(runtime.settle(30000ms), "3c show settle");
+  injector.join();
+  require(injected.load() == 3, "injector drove both popups");
+  require(DeleteFileW(ico_path.c_str()) != FALSE, "scratch ICO is removed");
+  check(runtime,
+        "if (globalThis.m9fShow !== 'ok')\n"
+        "  throw new Error('3c show failed: ' + JSON.stringify(globalThis.m9fShow));\n"
+        "const m = globalThis.m9f;\n"
+        "const eq = (key, actual, want) => {\n"
+        "  if (actual !== want) throw new Error(key + ': got ' + JSON.stringify(actual) +\n"
+        "    ', want ' + JSON.stringify(want));\n"
+        "};\n"
+        "eq('p0', m.p0, 0);\n"
+        "eq('p1', m.p1, 1);\n"
+        "eq('p2', m.p2, 2);\n"
+        "eq('p3', m.p3, 0);\n"
+        "eq('p4', m.p4, 3);\n"
+        "eq('ins', m.ins, 1);\n"
+        "eq('chk', m.chk, null);\n"
+        "eq('tgl', m.tgl, false);\n"
+        "eq('un', m.un, null);\n"
+        "eq('dis', m.dis, null);\n"
+        "eq('tge', m.tge, true);\n"
+        "eq('en', m.en, null);\n"
+        "eq('ren', m.ren, 'mid');\n"
+        "eq('def', m.def, 'alpha');\n"
+        "eq('cc', m.cc, 2);\n"
+        "eq('col', m.col, null);\n"
+        "eq('icon', m.icon, null);\n"
+        "eq('self', m.self, 'invalid_contract');\n"
+        "eq('dupe', m.dupe, 'invalid_contract');\n"
+        "eq('handle', m.handle, 'unsupported_by_policy');\n"
+        "eq('std', m.std, 'unsupported_by_policy');\n"
+        "eq('miss', m.miss, 'invalid_contract');\n"
+        "eq('barType', m.barType, 'same');\n"
+        "eq('dismiss', m.dismiss, null);\n"
+        "eq('pick', m.pick, 'leaf');\n",
+        "gui-object-3c-assert.mjs");
+  {
+    // OS re-read of the same HMENU: item count (alpha/middle/beta/sep/more),
+    // alpha unchecked + enabled after the toggle round-trips, the submenu
+    // slot, the red background brush, the alpha icon bitmap, the default
+    // item and the attached bar itself.
+    HMENU bar = GetMenu(hwnd);
+    require(bar != nullptr, "the bar is still attached");
+    require(GetMenuItemCount(bar) == 5, "five top-level items survive");
+    const UINT alpha_cmd = GetMenuItemID(bar, 0);
+    require((GetMenuState(bar, alpha_cmd, MF_BYCOMMAND) & MF_CHECKED) == 0,
+            "alpha ends unchecked");
+    require((GetMenuState(bar, alpha_cmd, MF_BYCOMMAND) & (MF_DISABLED | MF_GRAYED)) == 0,
+            "alpha ends enabled");
+    const UINT beta_cmd = GetMenuItemID(bar, 2);
+    require((GetMenuState(bar, beta_cmd, MF_BYCOMMAND) & (MF_DISABLED | MF_GRAYED)) == 0,
+            "beta ends enabled");
+    require((GetMenuState(bar, beta_cmd, MF_BYCOMMAND) & MF_CHECKED) != 0,
+            "beta ends checked by the alpha callback");
+    HMENU sub = GetSubMenu(bar, 4);
+    require(sub != nullptr, "position 4 opens the submenu");
+    require(GetMenuItemCount(sub) == 1, "the submenu holds leaf");
+    const UINT leaf_cmd = GetMenuItemID(sub, 0);
+    const auto leaf_until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    bool leaf_checked = false;
+    while (std::chrono::steady_clock::now() < leaf_until) {
+      if ((GetMenuState(sub, leaf_cmd, MF_BYCOMMAND) & MF_CHECKED) != 0) {
+        leaf_checked = true;
+        break;
+      }
+      Sleep(10);
+    }
+    require(leaf_checked, "the leaf callback's Check('leaf') landed on the OS");
+    MENUINFO color_info{};
+    color_info.cbSize = sizeof(color_info);
+    color_info.fMask = MIM_BACKGROUND;
+    require(GetMenuInfo(bar, &color_info) != FALSE, "GetMenuInfo reads back");
+    require(color_info.hbrBack != nullptr, "SetColor left a background brush");
+    MENUITEMINFOW icon_info{};
+    icon_info.cbSize = sizeof(icon_info);
+    icon_info.fMask = MIIM_BITMAP;
+    require(GetMenuItemInfoW(bar, alpha_cmd, FALSE, &icon_info) != FALSE,
+            "GetMenuItemInfo reads back");
+    require(icon_info.hbmpItem != nullptr, "alpha carries the icon bitmap");
+    require(GetMenuDefaultItem(bar, FALSE, 0) == alpha_cmd, "alpha is the default item");
+  }
+  // Menu Destroy detaches the bar, frees the pump record and releases the
+  // dispatch channel (S16 baseline); members refuse InvalidState after.
+  check(runtime,
+        "const m = globalThis.m9f;\n"
+        "m.menu.Destroy();\n"
+        "m.sub.Destroy();\n"
+        "globalThis.m9fDead = globalThis.seen(() => m.menu.Add('late'));\n",
+        "gui-object-3c-destroy.mjs");
+  require_ok(runtime.settle(10000ms), "menu destroy settle");
+  check(runtime,
+        "if (globalThis.m9fDead.code !== 'invalid_state')\n"
+        "  throw new Error('dead menu: ' + JSON.stringify(globalThis.m9fDead));\n",
+        "gui-object-3c-dead.mjs");
+  require(GetMenu(hwnd) == nullptr, "Destroy detached the bar");
+
+  // ---- S9g: batch-3d image lists -------------------------------------------
+  // Icons land in a pump-owned ImageList (ImageList_GetImageCount reads
+  // back); SetImageList wires it into ListView/TreeView (LVM/TVM_GETIMAGELIST
+  // reads back) and row/node image indices stick (GETITEM iImage reads
+  // back). Destroy detaches everywhere (GETIMAGELIST goes null).
+  write_scratch_ico();
+  check(runtime,
+        "globalThis.m9g = {};\n"
+        "globalThis.m9gDone = 'pending';\n"
+        "(async () => {\n"
+        "  const m = globalThis.m9g;\n"
+        "  const { ui } = await import('rime:ui');\n"
+        "  m.list = await ui.createImageList(16, 16);\n"
+        "  m.i0 = await m.list.Add('" +
+        ico_js + "');\n"
+        "  const lv = globalThis.wr.listview;\n"
+        "  const tv = globalThis.wr.tree;\n"
+        "  m.setLv = await lv.SetImageList(m.list, 'small');\n"
+        "  m.setTv = await tv.SetImageList(m.list);\n"
+        "  m.rw = await lv.Add(['pic', 'row'], undefined, undefined, undefined, 0);\n"
+        "  m.nd = await tv.Add('pnode', undefined, undefined, undefined, undefined, 0);\n"
+        "  m.modRw = await lv.Modify(0, undefined, undefined, undefined, undefined, 0);\n"
+        "  try { await lv.SetImageList(m.list, 'huge'); m.size = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.size = e && e.constructor ? e.constructor.name : '?'; }\n"
+        "  try { await m.list.Add('C:\\\\no-such-file-xyz.ico'); m.bad = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.bad = e && e.code ? e.code : '?'; }\n"
+        "  try { await ui.createImageList(0, 16); m.geo = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.geo = e && e.code ? e.code : '?'; }\n"
+        "})().then(() => { globalThis.m9gDone = 'ok'; },\n"
+        "  e => { globalThis.m9gDone = { code: (e && e.code) || '',\n"
+        "    ctor: e && e.constructor ? e.constructor.name : '?',\n"
+        "    message: String((e && e.message) || '') }; });\n",
+        "gui-object-3d-invoke.mjs");
+  require_ok(runtime.settle(30000ms), "3d invoke settle");
+  require(DeleteFileW(ico_path.c_str()) != FALSE, "scratch ICO is removed");
+  check(runtime,
+        "if (globalThis.m9gDone !== 'ok')\n"
+        "  throw new Error('3d sequence failed: ' + JSON.stringify(globalThis.m9gDone));\n"
+        "const m = globalThis.m9g;\n"
+        "const eq = (key, actual, want) => {\n"
+        "  if (actual !== want) throw new Error(key + ': got ' + JSON.stringify(actual) +\n"
+        "    ', want ' + JSON.stringify(want));\n"
+        "};\n"
+        "eq('i0', m.i0, 0);\n"
+        "eq('setLv', m.setLv, null);\n"
+        "eq('setTv', m.setTv, null);\n"
+        "eq('rw', m.rw, 3);\n"
+        "eq('modRw', m.modRw, 0);\n"
+        "if (typeof m.nd !== 'number' || m.nd < 1)\n"
+        "  throw new Error('nd: ' + JSON.stringify(m.nd));\n"
+        "eq('size', m.size, 'TypeError');\n"
+        "eq('bad', m.bad, 'invalid_contract');\n"
+        "eq('geo', m.geo, 'invalid_contract');\n",
+        "gui-object-3d-assert.mjs");
+  {
+    HWND listview = find_child(hwnd, L"SysListView32");
+    require(listview != nullptr, "FindWindowExW finds the ListView child");
+    HIMAGELIST small = reinterpret_cast<HIMAGELIST>(
+        SendMessageW(listview, LVM_GETIMAGELIST, LVSIL_SMALL, 0));
+    require(small != nullptr, "the small list is wired into the ListView");
+    require(ImageList_GetImageCount(small) == 1, "one icon landed in the list");
+    // Row 0 is the S9e survivor ('m1'); the S9g row 'pic' sits at index 3
+    // with image 0 (S9e left 3 rows, S9g appended one).
+    LVITEMW row{};
+    row.mask = LVIF_IMAGE;
+    row.iItem = 3;
+    require(SendMessageW(listview, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(&row)) != FALSE,
+            "LVM_GETITEM reads the S9g row");
+    require(row.iImage == 0, "the row carries image 0");
+    HWND tree = find_child(hwnd, L"SysTreeView32");
+    require(tree != nullptr, "FindWindowExW finds the TreeView child");
+    HIMAGELIST normal = reinterpret_cast<HIMAGELIST>(
+        SendMessageW(tree, TVM_GETIMAGELIST, TVSIL_NORMAL, 0));
+    require(normal == small, "both controls share the one list");
+    // The S9g node 'pnode' is the last root (S9d left r1/r2, S9e deleted
+    // its subtree, S9g appended one): walk roots to the end.
+    HTREEITEM node = reinterpret_cast<HTREEITEM>(
+        SendMessageW(tree, TVM_GETNEXTITEM, TVGN_CHILD, reinterpret_cast<LPARAM>(TVI_ROOT)));
+    HTREEITEM last = node;
+    while (node) {
+      last = node;
+      node = reinterpret_cast<HTREEITEM>(
+          SendMessageW(tree, TVM_GETNEXTITEM, TVGN_NEXT, reinterpret_cast<LPARAM>(node)));
+    }
+    require(last != nullptr, "a root node exists");
+    TVITEMW tvget{};
+    tvget.hItem = last;
+    tvget.mask = TVIF_TEXT | TVIF_IMAGE;
+    wchar_t node_text[64]{};
+    tvget.pszText = node_text;
+    tvget.cchTextMax = 64;
+    require(SendMessageW(tree, TVM_GETITEMW, 0, reinterpret_cast<LPARAM>(&tvget)) != FALSE,
+            "TVM_GETITEM reads the last root");
+    require(wcscmp(node_text, L"pnode") == 0, "the last root is the S9g node");
+    require(tvget.iImage == 0, "the node carries image 0");
+  }
+  check(runtime,
+        "globalThis.m9gGone = 'pending';\n"
+        "(async () => {\n"
+        "  const m = globalThis.m9g;\n"
+        "  await m.list.Destroy();\n"
+        "})().then(\n"
+        "  () => { globalThis.m9gGone = 'ok'; },\n"
+        "  e => { globalThis.m9gGone = { code: (e && e.code) || '',\n"
+        "    message: String((e && e.message) || '') }; });\n",
+        "gui-object-3d-destroy.mjs");
+  require_ok(runtime.settle(10000ms), "image destroy settle");
+  check(runtime,
+        "if (globalThis.m9gGone !== 'ok')\n"
+        "  throw new Error('3d destroy failed: ' + JSON.stringify(globalThis.m9gGone));\n",
+        "gui-object-3d-destroy-check.mjs");
+  {
+    HWND listview = find_child(hwnd, L"SysListView32");
+    require(SendMessageW(listview, LVM_GETIMAGELIST, LVSIL_SMALL, 0) == 0,
+            "destroy detached the small list");
+    HWND tree = find_child(hwnd, L"SysTreeView32");
+    require(SendMessageW(tree, TVM_GETIMAGELIST, TVSIL_NORMAL, 0) == 0,
+            "destroy detached the normal list");
+  }
+
+  // ---- S9h: batch-3e FromHwnd (miss paths) ---------------------------------
+  // This slice runtime wires no hwnd resolver (production wires
+  // WindowService::peek_hwnd in bootstrap), so every id misses with null -
+  // TargetGone is a miss, never a throw. The hit paths run natively above
+  // (gui_tests.cpp owns both sides of the resolver). Bad ids fail
+  // synchronously before any worker starts.
+  check(runtime,
+        "globalThis.m9h = {};\n"
+        "globalThis.m9hDone = 'pending';\n"
+        "(async () => {\n"
+        "  const m = globalThis.m9h;\n"
+        "  const { ui } = await import('rime:ui');\n"
+        "  m.miss = await ui.fromHwnd(4242);\n"
+        "  m.missCtrl = await ui.fromHwndControl(4343);\n"
+        "  m.zero = await ui.fromHwnd(0);\n"
+        "  m.neg = await ui.fromHwnd(-1);\n"
+        "  try { await ui.fromHwnd('x'); m.str = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.str = e && e.constructor ? e.constructor.name : '?'; }\n"
+        "  try { await ui.fromHwnd(); m.arity = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.arity = e && e.constructor ? e.constructor.name : '?'; }\n"
+        "})().then(() => { globalThis.m9hDone = 'ok'; },\n"
+        "  e => { globalThis.m9hDone = { code: (e && e.code) || '',\n"
+        "    ctor: e && e.constructor ? e.constructor.name : '?',\n"
+        "    message: String((e && e.message) || '') }; });\n",
+        "gui-object-3e-invoke.mjs");
+  require_ok(runtime.settle(10000ms), "3e invoke settle");
+  check(runtime,
+        "if (globalThis.m9hDone !== 'ok')\n"
+        "  throw new Error('3e sequence failed: ' + JSON.stringify(globalThis.m9hDone));\n"
+        "const m = globalThis.m9h;\n"
+        "const eq = (key, actual, want) => {\n"
+        "  if (actual !== want) throw new Error(key + ': got ' + JSON.stringify(actual) +\n"
+        "    ', want ' + JSON.stringify(want));\n"
+        "};\n"
+        "eq('miss', m.miss, null);\n"
+        "eq('missCtrl', m.missCtrl, null);\n"
+        "eq('zero', m.zero, null);\n"
+        "eq('neg', m.neg, null);\n"
+        "eq('str', m.str, 'TypeError');\n"
+        "eq('arity', m.arity, 'TypeError');\n",
+        "gui-object-3e-assert.mjs");
+
+  // ---- S9i: batch-3e events (Escape/ContextMenu/DropFiles/ItemSelect) -----
+  // New OnEvent names behind the same channel: Escape (VK_ESCAPE keydown),
+  // ContextMenu (WM_CONTEXTMENU with x/y/control), DropFiles (a real HDROP
+  // built here; DragFinish frees it pump-side), ItemSelect on ListView
+  // (LVN_ITEMCHANGED selection flip) and TreeView (TVN_SELCHANGED).
+  // Stimuli are posted/sent by this test; JS only observes through waitFor.
+  check(runtime,
+        "const g = globalThis.g;\n"
+        "globalThis.ev9 = { esc: [], menu: [], drop: [], lvSel: [], tvSel: [] };\n"
+        "globalThis.ev9Reg = 'pending';\n"
+        "(async () => {\n"
+        // Awaited one by one: each resolution means its interest mirror
+        // applied pump-side, so the table is complete before any stimulus
+        // (concurrent mirrors converge by stamp, but only awaiting proves
+        // they all landed).
+        "  await g.OnEvent('Escape', (t) => {\n"
+        "    globalThis.ev9.esc.push(t === globalThis.g); });\n"
+        "  await g.OnEvent('ContextMenu',\n"
+        "    (t, x, y, c) => { globalThis.ev9.menu.push([t === globalThis.g, x, y, c]); });\n"
+        "  await g.OnEvent('DropFiles',\n"
+        "    (t, ...files) => { globalThis.ev9.drop.push([t === globalThis.g, ...files]); });\n"
+        "  await globalThis.wr.listview.OnEvent('ItemSelect',\n"
+        "    (t, row, sel) => { globalThis.ev9.lvSel.push([t === globalThis.wr.listview, row, sel]); });\n"
+        "  await globalThis.wr.tree.OnEvent('ItemSelect',\n"
+        "    (t, node) => { globalThis.ev9.tvSel.push([t === globalThis.wr.tree, node]); });\n"
+        "})().then(() => { globalThis.ev9Reg = 'ok'; },\n"
+        "  e => { globalThis.ev9Reg = { code: (e && e.code) || '',\n"
+        "    message: String((e && e.message) || '') }; });\n",
+        "gui-object-3e-events-register.mjs");
+  require_ok(runtime.settle(10000ms), "3e events register settle");
+  check(runtime,
+        "if (globalThis.ev9Reg !== 'ok')\n"
+        "  throw new Error('3e register failed: ' + JSON.stringify(globalThis.ev9Reg));\n",
+        "gui-object-3e-events-registered.mjs");
+  check(runtime,
+        "globalThis.ev9.treeId = globalThis.wr.tree.id;\n"
+        "globalThis.ev9.lvId = globalThis.wr.listview.id;\n",
+        "gui-object-3e-events-ids.mjs");
+  check(runtime,
+        "globalThis.ev9Sel = 'pending';\n"
+        "(async () => {\n"
+        // Pump-thread selects (the service path): test-thread SendMessage
+        // selects move the caret silently, while service selects notify.
+        // Touch r1 first so the r2 flip always fires; last event is [., 2].
+        // Runs BEFORE arming (below): each Modify is a slow pump round
+        // trip, and waitFor budgets must cover stimuli-to-event only.
+        "  const tv = globalThis.wr.tree;\n"
+        "  await tv.Modify(1, undefined, true);\n"
+        "  await tv.Modify(2, undefined, true);\n"
+        "})().then(() => { globalThis.ev9Sel = 'ok'; },\n"
+        "  e => { globalThis.ev9Sel = { code: (e && e.code) || '',\n"
+        "    message: String((e && e.message) || '') }; });\n",
+        "gui-object-3e-events-tvselect.mjs");
+  require_ok(runtime.settle(10000ms), "3e tvselect settle");
+  check(runtime,
+        "if (globalThis.ev9Sel !== 'ok')\n"
+        "  throw new Error('3e tvselect failed: ' + JSON.stringify(globalThis.ev9Sel));\n",
+        "gui-object-3e-events-tvselected.mjs");
+  check(runtime,
+        "const ev = globalThis.ev9;\n"
+        "ev.escWait = waitFor(() => ev.esc.length > 0, 4000).then(v => { ev.escSeen = v; });\n"
+        "ev.menuWait = waitFor(() => ev.menu.length > 0, 4000).then(v => { ev.menuSeen = v; });\n"
+        "ev.dropWait = waitFor(() => ev.drop.length > 0, 4000).then(v => { ev.dropSeen = v; });\n"
+        "ev.lvWait = waitFor(() => ev.lvSel.length > 0, 4000).then(v => { ev.lvSeen = v; });\n",
+        "gui-object-3e-events-arm.mjs");
+  require(PostMessageW(hwnd, WM_KEYDOWN, VK_ESCAPE, 0) != FALSE, "Escape posts");
+  require(PostMessageW(hwnd, WM_CONTEXTMENU, reinterpret_cast<WPARAM>(hwnd),
+                       MAKELPARAM(100, 200)) != FALSE,
+          "ContextMenu posts");
+  {
+    // A real HDROP: DROPFILES + double-null-terminated UTF-16 list. The
+    // pump's DragFinish releases it, so the test never frees it.
+    const wchar_t* files[] = {L"C:\\drop\\a.txt", L"C:\\drop\\b.txt"};
+    std::size_t chars = 1;
+    for (const wchar_t* file : files) chars += wcslen(file) + 1;
+    HGLOBAL mem = GlobalAlloc(GHND | GMEM_SHARE, sizeof(DROPFILES) + chars * sizeof(wchar_t));
+    require(mem != nullptr, "drop memory allocates");
+    auto* drop = static_cast<DROPFILES*>(GlobalLock(mem));
+    drop->pFiles = sizeof(DROPFILES);
+    drop->pt.x = 0;
+    drop->pt.y = 0;
+    drop->fNC = FALSE;
+    drop->fWide = TRUE;
+    wchar_t* cursor = reinterpret_cast<wchar_t*>(reinterpret_cast<BYTE*>(drop) + sizeof(DROPFILES));
+    for (const wchar_t* file : files) {
+      wcscpy(cursor, file);
+      cursor += wcslen(file) + 1;
+    }
+    *cursor = L'\0';
+    GlobalUnlock(mem);
+    require(PostMessageW(hwnd, WM_DROPFILES, reinterpret_cast<WPARAM>(mem), 0) != FALSE,
+            "DropFiles posts");
+  }
+  {
+    HWND listview = find_child(hwnd, L"SysListView32");
+    require(listview != nullptr, "FindWindowExW finds the ListView child");
+    // Row 0 ('m1') is unselected (S9e selected row 1); selecting it flips.
+    ListView_SetItemState(listview, 0, LVIS_SELECTED, LVIS_SELECTED);
+  }
+  require_ok(runtime.settle(10000ms), "3e events settle");
+  check(runtime,
+        "const ev = globalThis.ev9;\n"
+        "const fail = (key, detail) => { throw new Error(key + ': ' + detail); };\n"
+        "if (ev.escSeen !== true || ev.esc.length !== 1 || ev.esc[0] !== true)\n"
+        "  fail('escape', JSON.stringify([ev.escSeen, ev.esc]));\n"
+        "if (ev.menuSeen !== true || ev.menu.length !== 1)\n"
+        "  fail('contextmenu', JSON.stringify([ev.menuSeen, ev.menu]));\n"
+        "const cm = ev.menu[0];\n"
+        "if (cm[0] !== true || cm[1] !== 100 || cm[2] !== 200 || cm[3] !== 0)\n"
+        "  fail('contextmenu args', JSON.stringify(cm));\n"
+        "if (ev.dropSeen !== true || ev.drop.length !== 1)\n"
+        "  fail('dropfiles', JSON.stringify([ev.dropSeen, ev.drop]));\n"
+        "const df = ev.drop[0];\n"
+        "if (df[0] !== true || df[1] !== 'C:\\\\drop\\\\a.txt' || df[2] !== 'C:\\\\drop\\\\b.txt')\n"
+        "  fail('dropfiles args', JSON.stringify(df));\n"
+        "if (ev.lvSeen !== true || ev.lvSel.length < 1)\n"
+        "  fail('lvselect', JSON.stringify([ev.lvSeen, ev.lvSel]));\n"
+        "const lv = ev.lvSel[ev.lvSel.length - 1];\n"
+        "if (lv[0] !== true || lv[1] !== 0 || lv[2] !== 1)\n"
+        "  fail('lvselect args', JSON.stringify(lv));\n"
+        "if (ev.tvSel.length < 1)\n"
+        "  fail('tvselect', JSON.stringify(ev.tvSel));\n"
+        "const tv = ev.tvSel[ev.tvSel.length - 1];\n"
+        "if (tv[0] !== true || tv[1] !== 2)\n"
+        "  fail('tvselect args', JSON.stringify(tv));\n",
+        "gui-object-3e-events-assert.mjs");
 
   // ---- S10/S11: Resize, driven by this test's own SetWindowPos -----------
   check(runtime,

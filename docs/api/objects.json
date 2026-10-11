@@ -1615,8 +1615,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; TypeError when the value is neither a Menu bar nor empty",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Name",
@@ -2101,8 +2101,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiControlRef, invalid after the parent Gui is destroyed",
           "error": "InvalidState when the control is destroyed; ValueError on an invalid icon type",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "GetChild",
@@ -2657,8 +2657,8 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         }
       ]
     },
@@ -2779,8 +2779,8 @@
           "async": "sync",
           "ownership": "none",
           "error": "Error when the map is not empty; ValueError when the value is not one of On, Off or Locale; TypeError when receiver is primitive",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/js_smoke.cpp"
         },
         {
           "name": "Count",
@@ -2836,8 +2836,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "ValueError on an invalid parameter combination; TypeError when functionOrSubmenu is not an object; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddStandard",
@@ -2849,8 +2849,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "no source error path - appending the standard items can only fail internally",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Check",
@@ -2862,8 +2862,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "ClickCount",
@@ -2875,8 +2875,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "ValueError when the value is not 1 or 2; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Default",
@@ -2888,8 +2888,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; ValueError when the value is blank but invalid; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Delete",
@@ -2901,8 +2901,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; ValueError when the item name is blank; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Disable",
@@ -2914,8 +2914,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Enable",
@@ -2927,8 +2927,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Handle",
@@ -2940,8 +2940,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "unsupported-by-policy (raw HMENU handle exposure); InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "unsupported-by-policy",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Insert",
@@ -2953,8 +2953,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the before item is not found; ValueError on an invalid parameter combination; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Rename",
@@ -2966,8 +2966,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; Error when the new name is too long; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "SetColor",
@@ -2979,8 +2979,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "ValueError on an invalid color; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "SetIcon",
@@ -2992,8 +2992,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; Error when the icon cannot be loaded; ValueError on an invalid icon number or width; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Show",
@@ -3005,8 +3005,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "Error when the menu cannot be displayed; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "ToggleCheck",
@@ -3018,8 +3018,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "ToggleEnable",
@@ -3031,8 +3031,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "Uncheck",
@@ -3044,8 +3044,8 @@
           "async": "async",
           "ownership": "Runtime-owned MenuRef, destroy before unload",
           "error": "TargetError when the item is not found; InvalidState when closed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         }
       ]
     },
@@ -3472,8 +3472,8 @@
           "async": "async",
           "ownership": "Runtime-owned ControlRef, valid while the parent Gui is alive",
           "error": "InvalidState when the control or its Gui is destroyed",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         }
       ]
     }

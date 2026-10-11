@@ -337,6 +337,11 @@ rime::core::Error WindowService::evaluate_wait(const WindowQuery& query, WaitCon
   return rime::core::Error::none();
 }
 
+void* WindowService::peek_hwnd(const std::uint64_t id) {
+  if (!lane::require_lane(lane::Lane::Ui).ok()) return nullptr;
+  return impl_->registry.hwnd_for(id);
+}
+
 rime::core::Error WindowService::info(const std::uint64_t id, WindowInfo& out,
                                       const std::chrono::milliseconds timeout) {
   if (timeout <= std::chrono::milliseconds::zero()) return expired_deadline();

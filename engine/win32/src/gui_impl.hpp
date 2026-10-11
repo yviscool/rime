@@ -85,10 +85,45 @@ struct GuiChildRecord {
   // clear-all. Only meaningful when kind == TreeView.
   std::map<std::uint64_t, HTREEITEM> tree_items;
   std::uint64_t next_tree_id{1};
+  // Attached ImageList id, 0 = none (batch 3d; cleared on destroy-detach).
+  std::uint64_t image_list{0};
   // StatusBar icon ownership (batch 3b SbSetIcon): part -> HICON we set via
   // SB_SETICON. Replaced icons are destroyed; survivors die here-equivalent
   // (see free_record_state). Only meaningful when kind == StatusBar.
   std::map<int, HICON> status_icons;
+};
+
+// One menu item as the pump knows it. Command ids come from the
+// service-global 0x8000+ counter (batch 3c); names are script text,
+// positions shift - both address forms resolve through find_menu_item.
+struct GuiMenuItemRecord {
+  std::wstring name;
+  std::uint32_t command{0};
+  bool separator{false};
+  std::uint64_t submenu{0};  // attached child menu id, 0 = plain item
+  HBITMAP bitmap{nullptr};   // SetIcon conversion, owned here
+};
+
+// One script-created menu. Lives in GuiService::Impl::menus, addressed by
+// stable id. The HMENU, brush and item bitmaps die here; callbacks live
+// JS-side and die with the Menu object (see release_menu).
+struct GuiMenuRecord {
+  HMENU hmenu{nullptr};
+  std::vector<GuiMenuItemRecord> items;
+  HBRUSH color_brush{nullptr};  // SetColor brush, owned here
+  bool has_color{false};
+  int click_count{1};  // validated 1..2 (AHK range); tray-reserved, see docs
+  std::wstring default_item;
+  // Event push (batch 3c): the menu's own host channel + sink copy. Menus
+  // own no window; menubar clicks and popup selections both land here.
+  std::uint64_t channel{0};
+  std::function<void(std::uint64_t, std::string)> event_sink;
+};
+
+// One script-created image list (batch 3d). The HIMAGELIST dies here;
+// controls detach first (their records name this id).
+struct GuiImageListRecord {
+  HIMAGELIST handle{nullptr};
 };
 
 // One script-created Gui window. Lives in GuiService::Impl::guis, addressed
@@ -146,6 +181,13 @@ struct GuiRecord {
   // Event sink copy taken at record creation (see GuiService::set_event_sink;
   // empty = no host queue attached yet, pushes are dropped until then).
   std::function<void(std::uint64_t, std::string)> event_sink;
+  // Attached menu-bar menu id, 0 = none (batch 3c).
+  std::uint64_t menu_id{0};
+  // Newest applied interest stamp (batch 3e convergence).
+  std::uint64_t interest_seq{0};
+  // Pump-owned menu table for WM_COMMAND menu routing (batch 3c). Set at
+  // record creation; the window proc only ever reads it on the pump.
+  std::map<std::uint64_t, GuiMenuRecord>* menus{nullptr};
 };
 
 // The pump-owned id -> record table. Free helpers in gui_window.cpp take
@@ -164,8 +206,26 @@ struct GuiService::Impl {
   // Current event sink (JS-side queue push). Assignments are idempotent and
   // happen on the JS thread before any Gui exists.
   std::function<void(std::uint64_t, std::string)> event_sink;
+  // Batch 3e FromHwnd resolver (window/control id -> live handle or null).
+  // Set by the host; runs on the pump thread inside run_pump tasks.
+  GuiService::HwndResolver hwnd_resolver;
   // All script-created Gui records; destroyed only on the pump.
   GuiMap guis;
+
+  // ---- batch 3c: menus ----
+  // All script-created menu records; destroyed only on the pump. Ids are
+  // minted JS-side (ui.createMenu), like Gui ids.
+  std::map<std::uint64_t, GuiMenuRecord> menus;
+
+  // ---- batch 3d: image lists ----
+  // Same minting rule (ui.createImageList, awaited: geometry can refuse).
+  std::map<std::uint64_t, GuiImageListRecord> image_lists;
+  // Menu command ids: service-global 0x8000+ so a WM_COMMAND on any window
+  // routes to exactly one (menu, item). 0 is never minted (dismissed popup).
+  std::uint32_t next_menu_cmd{0x8000};
+  // Message-only owner window for popup Show (TrackPopupMenuEx needs an
+  // owner; this keeps popups off any Gui window's message flow).
+  HWND menu_host{nullptr};
 };
 
 }  // namespace rime::win32
