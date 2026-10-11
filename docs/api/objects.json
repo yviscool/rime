@@ -1017,8 +1017,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddCustom",
@@ -1056,8 +1056,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddDropDownList",
@@ -1069,8 +1069,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddEdit",
@@ -1134,8 +1134,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddListView",

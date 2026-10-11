@@ -855,6 +855,96 @@ int main() {
   require(rect.right - rect.left == 360, "GetWindowRect agrees with Move width");
   require(rect.bottom - rect.top == 210, "GetWindowRect agrees with Move height");
 
+  // ---- S9b: batch-3a list family (construct + OS readback + Change) -----
+  // Three implementations (ListBox/ComboBox/DropDownList) plus the AddDDL
+  // ledger alias; rows come from string arrays, a bare string is one row.
+  // Placed while the main Gui is alive (S13 destroys it); later sections
+  // only assert per-member behavior and channel baselines, never control
+  // counts, so four extra children disturb nothing downstream.
+  check(runtime,
+        "const g = globalThis.g;\n"
+        "globalThis.wv = { change: [] };\n"
+        "globalThis.track(globalThis.wv, 'list',\n"
+        "  g.AddListBox('x10 y200 w200 h80 vMyList', ['a', 'b', 'c']));\n"
+        "globalThis.track(globalThis.wv, 'combo',\n"
+        "  g.AddComboBox('x10 y300 w200', ['x', 'y']));\n"
+        "globalThis.track(globalThis.wv, 'ddl',\n"
+        "  g.AddDropDownList('x10 y340 w200', ['p', 'q']));\n"
+        "globalThis.track(globalThis.wv, 'ddlAlias', g.AddDDL('x10 y380 w200', ['m']));\n",
+        "gui-object-list-create.mjs");
+  require_ok(runtime.settle(10000ms), "list create settle");
+  check(runtime,
+        "const wv = globalThis.wv;\n"
+        "if (wv.list.Type !== 'ListBox') throw new Error('list Type: ' + wv.list.Type);\n"
+        "if (wv.combo.Type !== 'ComboBox') throw new Error('combo Type: ' + wv.combo.Type);\n"
+        "if (wv.ddl.Type !== 'DropDownList') throw new Error('ddl Type: ' + wv.ddl.Type);\n"
+        "if (wv.ddlAlias.Type !== 'DropDownList')\n"
+        "  throw new Error('AddDDL must alias the DropDownList kind');\n"
+        "globalThis.track(globalThis.wv, 'changeReg',\n"
+        "  wv.list.OnEvent('Change', (target) => {\n"
+        "    globalThis.wv.change.push(target === wv.list);\n"
+        "  }));\n",
+        "gui-object-list-types.mjs");
+  require_ok(runtime.settle(10000ms), "list Change register settle");
+  check(runtime,
+        "if (globalThis.wv.changeReg !== null)\n"
+        "  throw new Error('OnEvent(Change) must resolve null');\n",
+        "gui-object-list-change-arm.mjs");
+  {
+    // OS readback: real WC_LISTBOXW/WC_COMBOBOXW children with real rows.
+    HWND list = find_child(hwnd, L"LISTBOX");
+    require(list != nullptr, "FindWindowExW finds the ListBox child");
+    require(SendMessageW(list, LB_GETCOUNT, 0, 0) == 3, "LB_GETCOUNT sees three rows");
+    wchar_t row[64]{};
+    require(SendMessageW(list, LB_GETTEXT, 1, reinterpret_cast<LPARAM>(row)) != LB_ERR,
+            "LB_GETTEXT reads back");
+    require(wcscmp(row, L"b") == 0, "second row is 'b'");
+    int combos = 0;
+    std::string combo_firsts;
+    int combo_total = 0;
+    for (HWND child = find_child(hwnd, L"COMBOBOX"); child != nullptr;
+         child = FindWindowExW(hwnd, child, L"COMBOBOX", nullptr)) {
+      const LRESULT count = SendMessageW(child, CB_GETCOUNT, 0, 0);
+      wchar_t first[64]{};
+      SendMessageW(child, CB_GETLBTEXT, 0, reinterpret_cast<LPARAM>(first));
+      char narrow[64]{};
+      for (int i = 0; i < 63 && first[i] != 0; ++i) narrow[i] = static_cast<char>(first[i]);
+      combo_firsts += narrow;
+      combo_firsts += ',';
+      combo_total += static_cast<int>(count);
+      ++combos;
+    }
+    require(combos == 3, "ComboBox, DropDownList and the AddDDL alias all exist");
+    require(combo_total == 5, "row counts are {2,2,1}");
+    // First rows identify each box regardless of enumeration order.
+    require(combo_firsts.find("x,") != std::string::npos &&
+                combo_firsts.find("p,") != std::string::npos &&
+                combo_firsts.find("m,") != std::string::npos,
+            "first rows are x, p and m");
+    // Route a real WM_COMMAND through the pump: selection change must reach
+    // the registered Change handler with the control as target. The wait is
+    // armed first so settle blocks on the polling timer (not on blind
+    // quiescence, which would let the assert win the race with dispatch).
+    check(runtime,
+          "globalThis.wv.changeWait = waitFor(\n"
+          "    () => globalThis.wv.change.length > 0, 4000)\n"
+          "    .then(v => { globalThis.wv.changeSeen = v; });\n",
+          "gui-object-list-change-arm2.mjs");
+    require(PostMessageW(hwnd, WM_COMMAND,
+                         MAKEWPARAM(GetDlgCtrlID(list), LBN_SELCHANGE),
+                         reinterpret_cast<LPARAM>(list)) != FALSE,
+            "WM_COMMAND/LBN_SELCHANGE posts through the real queue");
+  }
+  require_ok(runtime.settle(10000ms), "list change settle");
+  check(runtime,
+        "if (globalThis.wv.changeSeen !== true)\n"
+        "  throw new Error('the Change handler never ran: ' +\n"
+        "                  JSON.stringify(globalThis.wv.change));\n"
+        "if (globalThis.wv.change.length !== 1 || globalThis.wv.change[0] !== true)\n"
+        "  throw new Error('Change must fire once with the list as target: ' +\n"
+        "                  JSON.stringify(globalThis.wv.change));\n",
+        "gui-object-list-change.mjs");
+
   // ---- S10/S11: Resize, driven by this test's own SetWindowPos -----------
   check(runtime,
         "const g = globalThis.g;\n"

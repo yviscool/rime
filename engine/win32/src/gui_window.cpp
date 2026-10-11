@@ -371,6 +371,19 @@ DWORD control_style_for(GuiService::GuiControlKind kind, const GuiRecord& rec,
     case GuiService::GuiControlKind::Picture:
       style |= SS_NOTIFY;  // Click works without a later style retrofit
       break;
+    case GuiService::GuiControlKind::ListBox:
+      // WC_LISTBOXW with a notification: LBS_NOTIFY feeds LBN_SELCHANGE.
+      style |= WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY;
+      break;
+    case GuiService::GuiControlKind::ComboBox:
+      // WC_COMBOBOXW, CBS_DROPDOWN: edit field plus drop-down list.
+      style |= WS_TABSTOP | WS_VSCROLL | CBS_AUTOHSCROLL | CBS_DROPDOWN;
+      break;
+    case GuiService::GuiControlKind::DropDownList:
+      // Same base as ComboBox with CBS_DROPDOWNLIST forced (AHK applies it
+      // over the dropdown default unconditionally).
+      style |= WS_TABSTOP | WS_VSCROLL | CBS_AUTOHSCROLL | CBS_DROPDOWN | CBS_DROPDOWNLIST;
+      break;
     case GuiService::GuiControlKind::Progress:
     case GuiService::GuiControlKind::Text:
       break;
@@ -459,6 +472,18 @@ void resolve_size(GuiRecord& rec, const GuiService::GuiControlSpec& spec, int& w
     }
     case GuiService::GuiControlKind::Progress: {
       if (!has_h) height = progress_default_thickness(rec);
+      if (!has_w) width = gui_standard_width(rec);
+      break;
+    }
+    case GuiService::GuiControlKind::ListBox:
+    case GuiService::GuiControlKind::ComboBox:
+    case GuiService::GuiControlKind::DropDownList: {
+      // No AHK shape to restore here: default to five text rows so an
+      // unsized list is usable; explicit sizes always win.
+      if (!has_h) {
+        height = static_cast<int>(font.tm.tmHeight * 5 +
+                                  font.tm.tmExternalLeading * 4 + 0.5f);
+      }
       if (!has_w) width = gui_standard_width(rec);
       break;
     }
@@ -570,6 +595,13 @@ Error add_control_pump(GuiMap& guis, const EventSinkFn& sink,
     case GuiService::GuiControlKind::Edit:
       class_name = L"EDIT";
       break;
+    case GuiService::GuiControlKind::ListBox:
+      class_name = WC_LISTBOXW;
+      break;
+    case GuiService::GuiControlKind::ComboBox:
+    case GuiService::GuiControlKind::DropDownList:
+      class_name = WC_COMBOBOXW;
+      break;
     case GuiService::GuiControlKind::Picture:
     case GuiService::GuiControlKind::Text:
       class_name = L"STATIC";
@@ -606,6 +638,24 @@ Error add_control_pump(GuiMap& guis, const EventSinkFn& sink,
       value = (std::max)(0, (std::min)(100, value));
     }
     SendMessageW(child, PBM_SETPOS, static_cast<WPARAM>(value), 0);
+  } else if (spec.kind == GuiService::GuiControlKind::ListBox ||
+             spec.kind == GuiService::GuiControlKind::ComboBox ||
+             spec.kind == GuiService::GuiControlKind::DropDownList) {
+    // Initial rows, in order; no preselection (explicit Choose in 3b).
+    // A failed insert aborts creation: no half-filled lists.
+    const UINT add_message = spec.kind == GuiService::GuiControlKind::ListBox
+                                 ? static_cast<UINT>(LB_ADDSTRING)
+                                 : static_cast<UINT>(CB_ADDSTRING);
+    for (const std::string& row : spec.items) {
+      const std::wstring wide = from_utf8(row);
+      if (SendMessageW(child, add_message, 0, reinterpret_cast<LPARAM>(wide.c_str())) ==
+          static_cast<LRESULT>(LB_ERR)) {
+        DestroyWindow(child);
+        if (picture.bitmap) DeleteObject(picture.bitmap);
+        if (picture.icon) DestroyIcon(picture.icon);
+        return {Code::ExecutionFailed, kCtrlCreateFailed};
+      }
+    }
   }
 
   const bool parent_visible = IsWindowVisible(rec->hwnd);
@@ -779,6 +829,15 @@ LRESULT CALLBACK gui_wnd_proc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
           push_event(*rec, target_ctrl(ctrl_id), "Click", std::move(args));
         }
       } else if (code == EN_CHANGE && kind == GuiService::GuiControlKind::Edit &&
+                 (bits & GuiService::kCtrlEventBitChange)) {
+        Json args = make_args();
+        push_arg(args, 0);
+        push_event(*rec, target_ctrl(ctrl_id), "Change", std::move(args));
+      } else if (((code == LBN_SELCHANGE && kind == GuiService::GuiControlKind::ListBox) ||
+                  (code == CBN_SELCHANGE &&
+                   (kind == GuiService::GuiControlKind::ComboBox ||
+                    kind == GuiService::GuiControlKind::DropDownList)) ||
+                   (code == CBN_EDITCHANGE && kind == GuiService::GuiControlKind::ComboBox)) &&
                  (bits & GuiService::kCtrlEventBitChange)) {
         Json args = make_args();
         push_arg(args, 0);
@@ -1102,6 +1161,9 @@ Error GuiService::parse_control_type(const std::string& type, GuiControlKind& ou
   else if (word == "progress") out = GuiControlKind::Progress;
   else if (word == "radio") out = GuiControlKind::Radio;
   else if (word == "text") out = GuiControlKind::Text;
+  else if (word == "listbox") out = GuiControlKind::ListBox;
+  else if (word == "combobox") out = GuiControlKind::ComboBox;
+  else if (word == "dropdownlist" || word == "ddl") out = GuiControlKind::DropDownList;
   else return {Code::InvalidContract, "unsupported control type: " + type};
   return Error::none();
 }

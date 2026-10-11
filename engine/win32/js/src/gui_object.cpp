@@ -223,11 +223,18 @@ std::string control_type_name(ControlKind kind) {
       return "Radio";
     case ControlKind::Text:
       return "Text";
+    case ControlKind::ListBox:
+      return "ListBox";
+    case ControlKind::ComboBox:
+      return "ComboBox";
+    case ControlKind::DropDownList:
+      return "DropDownList";
   }
   return "Text";
 }
 
-// The eight batch-2 constructors fixed by their sugar name.
+// The batch-2 constructors (eight) plus batch-3a list family (four
+// magics, three kinds: AddDDL aliases AddDropDownList), fixed by sugar name.
 std::optional<ControlKind> fixed_add_kind(const int magic);
 
 // ---- argument parsing -------------------------------------------------------
@@ -310,13 +317,41 @@ bool optional_bool_arg(JSContext* context, JSValueConst* argv, const int index,
 }
 
 // `Add(type, options?, content?)` content: §4.6 - string for the text kinds,
-// a path for Picture, a number for Progress; an array is the TYPE_HAS_ITEMS
-// shape that batch 2 refuses with a TypeError.
+// a path for Picture, a number for Progress; an array of strings is rows
+// for the list kinds (ListBox/ComboBox/DropDownList) and stays a TypeError
+// everywhere else.
 bool read_control_content(JSContext* context, JSValueConst value, const ControlKind kind,
-                          std::string& text_out, bool& has_number_out, double& number_out) {
+                          std::string& text_out, bool& has_number_out, double& number_out,
+                          std::vector<std::string>& items_out, bool& has_items_out) {
   if (JS_IsUndefined(value) || JS_IsNull(value)) return true;
+  const bool list_kind = kind == ControlKind::ListBox || kind == ControlKind::ComboBox ||
+                         kind == ControlKind::DropDownList;
   if (JS_IsArray(value)) {
-    JS_ThrowTypeError(context, "content must not be an array");
+    if (!list_kind) {
+      JS_ThrowTypeError(context, "content must not be an array");
+      return false;
+    }
+    std::int64_t length = 0;
+    if (JS_GetLength(context, value, &length) || length < 0) return false;
+    for (std::int64_t i = 0; i < length; ++i) {
+      JSValue item = JS_GetPropertyUint32(context, value, static_cast<std::uint32_t>(i));
+      if (JS_IsException(item)) return false;
+      const char* text = JS_ToCString(context, item);
+      JS_FreeValue(context, item);
+      if (!text) return false;
+      if (text[0] == '\0') {
+        JS_FreeCString(context, text);
+        JS_ThrowTypeError(context, "list rows must be non-empty strings");
+        return false;
+      }
+      items_out.emplace_back(text);
+      JS_FreeCString(context, text);
+    }
+    has_items_out = true;
+    return true;
+  }
+  if (list_kind && !JS_IsUndefined(value) && !JS_IsNull(value) && !JS_IsString(value)) {
+    JS_ThrowTypeError(context, "list content must be a string or an array of strings");
     return false;
   }
   if (kind == ControlKind::Progress) {
@@ -334,6 +369,15 @@ bool read_control_content(JSContext* context, JSValueConst value, const ControlK
   }
   const char* text = JS_ToCString(context, value);
   if (!text) return false;
+  if (list_kind) {
+    // A single string is one row; the pump ignores text_out for lists.
+    if (text[0] != '\0') {
+      items_out.emplace_back(text);
+      has_items_out = true;
+    }
+    JS_FreeCString(context, text);
+    return true;
+  }
   text_out = text;
   JS_FreeCString(context, text);
   return true;
@@ -1277,7 +1321,7 @@ JSValue gui_add_impl(JSContext* context, GuiJsState* state, GuiJs& gui,
   spec.options = options;
   if (end > base + 1) {
     if (!read_control_content(context, argv[base + 1], kind, spec.text, spec.has_number,
-                              spec.number)) {
+                              spec.number, spec.items, spec.has_items)) {
       return JS_EXCEPTION;
     }
   }
@@ -1397,6 +1441,10 @@ enum GuiMethodMagic {
   kGuiAddProgress,
   kGuiAddRadio,
   kGuiAddText,
+  kGuiAddListBox,
+  kGuiAddComboBox,
+  kGuiAddDDL,
+  kGuiAddDropDownList,
   kGuiDestroy,
   kGuiFlash,
   kGuiGetClientPos,
@@ -1420,13 +1468,14 @@ enum GuiMethodMagic {
 
 constexpr const char* kGuiMethodNames[] = {
     "__New",     "Add",       "AddButton",  "AddCheckBox", "AddEdit",       "AddGroupBox",
-    "AddPicture", "AddProgress", "AddRadio", "AddText",    "Destroy",       "Flash",
+    "AddPicture", "AddProgress", "AddRadio", "AddText",    "AddListBox",    "AddComboBox",
+    "AddDDL",    "AddDropDownList", "Destroy", "Flash",
     "GetClientPos", "GetPos", "Hide",       "Maximize",    "Minimize",      "Move",
     "OnEvent",   "OnMessage", "Opt",        "Restore",     "SetFont",       "Show",
     "Submit",    "__Item",    "__Enum",     "[Symbol.iterator]"};
 
 constexpr int kGuiMethodLengths[] = {
-    3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 0, 1, 0, 0, 0, 0, 0, 4, 3, 3, 1, 0, 2, 1, 1, 1, 1, 0};
+    3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 1, 0, 0, 0, 0, 0, 4, 3, 3, 1, 0, 2, 1, 1, 1, 1, 0};
 
 static_assert(sizeof(kGuiMethodNames) / sizeof(kGuiMethodNames[0]) == kGuiMethodCount);
 static_assert(sizeof(kGuiMethodLengths) / sizeof(kGuiMethodLengths[0]) == kGuiMethodCount);
@@ -1449,6 +1498,15 @@ std::optional<ControlKind> fixed_add_kind(const int magic) {
       return ControlKind::Radio;
     case kGuiAddText:
       return ControlKind::Text;
+    case kGuiAddListBox:
+      return ControlKind::ListBox;
+    case kGuiAddComboBox:
+      return ControlKind::ComboBox;
+    case kGuiAddDDL:
+    case kGuiAddDropDownList:
+      // AddDDL is a ledger alias for the DropDownList kind (same control,
+      // two registry rows); there is no fourth list kind.
+      return ControlKind::DropDownList;
     default:
       return std::nullopt;
   }
@@ -1652,7 +1710,11 @@ JSValue gui_method(JSContext* context, JSValueConst this_val, int argc, JSValueC
     case kGuiAddPicture:
     case kGuiAddProgress:
     case kGuiAddRadio:
-    case kGuiAddText: {
+    case kGuiAddText:
+    case kGuiAddListBox:
+    case kGuiAddComboBox:
+    case kGuiAddDDL:
+    case kGuiAddDropDownList: {
       if (!require_live(context, gui)) return JS_EXCEPTION;
       if (!split()) return JS_EXCEPTION;
       const auto fixed = fixed_add_kind(magic);

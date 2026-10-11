@@ -148,7 +148,21 @@ class GuiService {
   // JS thread (synchronous ValueError/TypeError before any pump work); every
   // operation below is worker-lane and marshals through UiThread::call.
 
-  enum class GuiControlKind : int { Button, CheckBox, Edit, GroupBox, Picture, Progress, Radio, Text };
+  enum class GuiControlKind : int {
+    Button,
+    CheckBox,
+    Edit,
+    GroupBox,
+    Picture,
+    Progress,
+    Radio,
+    Text,
+    // M6 batch 3a: list family. DropDownList is its own kind (CBS_DROPDOWNLIST
+    // vs ComboBox CBS_DROPDOWN); AddDDL is a ledger alias for it, not a kind.
+    ListBox,
+    ComboBox,
+    DropDownList
+  };
 
   // Event-interest bits shared with the JS-side registration table
   // (engine/win32/js/src/ui_module.cpp mirrors them into GuiEventInterest).
@@ -271,10 +285,13 @@ class GuiService {
     GuiControlOptions options;
     // Content: string for text-bearing kinds, path for Picture, 0..100 for
     // Progress (has_number flags which was given; empty + !has_number = no
-    // content).
+    // content). List kinds (ListBox/ComboBox/DropDownList) take string
+    // arrays instead (has_items); a single string is one row.
     std::string text;
     bool has_number{false};
     double number{0};
+    std::vector<std::string> items;
+    bool has_items{false};
   };
 
   // Pure parsers (JS thread; synchronous ValueError/TypeError at the binding,

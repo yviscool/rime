@@ -112,6 +112,16 @@ test("generic add passes the kind through untouched", async () => {
   expect(addCalls).toStrictEqual([["Edit", "w200", "seed", undefined]]);
 });
 
+test("list sugars forward arrays; AddDDL aliases DropDownList", async () => {
+  const gui = await Gui.create();
+  await gui.addListBox({ x: 1 }, ["a", "b"]);
+  await gui.addDDL(undefined, ["m"]);
+  expect(addCalls).toStrictEqual([
+    ["ListBox", "x1", ["a", "b"], undefined],
+    ["DropDownList", undefined, ["m"], undefined],
+  ]);
+});
+
 test("show/submit/destroy forward; text reads through the pump", async () => {
   const gui = await Gui.create();
   await gui.show("Center");

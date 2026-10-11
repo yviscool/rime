@@ -74,7 +74,7 @@ GUI、菜单、托盘和模态对话框对象必须由 UI Thread 所有，以稳
 
 ### 4.6 控件族（批2 九类）与内容
 
-`Add(type, options?, content?)` 的 `type` 集合 = `Button/CheckBox/Edit/GroupBox/Picture/Progress/Radio/Text`（大小写不敏感，AHK `ConvertTypeName` 同位——`script_gui.cpp:298-305`；集合外 `ValueError`）；`AddXxx` 糖等价 `Add("Xxx",...)`。Win32 类名：BUTTON（push/checkbox/radio/groupbox 用 style 区分）、STATIC（text/picture）、EDIT、`msctls_progress32`（common controls 版本见批1 平台注记：带 manifest 的进程是 v6，否则 v5.82）。内容：字符串（文本类）、路径（Picture → `LoadImageW` 私有拷贝，句柄不出泵）、数字（Progress → `PBM_SETPOS`）；`TYPE_HAS_ITEMS` 类（List/DDL/ComboBox）不在批2，内容收到数组时 `TypeError`。`Edit.SetCue(text)` 发 `EM_SETCUEBANNER`，前提就是批1 平台注记里的 ComCtl32 v6 manifest；`tests/js/gui_object_slice.cpp` 用同一份 manifest 在真实 Edit 控件上回读 `EM_GETCUEBANNER` 背书，而不是只看调用没抛。
+`Add(type, options?, content?)` 的 `type` 集合 = `Button/CheckBox/Edit/GroupBox/Picture/Progress/Radio/Text` + 批3a `ListBox/ComboBox/DropDownList/DDL`（大小写不敏感；集合外 `ValueError`）。`AddXxx` 糖等价 `Add("Xxx",...)`，其中 `AddDDL` 是 `AddDropDownList` 的台账别名（同一种控件，两行台账）。Win32 类名：BUTTON（push/checkbox/radio/groupbox 用 style 区分）、STATIC（text/picture）、EDIT、`msctls_progress32`（common controls 版本见批1 平台注记：带 manifest 的进程是 v6，否则 v5.82）、`WC_LISTBOXW`（`LBS_NOTIFY`）、`WC_COMBOBOXW`（`CBS_DROPDOWN`；DropDownList 强制追加 `CBS_DROPDOWNLIST`）。内容：字符串（文本类）、路径（Picture → `LoadImageW` 私有拷贝，句柄不出泵）、数字（Progress → `PBM_SETPOS`）、字符串数组（List 族 → `LB_ADDSTRING`/`CB_ADDSTRING` 逐行；单字符串即一行；空行拒绝；失败则销毁半成品窗口并拒绝）；其他族收到数组仍是 `TypeError`。`Edit.SetCue(text)` 发 `EM_SETCUEBANNER`，前提就是批1 平台注记里的 ComCtl32 v6 manifest；`tests/js/gui_object_slice.cpp` 用同一份 manifest 在真实 Edit 控件上回读 `EM_GETCUEBANNER` 背书，而不是只看调用没抛。List 族默认 5 行高（无显式 h 时），无预选（显式 `Choose` 在 3b）。
 
 ### 4.7 政策翻转（3 行 → `unsupported-by-policy`）
 

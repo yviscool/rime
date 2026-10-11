@@ -164,6 +164,35 @@ export class Gui {
   addText(options?: GuiAddOptions | string, content?: unknown, action?: ActionOptions): Promise<GuiControl> {
     return this.addKind("Text", options, content, action);
   }
+  addListBox(
+    options?: GuiAddOptions | string,
+    content?: string | string[],
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("ListBox", options, content, action);
+  }
+  addComboBox(
+    options?: GuiAddOptions | string,
+    content?: string | string[],
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("ComboBox", options, content, action);
+  }
+  addDropDownList(
+    options?: GuiAddOptions | string,
+    content?: string | string[],
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("DropDownList", options, content, action);
+  }
+  /** Ledger alias for `addDropDownList` (same control kind, two registry rows). */
+  addDDL(
+    options?: GuiAddOptions | string,
+    content?: string | string[],
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("DropDownList", options, content, action);
+  }
 
   destroy(options?: ActionOptions): Promise<void> {
     return runAction(options, (native) =>
