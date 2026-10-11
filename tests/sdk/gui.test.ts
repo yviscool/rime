@@ -136,6 +136,28 @@ test("date/slider sugars forward content untouched", async () => {
   ]);
 });
 
+test("rich sugars forward kinds, aliases resolve canonically", async () => {
+  const gui = await Gui.create();
+  await gui.addTab(undefined, ["T1", "T2"]);
+  await gui.addTab2(undefined, ["U1"]);
+  await gui.addListView(undefined, ["A"]);
+  await gui.addTreeView(undefined, ["r"]);
+  await gui.addStatusBar(undefined, ["s"]);
+  await gui.addLink(undefined, "go");
+  await gui.addHotkey(undefined);
+  await gui.addPic(undefined, "C:\\x.bmp");
+  expect(addCalls).toStrictEqual([
+    ["Tab", undefined, ["T1", "T2"], undefined],
+    ["Tab", undefined, ["U1"], undefined],
+    ["ListView", undefined, ["A"], undefined],
+    ["TreeView", undefined, ["r"], undefined],
+    ["StatusBar", undefined, ["s"], undefined],
+    ["Link", undefined, "go", undefined],
+    ["Hotkey", undefined, undefined, undefined],
+    ["Picture", undefined, "C:\\x.bmp", undefined],
+  ]);
+});
+
 test("show/submit/destroy forward; text reads through the pump", async () => {
   const gui = await Gui.create();
   await gui.show("Center");

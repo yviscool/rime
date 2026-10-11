@@ -237,6 +237,18 @@ std::string control_type_name(ControlKind kind) {
       return "Slider";
     case ControlKind::UpDown:
       return "UpDown";
+    case ControlKind::Tab:
+      return "Tab";
+    case ControlKind::Link:
+      return "Link";
+    case ControlKind::Hotkey:
+      return "Hotkey";
+    case ControlKind::ListView:
+      return "ListView";
+    case ControlKind::TreeView:
+      return "TreeView";
+    case ControlKind::StatusBar:
+      return "StatusBar";
   }
   return "Text";
 }
@@ -335,8 +347,10 @@ bool read_control_content(JSContext* context, JSValueConst value, const ControlK
   if (JS_IsUndefined(value) || JS_IsNull(value)) return true;
   const bool list_kind = kind == ControlKind::ListBox || kind == ControlKind::ComboBox ||
                          kind == ControlKind::DropDownList;
+  const bool table_kind = kind == ControlKind::ListView || kind == ControlKind::TreeView ||
+                          kind == ControlKind::StatusBar || kind == ControlKind::Tab;
   if (JS_IsArray(value)) {
-    if (!list_kind) {
+    if (!list_kind && !table_kind) {
       JS_ThrowTypeError(context, "content must not be an array");
       return false;
     }
@@ -1467,6 +1481,14 @@ enum GuiMethodMagic {
   kGuiAddMonthCal,
   kGuiAddSlider,
   kGuiAddUpDown,
+  kGuiAddTab,
+  kGuiAddTab2,
+  kGuiAddPic,
+  kGuiAddLink,
+  kGuiAddHotkey,
+  kGuiAddListView,
+  kGuiAddTreeView,
+  kGuiAddStatusBar,
   kGuiDestroy,
   kGuiFlash,
   kGuiGetClientPos,
@@ -1492,13 +1514,16 @@ constexpr const char* kGuiMethodNames[] = {
     "__New",     "Add",       "AddButton",  "AddCheckBox", "AddEdit",       "AddGroupBox",
     "AddPicture", "AddProgress", "AddRadio", "AddText",    "AddListBox",    "AddComboBox",
     "AddDDL",    "AddDropDownList", "AddDateTime", "AddMonthCal", "AddSlider", "AddUpDown",
+    "AddTab", "AddTab2", "AddPic", "AddLink", "AddHotkey", "AddListView", "AddTreeView",
+    "AddStatusBar",
     "Destroy", "Flash",
     "GetClientPos", "GetPos", "Hide",       "Maximize",    "Minimize",      "Move",
     "OnEvent",   "OnMessage", "Opt",        "Restore",     "SetFont",       "Show",
     "Submit",    "__Item",    "__Enum",     "[Symbol.iterator]"};
 
 constexpr int kGuiMethodLengths[] = {
-    3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 1, 0, 0, 0, 0, 0, 4, 3, 3, 1, 0, 2, 1, 1, 1, 1, 0};
+    3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    0, 1, 0, 0, 0, 0, 0, 4, 3, 3, 1, 0, 2, 1, 1, 1, 1, 0};
 
 static_assert(sizeof(kGuiMethodNames) / sizeof(kGuiMethodNames[0]) == kGuiMethodCount);
 static_assert(sizeof(kGuiMethodLengths) / sizeof(kGuiMethodLengths[0]) == kGuiMethodCount);
@@ -1538,6 +1563,23 @@ std::optional<ControlKind> fixed_add_kind(const int magic) {
       return ControlKind::Slider;
     case kGuiAddUpDown:
       return ControlKind::UpDown;
+    case kGuiAddTab:
+    case kGuiAddTab2:
+      // AddTab2 aliases Tab (AHK resolves it early); one kind, two rows.
+      return ControlKind::Tab;
+    case kGuiAddPic:
+      // AddPic aliases Picture (the "pic" spelling parses to it already).
+      return ControlKind::Picture;
+    case kGuiAddLink:
+      return ControlKind::Link;
+    case kGuiAddHotkey:
+      return ControlKind::Hotkey;
+    case kGuiAddListView:
+      return ControlKind::ListView;
+    case kGuiAddTreeView:
+      return ControlKind::TreeView;
+    case kGuiAddStatusBar:
+      return ControlKind::StatusBar;
     default:
       return std::nullopt;
   }
@@ -1749,7 +1791,15 @@ JSValue gui_method(JSContext* context, JSValueConst this_val, int argc, JSValueC
     case kGuiAddDateTime:
     case kGuiAddMonthCal:
     case kGuiAddSlider:
-    case kGuiAddUpDown: {
+    case kGuiAddUpDown:
+    case kGuiAddTab:
+    case kGuiAddTab2:
+    case kGuiAddPic:
+    case kGuiAddLink:
+    case kGuiAddHotkey:
+    case kGuiAddListView:
+    case kGuiAddTreeView:
+    case kGuiAddStatusBar: {
       if (!require_live(context, gui)) return JS_EXCEPTION;
       if (!split()) return JS_EXCEPTION;
       const auto fixed = fixed_add_kind(magic);

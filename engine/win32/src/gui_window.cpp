@@ -439,6 +439,24 @@ DWORD control_style_for(GuiService::GuiControlKind kind, const GuiRecord& rec,
       // first-child UpDown with no preceding sibling reads an error.
       style |= WS_TABSTOP | UDS_ALIGNRIGHT | UDS_ARROWKEYS | UDS_AUTOBUDDY | UDS_SETBUDDYINT;
       break;
+    case GuiService::GuiControlKind::Tab:
+      style |= WS_TABSTOP | TCS_TABS;
+      break;
+    case GuiService::GuiControlKind::Link:
+      style |= WS_TABSTOP;
+      break;
+    case GuiService::GuiControlKind::Hotkey:
+      style |= WS_TABSTOP;
+      break;
+    case GuiService::GuiControlKind::ListView:
+      style |= WS_TABSTOP | LVS_REPORT | LVS_SHOWSELALWAYS | LVS_SINGLESEL;
+      break;
+    case GuiService::GuiControlKind::TreeView:
+      style |= WS_TABSTOP | TVS_HASLINES | TVS_LINESATROOT | TVS_HASBUTTONS | TVS_SHOWSELALWAYS;
+      break;
+    case GuiService::GuiControlKind::StatusBar:
+      style |= WS_TABSTOP | SBARS_SIZEGRIP;
+      break;
     case GuiService::GuiControlKind::Progress:
     case GuiService::GuiControlKind::Text:
       break;
@@ -568,6 +586,40 @@ void resolve_size(GuiRecord& rec, const GuiService::GuiControlSpec& spec, int& w
       }
       break;
     }
+    case GuiService::GuiControlKind::ListView:
+    case GuiService::GuiControlKind::TreeView:
+    case GuiService::GuiControlKind::Tab: {
+      // Data views: five text rows by default like the list family.
+      if (!has_h) {
+        height = static_cast<int>(font.tm.tmHeight * 5 +
+                                  font.tm.tmExternalLeading * 4 + 0.5f);
+      }
+      if (!has_w) width = gui_standard_width(rec);
+      break;
+    }
+    case GuiService::GuiControlKind::StatusBar: {
+      // Full client width along the parent bottom; a single text row tall.
+      // Explicit sizes still win (floating status bars); x/y docking happens
+      // in add_control_pump once the size is final.
+      if (!has_w || !has_h) {
+        RECT client{};
+        GetClientRect(rec.hwnd, &client);
+        if (!has_w) width = client.right - client.left;
+        if (!has_h) {
+          height = static_cast<int>(font.tm.tmHeight + font.tm.tmExternalLeading + 8 + 0.5f);
+        }
+      }
+      break;
+    }
+    case GuiService::GuiControlKind::Link:
+    case GuiService::GuiControlKind::Hotkey: {
+      // Single-row text-like controls.
+      if (!has_h) {
+        height = static_cast<int>(font.tm.tmHeight + font.tm.tmExternalLeading + 8 + 0.5f);
+      }
+      if (!has_w) width = gui_standard_width(rec);
+      break;
+    }
     case GuiService::GuiControlKind::Picture:
       // Sizes come from the loaded image when unspecified (script_gui.cpp:
       // 3881-3884: w/h of 0 = keep original size); the caller fills them in.
@@ -652,6 +704,15 @@ Error add_control_pump(GuiMap& guis, const EventSinkFn& sink,
   int height = -1;
   resolve_position(*rec, spec.kind, spec.options, x, y, width, height);
   resolve_size(*rec, spec, width, height);
+  if (spec.kind == GuiService::GuiControlKind::StatusBar && !spec.options.pos.x.has_value() &&
+      !spec.options.pos.y.has_value()) {
+    // Docked status bar: full client width along the bottom edge, like every
+    // status bar the user has ever seen. Explicit x/y still wins.
+    RECT client{};
+    GetClientRect(rec->hwnd, &client);
+    x = 0;
+    y = (client.bottom - client.top) - height;
+  }
   if (spec.kind == GuiService::GuiControlKind::Picture && picture.ok) {
     if (spec.options.pos.width.value_or(0) <= 0 && picture.width > 0) width = picture.width;
     if (spec.options.pos.height.value_or(0) <= 0 && picture.height > 0) height = picture.height;
@@ -682,6 +743,24 @@ Error add_control_pump(GuiMap& guis, const EventSinkFn& sink,
     case GuiService::GuiControlKind::ComboBox:
     case GuiService::GuiControlKind::DropDownList:
       class_name = WC_COMBOBOXW;
+      break;
+    case GuiService::GuiControlKind::Tab:
+      class_name = WC_TABCONTROLW;
+      break;
+    case GuiService::GuiControlKind::Link:
+      class_name = WC_LINK;
+      break;
+    case GuiService::GuiControlKind::Hotkey:
+      class_name = HOTKEY_CLASSW;
+      break;
+    case GuiService::GuiControlKind::ListView:
+      class_name = WC_LISTVIEWW;
+      break;
+    case GuiService::GuiControlKind::TreeView:
+      class_name = WC_TREEVIEWW;
+      break;
+    case GuiService::GuiControlKind::StatusBar:
+      class_name = STATUSCLASSNAMEW;
       break;
     case GuiService::GuiControlKind::DateTime:
       class_name = DATETIMEPICK_CLASSW;
@@ -780,6 +859,77 @@ Error add_control_pump(GuiMap& guis, const EventSinkFn& sink,
         DestroyWindow(child);
         return {Code::ExecutionFailed, kCtrlCreateFailed};
       }
+    }
+  } else if (spec.kind == GuiService::GuiControlKind::Tab) {
+    // Initial pages, in order; selection starts on the first.
+    int index = 0;
+    for (const std::string& title : spec.items) {
+      const std::wstring wide = from_utf8(title);
+      TCITEMW item{};
+      item.mask = TCIF_TEXT;
+      item.pszText = const_cast<wchar_t*>(wide.c_str());
+      if (SendMessageW(child, TCM_INSERTITEMW, static_cast<WPARAM>(index),
+                       reinterpret_cast<LPARAM>(&item)) < 0) {
+        DestroyWindow(child);
+        return {Code::ExecutionFailed, kCtrlCreateFailed};
+      }
+      ++index;
+    }
+  } else if (spec.kind == GuiService::GuiControlKind::ListView) {
+    // Column headers, in order. Rows arrive through 3b methods.
+    int index = 0;
+    for (const std::string& title : spec.items) {
+      const std::wstring wide = from_utf8(title);
+      LVCOLUMNW column{};
+      column.mask = LVCF_TEXT | LVCF_WIDTH;
+      column.pszText = const_cast<wchar_t*>(wide.c_str());
+      column.cx = 120;
+      if (SendMessageW(child, LVM_INSERTCOLUMNW, static_cast<WPARAM>(index),
+                       reinterpret_cast<LPARAM>(&column)) < 0) {
+        DestroyWindow(child);
+        return {Code::ExecutionFailed, kCtrlCreateFailed};
+      }
+      ++index;
+    }
+  } else if (spec.kind == GuiService::GuiControlKind::TreeView) {
+    // Root items, in order; children arrive through 3b methods.
+    for (const std::string& label : spec.items) {
+      const std::wstring wide = from_utf8(label);
+      TVINSERTSTRUCTW insert{};
+      insert.hParent = TVI_ROOT;
+      insert.item.mask = TVIF_TEXT;
+      insert.item.pszText = const_cast<wchar_t*>(wide.c_str());
+      if (SendMessageW(child, TVM_INSERTITEMW, 0, reinterpret_cast<LPARAM>(&insert)) == 0) {
+        DestroyWindow(child);
+        return {Code::ExecutionFailed, kCtrlCreateFailed};
+      }
+    }
+  } else if (spec.kind == GuiService::GuiControlKind::StatusBar) {
+    // Parts with initial text, divided equally; empty items list keeps one
+    // default part.
+    if (!spec.items.empty()) {
+      std::vector<int> edges;
+      edges.reserve(spec.items.size());
+      for (std::size_t i = 0; i < spec.items.size(); ++i) {
+        edges.push_back(static_cast<int>(width * (i + 1) / spec.items.size()));
+      }
+      if (SendMessageW(child, SB_SETPARTS, static_cast<WPARAM>(edges.size()),
+                       reinterpret_cast<LPARAM>(edges.data())) == FALSE) {
+        DestroyWindow(child);
+        return {Code::ExecutionFailed, kCtrlCreateFailed};
+      }
+      for (std::size_t i = 0; i < spec.items.size(); ++i) {
+        const std::wstring wide = from_utf8(spec.items[i]);
+        SendMessageW(child, SB_SETTEXTW, static_cast<WPARAM>(i),
+                     reinterpret_cast<LPARAM>(wide.c_str()));
+      }
+    }
+  } else if (spec.kind == GuiService::GuiControlKind::Hotkey) {
+    // Initial hotkeys are a 3b method (structured chord in, HKM_SETHOTKEY
+    // out); construction content is refused rather than silently dropped.
+    if (!spec.text.empty() || spec.has_number || spec.has_items) {
+      DestroyWindow(child);
+      return {Code::InvalidContract, "hotkey content is set with SetHotkey (3b), not at creation"};
     }
   }
 
@@ -1353,6 +1503,12 @@ Error GuiService::parse_control_type(const std::string& type, GuiControlKind& ou
   else if (word == "monthcal") out = GuiControlKind::MonthCal;
   else if (word == "slider") out = GuiControlKind::Slider;
   else if (word == "updown") out = GuiControlKind::UpDown;
+  else if (word == "tab" || word == "tab2") out = GuiControlKind::Tab;
+  else if (word == "link") out = GuiControlKind::Link;
+  else if (word == "hotkey") out = GuiControlKind::Hotkey;
+  else if (word == "listview") out = GuiControlKind::ListView;
+  else if (word == "treeview") out = GuiControlKind::TreeView;
+  else if (word == "statusbar") out = GuiControlKind::StatusBar;
   else return {Code::InvalidContract, "unsupported control type: " + type};
   return Error::none();
 }

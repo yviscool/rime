@@ -39,8 +39,8 @@
 | coverage | 253 | 245 | 8 | status in implemented \| js-native \| unsupported-by-policy；实测 implemented 223、unsupported-by-policy 11、js-native 11、contract-only 8 |
 | core-builtins | 101 | 101 | 0 | status in implemented \| js-native \| unsupported-by-policy；实测 js-native 57、unsupported-by-policy 25、implemented 19 |
 | builtins | 134 | 5 | 129 | status in implemented \| js-native \| unsupported-by-policy (excluded leaves the denominator)；实测 unset 129、excluded 11、implemented 5 |
-| objects | 259 | 180 | 79 | status in implemented \| js-native \| unsupported-by-policy；实测 implemented 116、contract-only 79、js-native 42、unsupported-by-policy 22 |
-| **合计** | **747** | **531** | **216** | **71.08%** |
+| objects | 259 | 188 | 71 | status in implemented \| js-native \| unsupported-by-policy；实测 implemented 124、contract-only 71、js-native 42、unsupported-by-policy 22 |
+| **合计** | **747** | **539** | **208** | **72.16%** |
 
 证据缺口：无（每个 `implemented` 条目都有指向真实文件的 contract/compatibility 测试路径）。
 

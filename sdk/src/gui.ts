@@ -221,6 +221,57 @@ export class Gui {
   ): Promise<GuiControl> {
     return this.addKind("UpDown", options, content, action);
   }
+  addTab(
+    options?: GuiAddOptions | string,
+    titles?: string[],
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("Tab", options, titles, action);
+  }
+  /** Ledger alias for `addTab` (same control kind, two registry rows). */
+  addTab2(
+    options?: GuiAddOptions | string,
+    titles?: string[],
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("Tab", options, titles, action);
+  }
+  /** Ledger alias for Picture (same control kind, two registry rows). */
+  addPic(options?: GuiAddOptions | string, path?: string, action?: ActionOptions): Promise<GuiControl> {
+    return this.addKind("Picture", options, path, action);
+  }
+  addLink(
+    options?: GuiAddOptions | string,
+    markup?: string,
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("Link", options, markup, action);
+  }
+  /** No construction content: the initial hotkey is set with SetHotkey (3b). */
+  addHotkey(options?: GuiAddOptions | string, action?: ActionOptions): Promise<GuiControl> {
+    return this.addKind("Hotkey", options, undefined, action);
+  }
+  addListView(
+    options?: GuiAddOptions | string,
+    headers?: string[],
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("ListView", options, headers, action);
+  }
+  addTreeView(
+    options?: GuiAddOptions | string,
+    roots?: string[],
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("TreeView", options, roots, action);
+  }
+  addStatusBar(
+    options?: GuiAddOptions | string,
+    parts?: string[],
+    action?: ActionOptions,
+  ): Promise<GuiControl> {
+    return this.addKind("StatusBar", options, parts, action);
+  }
 
   destroy(options?: ActionOptions): Promise<void> {
     return runAction(options, (native) =>

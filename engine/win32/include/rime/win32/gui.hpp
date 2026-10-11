@@ -166,7 +166,15 @@ class GuiService {
     DateTime,
     MonthCal,
     Slider,
-    UpDown
+    UpDown,
+    // M6 batch 3a wave 3: rich family. AddTab2 aliases Tab and AddPic
+    // aliases Picture (AHK resolves both early); no extra kinds for them.
+    Tab,
+    Link,
+    Hotkey,
+    ListView,
+    TreeView,
+    StatusBar
   };
 
   // Event-interest bits shared with the JS-side registration table
@@ -291,7 +299,10 @@ class GuiService {
     // Content: string for text-bearing kinds, path for Picture, 0..100 for
     // Progress (has_number flags which was given; empty + !has_number = no
     // content). List kinds (ListBox/ComboBox/DropDownList) take string
-    // arrays instead (has_items); a single string is one row.
+    // arrays instead (has_items); a single string is one row. Column
+    // headers (ListView), root items (TreeView), parts (StatusBar) and tab
+    // titles (Tab) likewise ride items; Link takes markup text; Hotkey
+    // takes no content at construction (initial hotkey is a 3b method).
     std::string text;
     bool has_number{false};
     double number{0};

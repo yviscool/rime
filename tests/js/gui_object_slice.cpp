@@ -1018,6 +1018,140 @@ int main() {
     require(updown_failed == FALSE && updown_pos == 7, "UDM_GETPOS32 reads 7");
   }
 
+  // ---- S9d: batch-3a wave 3 (rich family) ----------------------------------
+  // Tab/Link/Hotkey/ListView/TreeView/StatusBar construct; AddTab2/AddPic
+  // are ledger aliases (same kinds). Readback is OS messages on the real
+  // common controls; per-control Value semantics belong to 3b methods.
+  //
+  // The Pic alias needs a loadable image: a 1x1 BMP is written to %TEMP%
+  // (deleted right after creation; the service keeps a private copy).
+  std::wstring pic_path;
+  {
+    wchar_t temp_dir[MAX_PATH]{};
+    require(GetTempPathW(MAX_PATH, temp_dir) != 0, "GetTempPathW works");
+    pic_path = std::wstring(temp_dir) + L"rime-gui-pic.bmp";
+    unsigned char bmp[58]{};
+    bmp[0] = 'B';
+    bmp[1] = 'M';
+    bmp[10] = 54;  // pixel data offset
+    bmp[14] = 40;  // BITMAPINFOHEADER size
+    bmp[18] = 1;   // width
+    bmp[22] = 1;   // height
+    bmp[26] = 1;   // planes
+    bmp[28] = 24;  // bits per pixel
+    bmp[54] = 0x12;
+    bmp[55] = 0x34;
+    bmp[56] = 0x56;
+    HANDLE file = CreateFileW(pic_path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_TEMPORARY, nullptr);
+    require(file != INVALID_HANDLE_VALUE, "scratch BMP is writable");
+    DWORD written = 0;
+    const BOOL wrote = WriteFile(file, bmp, sizeof(bmp), &written, nullptr);
+    CloseHandle(file);
+    require(wrote && written == sizeof(bmp), "scratch BMP wrote fully");
+  }
+  std::string pic_js;
+  {
+    // JS string literal: backslashes escaped, UTF-8 bytes otherwise.
+    int needed = WideCharToMultiByte(CP_UTF8, 0, pic_path.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    require(needed > 1, "BMP path converts to UTF-8");
+    std::string utf8(static_cast<std::size_t>(needed - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, pic_path.c_str(), -1, utf8.data(), needed, nullptr, nullptr);
+    pic_js.reserve(utf8.size() + 8);
+    for (const char c : utf8) {
+      if (c == '\\') pic_js += "\\\\";
+      else pic_js += c;
+    }
+  }
+  check(runtime,
+        "const g = globalThis.g;\n"
+        "globalThis.wr = {};\n"
+        "globalThis.track(globalThis.wr, 'tab',\n"
+        "  g.AddTab('x10 y720 w300 h120', ['T1', 'T2']));\n"
+        "globalThis.track(globalThis.wr, 'tabAlias', g.AddTab2('x10 y720 w300 h120', ['U1']));\n"
+        "globalThis.track(globalThis.wr, 'picAlias', g.AddPic('x10 y860 w64 h64', '" +
+        pic_js + "'));\n"
+        "globalThis.track(globalThis.wr, 'link',\n"
+        "  g.AddLink('x10 y940 w300', 'go <a href=\"https://example.test\">here</a>'));\n"
+        "globalThis.track(globalThis.wr, 'hotkey', g.AddHotkey('x10 y980 w200'));\n"
+        "globalThis.track(globalThis.wr, 'hotkeyContent', g.AddHotkey('x10 y980 w200', 'Ctrl+C'));\n"
+        "globalThis.track(globalThis.wr, 'listview',\n"
+        "  g.AddListView('x340 y200 w300 h120', ['A', 'B']));\n"
+        "globalThis.track(globalThis.wr, 'tree',\n"
+        "  g.AddTreeView('x340 y340 w300 h140', ['r1', 'r2']));\n"
+        "globalThis.track(globalThis.wr, 'status',\n"
+        "  g.AddStatusBar('', ['left', 'right']));\n",
+        "gui-object-rich-create.mjs");
+  require_ok(runtime.settle(10000ms), "rich create settle");
+  // The service keeps a private copy; the scratch file can go now.
+  require(DeleteFileW(pic_path.c_str()) != FALSE, "scratch BMP is removed");
+  check(runtime,
+        "const wr = globalThis.wr;\n"
+        "const fail = (key, detail) => { throw new Error(key + ': ' + detail); };\n"
+        "if (wr.tab.Type !== 'Tab') fail('tab Type', wr.tab.Type);\n"
+        "if (wr.tabAlias.Type !== 'Tab') fail('AddTab2 must alias Tab');\n"
+        "if (wr.picAlias.Type !== 'Picture') fail('AddPic must alias Picture');\n"
+        "if (wr.link.Type !== 'Link') fail('link Type', wr.link.Type);\n"
+        "if (wr.hotkey.Type !== 'Hotkey') fail('hotkey Type', wr.hotkey.Type);\n"
+        "if (wr.listview.Type !== 'ListView') fail('listview Type', wr.listview.Type);\n"
+        "if (wr.tree.Type !== 'TreeView') fail('tree Type', wr.tree.Type);\n"
+        "if (wr.status.Type !== 'StatusBar') fail('status Type', wr.status.Type);\n"
+        "if (!wr.hotkeyContent || wr.hotkeyContent.code !== 'invalid_contract')\n"
+        "  fail('hotkey content', 'construction content must refuse invalid_contract');\n",
+        "gui-object-rich-types.mjs");
+  {
+    // OS readback on the real common controls.
+    for (HWND dbg = FindWindowExW(hwnd, nullptr, nullptr, nullptr); dbg != nullptr;
+         dbg = FindWindowExW(hwnd, dbg, nullptr, nullptr)) {
+      wchar_t cls[64]{};
+      GetClassNameW(dbg, cls, 64);
+      RECT rc{};
+      GetWindowRect(dbg, &rc);
+      std::printf("DEBUG child cls=%ls w=%d h=%d vis=%d\n", cls, (int)(rc.right - rc.left),
+                  (int)(rc.bottom - rc.top), (int)IsWindowVisible(dbg));
+    }
+    std::fflush(stdout);
+    HWND tab = find_child(hwnd, L"SysTabControl32");
+    require(tab != nullptr, "FindWindowExW finds the Tab child");
+    require(SendMessageW(tab, TCM_GETITEMCOUNT, 0, 0) == 2, "TCM_GETITEMCOUNT sees two pages");
+    HWND link = find_child(hwnd, L"SysLink");
+    require(link != nullptr, "FindWindowExW finds the Link child");
+    wchar_t link_text[128]{};
+    require(GetWindowTextW(link, link_text, 128) > 0, "Link text reads back");
+    require(wcsstr(link_text, L"here") != nullptr, "Link markup text round-trips");
+    HWND hotkey = find_child(hwnd, L"msctls_hotkey32");
+    require(hotkey != nullptr, "FindWindowExW finds the Hotkey child");
+    require(SendMessageW(hotkey, HKM_GETHOTKEY, 0, 0) == 0, "Hotkey starts empty");
+    HWND listview = find_child(hwnd, L"SysListView32");
+    require(listview != nullptr, "FindWindowExW finds the ListView child");
+    HWND header = reinterpret_cast<HWND>(SendMessageW(listview, LVM_GETHEADER, 0, 0));
+    require(header != nullptr, "LVM_GETHEADER returns the header");
+    require(SendMessageW(header, HDM_GETITEMCOUNT, 0, 0) == 2, "two columns landed");
+    HWND tree = find_child(hwnd, L"SysTreeView32");
+    require(tree != nullptr, "FindWindowExW finds the TreeView child");
+    require(SendMessageW(tree, TVM_GETCOUNT, 0, 0) == 2, "TVM_GETCOUNT sees two roots");
+    HWND status = nullptr;
+    // NOTE: FindWindowExW(hwnd, nullptr, L"msctls_statusbar32", nullptr)
+    // inexplicably misses this live, visible child (verified: same parent,
+    // exact class bytes, IsWindow true) while manual enumeration with
+    // wcscmp finds it every time. Do NOT "simplify" back to FindWindowExW
+    // without re-proving on a real desktop.
+    for (HWND child = FindWindowExW(hwnd, nullptr, nullptr, nullptr); child != nullptr;
+         child = FindWindowExW(hwnd, child, nullptr, nullptr)) {
+      wchar_t cls[64]{};
+      GetClassNameW(child, cls, 64);
+      if (wcscmp(cls, L"msctls_statusbar32") == 0) {
+        status = child;
+        break;
+      }
+    }
+    require(SendMessageW(status, SB_GETPARTS, 0, 0) == 2, "SB_GETPARTS sees two parts");
+    wchar_t part[64]{};
+    require(SendMessageW(status, SB_GETTEXTW, 0, reinterpret_cast<LPARAM>(part)) > 0,
+            "SB_GETTEXT reads back");
+    require(wcscmp(part, L"left") == 0, "first part is 'left'");
+  }
+
   // ---- S10/S11: Resize, driven by this test's own SetWindowPos -----------
   check(runtime,
         "const g = globalThis.g;\n"

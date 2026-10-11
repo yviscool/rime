@@ -1108,8 +1108,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddLink",
@@ -1121,8 +1121,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddListBox",
@@ -1147,8 +1147,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddMonthCal",
@@ -1173,8 +1173,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddPicture",
@@ -1238,8 +1238,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddTab",
@@ -1251,8 +1251,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddTab2",
@@ -1264,8 +1264,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddTab3",
@@ -1303,8 +1303,8 @@
           "async": "async",
           "ownership": "Runtime-owned GuiRef, close before unload",
           "error": "InvalidState when the Gui window is destroyed; ValueError on invalid options",
-          "status": "contract-only",
-          "compatibilityTest": "missing"
+          "status": "implemented",
+          "compatibilityTest": "tests/js/gui_object_slice.cpp"
         },
         {
           "name": "AddUpDown",
