@@ -12,6 +12,8 @@
 
 #include <windows.h>
 
+#include <commctrl.h>
+
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -77,6 +79,16 @@ struct GuiChildRecord {
   // Picture content ownership (freed at destroy/sweep; never exposed).
   HBITMAP picture_bitmap{nullptr};
   HICON picture_icon{nullptr};
+  // TreeView node registry (batch 3b): stable per-control ids (from 1) to
+  // HTREEITEM. HTREEITEMs never leave the pump; ids die with their subtree
+  // at TvDelete (enumerated before the delete) or with the whole tree at
+  // clear-all. Only meaningful when kind == TreeView.
+  std::map<std::uint64_t, HTREEITEM> tree_items;
+  std::uint64_t next_tree_id{1};
+  // StatusBar icon ownership (batch 3b SbSetIcon): part -> HICON we set via
+  // SB_SETICON. Replaced icons are destroyed; survivors die here-equivalent
+  // (see free_record_state). Only meaningful when kind == StatusBar.
+  std::map<int, HICON> status_icons;
 };
 
 // One script-created Gui window. Lives in GuiService::Impl::guis, addressed

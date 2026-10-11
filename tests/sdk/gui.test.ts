@@ -27,6 +27,28 @@ const madeControl: GuiControlNative = {
   Focus: async () => undefined,
   Move: async () => undefined,
   SetCue: async () => undefined,
+  Add: async () => 0,
+  Choose: async () => 0,
+  Delete: async () => 0,
+  Insert: async () => 0,
+  Modify: async () => 0,
+  GetCount: async () => 0,
+  GetText: async () => "",
+  GetNext: async () => null,
+  InsertCol: async () => 0,
+  ModifyCol: async () => 0,
+  DeleteCol: async () => 0,
+  Get: async () => false,
+  GetChild: async () => null,
+  GetParent: async () => null,
+  GetPrev: async () => null,
+  GetSelection: async () => null,
+  SetParts: async () => 0,
+  SetText: async () => 0,
+  SetIcon: async () => 0,
+  UseTab: async () => 0,
+  SetFormat: async () => undefined,
+  SetHotkey: async () => undefined,
 };
 
 const madeGui: GuiNative = {
@@ -63,6 +85,7 @@ mock.module("rime:ui", () => ({
 }));
 
 const { Gui } = await import("../../sdk/src/gui");
+const { GuiControl } = await import("../../sdk/src/gui");
 
 beforeEach(() => {
   addCalls = [];
@@ -168,4 +191,68 @@ test("show/submit/destroy forward; text reads through the pump", async () => {
   await gui.destroy();
   expect(destroyCalls).toBe(1);
   await expect(gui.getPos()).resolves.toStrictEqual({ x: 10, y: 20, width: 300, height: 200 });
+});
+
+test("3b control methods forward positionals and map misses to null", async () => {
+  const calls: Array<[string, unknown[]]> = [];
+  const recording: GuiControlNative = {
+    ...madeControl,
+    Add: async (...args: unknown[]) => {
+      calls.push(["Add", args.slice(0, -1)]);
+      return 2;
+    },
+    Choose: async (...args: unknown[]) => {
+      calls.push(["Choose", args.slice(0, -1)]);
+      return 1;
+    },
+    Delete: async (...args: unknown[]) => {
+      calls.push(["Delete", args.slice(0, -1)]);
+      return 0;
+    },
+    GetNext: async (...args: unknown[]) => {
+      calls.push(["GetNext", args.slice(0, -1)]);
+      return null;
+    },
+    GetChild: async (...args: unknown[]) => {
+      calls.push(["GetChild", args.slice(0, -1)]);
+      return 7;
+    },
+    Get: async (...args: unknown[]) => {
+      calls.push(["Get", args.slice(0, -1)]);
+      return true;
+    },
+    SetParts: async (...args: unknown[]) => {
+      calls.push(["SetParts", args.slice(0, -1)]);
+      return 2;
+    },
+    UseTab: async (...args: unknown[]) => {
+      calls.push(["UseTab", args.slice(0, -1)]);
+      return 0;
+    },
+    SetHotkey: async (...args: unknown[]) => {
+      calls.push(["SetHotkey", args.slice(0, -1)]);
+      return undefined;
+    },
+  };
+  const control = new GuiControl(recording);
+  await expect(control.add(["a", "b"], true)).resolves.toBe(2);
+  await expect(control.choose("d")).resolves.toBe(1);
+  await expect(control.deleteItem()).resolves.toBe(0);
+  await expect(control.getNext()).resolves.toBeNull();
+  await expect(control.getChild(3)).resolves.toBe(7);
+  await expect(control.get(3, "expanded")).resolves.toBe(true);
+  await expect(control.setParts([100, -1])).resolves.toBe(2);
+  await expect(control.useTab("T1")).resolves.toBe(0);
+  await expect(control.setHotkey(["ctrl"], "A")).resolves.toBeUndefined();
+  expect(calls).toStrictEqual([
+    ["Add", [["a", "b"], true, undefined, undefined, undefined]],
+    ["Choose", ["d"]],
+    ["Delete", [undefined]],
+    ["GetNext", [undefined, undefined]],
+    ["GetChild", [3]],
+    ["Get", [3, "expanded"]],
+    ["SetParts", [[100, -1]]],
+    ["UseTab", ["T1", undefined]],
+    ["SetHotkey", [["ctrl"], "A"]],
+  ]);
 });

@@ -82,7 +82,7 @@ GUI、菜单、托盘和模态对话框对象必须由 UI Thread 所有，以稳
 
 ### 4.8 明确不做（批3+ 前提）
 
-`MenuBar`、`Add*` 剩 16 个待实现构造器、控件族方法（LV 11/TV 12/SB 3/List 增删查）、`Menu` 17 成员、8 项 coverage 尾、事件集扩张（`Escape`/`ContextMenu`/`DropFiles`/`Focus`/`DblClk`/`ItemSelect`…）、g-label 与事件标签、DPI 重缩放（`mDefaultDPIResize`）。未实现项在 `objects.json`/`coverage.json` 维持 `contract-only`，`ValueError` 拒绝集合外事件名即是"未实现"的显式信号。
+`MenuBar`、`Add*` 剩 16 个待实现构造器、控件族方法（`SetImageList` 三行等 3c ImageList 模型）、`Menu` 17 成员、8 项 coverage 尾、事件集扩张（`Escape`/`ContextMenu`/`DropFiles`/`Focus`/`DblClk`/`ItemSelect`…）、g-label 与事件标签、DPI 重缩放（`mDefaultDPIResize`）。未实现项在 `objects.json`/`coverage.json` 维持 `contract-only`，`ValueError` 拒绝集合外事件名即是"未实现"的显式信号。
 
 ### 4.9 批3 政策 verdict（3 行 → `unsupported-by-policy`，文档先行零代码）
 
@@ -93,3 +93,15 @@ GUI、菜单、托盘和模态对话框对象必须由 UI Thread 所有，以稳
 - `AddCustom`：注册自定义窗口类 = 脚本代码进入窗口过程，违反重入与生命周期铁律；未来如需，走声明式控件描述（新提案，批5 可重议）。
 
 三行 `error` 栏已写清理由与替代，`compatibilityTest` 保持 `missing`（未实现的方法无拒绝入口可测；背书 = 台账状态 + `checkObjectsLedger`，沿 §4.7 的 16 条先例）。DoD 模板见 `m6-batch3-dod.md`。
+
+### 4.10 控件方法（批3b：LV/TV/SB/List/Tab/DateTime/Hotkey/SetCue 补齐）
+
+`Add/Choose/Delete/Insert/Modify/GetCount/GetText/GetNext` 是同名入口、按 kind 分发的一次实现（`GuiControl` 台账行与各族台账行同指一实现；错 kind 进 `TypeError` 同步拒绝，如 `SetParts() needs a StatusBar`）。位置一律 0-based（AHK 的 1-based 行列号不保留）；空结果是 `null`（`GetNext` 无命中、`GetChild/GetParent/GetPrev/GetSelection` 无节点），不是 AHK 的 0；省略语义：`Delete()` 清空（行/选项/整树）、`TvDelete(id)` 删子树并回收其全部稳定 id、`GetNext()` 从顶开始。
+
+- List（ListBox/ComboBox/DropDownList）：`Add(value|string[])` 逐行 `LB_ADDSTRING`/`CB_ADDSTRING` 回追加后总数；`Choose(index|text)` 经 `LB_SETCURSEL`/`CB_SETCURSEL`（文本用 `*_FINDSTRINGEXACT` 精确查找，找不到拒绝）；`Delete(index?)` 删行或 `LB_RESETCONTENT`/`CB_RESETCONTENT` 清空。
+- ListView：`Add/Insert/Modify` 行（`LVM_INSERTITEM` + `LVM_SETITEMTEXT` 逐列；`selected/focused` 经 `LVM_SETITEMSTATE`；`checked` 首次使用时惰性打开 `LVS_EX_CHECKBOXES`）；`GetCount(mode?)` = 全部/`LVM_GETSELECTEDCOUNT`/`Header` 列数；`GetText(row, col?)`；`GetNext(start?, filter?)`（默认 `selected`，与 AHK 默认同；`focused` 经 `LVNI_FOCUSED`，`checked` 逐行读 check 状态——AHK 同算法）；`InsertCol/ModifyCol/DeleteCol`（`LVCOLUMNW`，宽默认 100，对齐 left/center/right，列数经 `Header_GetItemCount` 定界）。
+- TreeView：节点一律稳定 id（每控件从 1 发放；`AddTreeView` 的构造根同样登记，可达）；`HTREEITEM` 不出泵。`Add(text, parentId?, selected?, expanded?, bold?)` 经 `TVM_INSERTITEM`；`Modify` 改名/加粗（`TVIS_BOLD`）/展开（`TVM_EXPAND`）/选中（`TVM_SELECTITEM`，假值解选）；`Get(id, expanded|checked|bold)` 经 `TVM_GETITEMSTATE`（checked 语义与 AHK `TV_Get` 同：`0x2000` 像；无 `TVS_CHECKBOXES` 风格时恒假）；`GetChild/GetParent/GetPrev/GetNext`（`GetNext` 默认 sibling，`document` 纵深优先；省略 id 从首个顶层节点起）；`GetSelection`（`TVGN_CARET`）；`GetCount`（`TreeView_GetCount`）；`GetText`（`TVM_GETITEM`，MSDN repoint 注记与 AHK `TV_GetText` 同）。
+- StatusBar：`SetParts(widths[])`（正像素右边缘累加，末位可 `-1` 填满；`-1` 只能末位）经 `SB_SETPARTS`；`SetText(text, part?, borders?)`（`SBT_NOBORDERS` 唯一风格；`SBT_OWNERDRAW` 需 DRAWITEM 处理，不在范围）；`SetIcon(file, iconIndex?, part?)`（`.ico` 文件经 `LoadImageW` 私有拷贝，dll/exe 资源经 `ExtractIconW`；被替换的旧图标销毁，存活的随 record 释放——句柄不出泵）。
+- 单件：`Tab.UseTab(index|label, exactMatch?)`（`TCM_SETCURSEL`，label 默认精确匹配）；`DateTime.SetFormat(picture)`（Win32 picture 原样透传 `DTM_SETFORMATW`，如 `"yyyy-MM-dd"`——这是 Win32 自己的格式语言，不是新 DSL）；`Hotkey.SetHotkey(modifiers[], key)`（修饰名 shift/ctrl/alt 大小写不敏感，`win` 拒绝——`HKM_SETHOTKEY` 无 Win 位；键名走输入模块同一套 `chord_key` 语法，`vk>0xFF` 拒绝）；`Edit/ComboBox.SetCue`（后者经 `CB_SETCUEBANNER`——此前实现只认 Edit，3b 补齐；回读分别用 `EM_GETCUEBANNER`/`CB_GETCUEBANNER` 背书）。
+- 位置参数不吃对象（尾对象槽是 ActionOptions，见绑定 `is_action_object`）：行列修饰一律位置布尔（`selected?, focused?, checked?` 等，`undefined` = 保持）。
+- 延期：`SetImageList` 三行（LV/TV/GuiControl）维持 `contract-only`，等 3c 的 ImageList 模型（`UIntPtr ImageListID` 生句柄不进新 API）；`TreeView` 复选（`TVS_CHECKBOXES`）与 StatusBar owner-draw 同理不在 3b。

@@ -25,6 +25,8 @@
 
 #include <commctrl.h>
 
+#include <shellapi.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -189,6 +191,10 @@ void free_record_state(GuiRecord& rec) {
       DestroyIcon(child.picture_icon);
       child.picture_icon = nullptr;
     }
+    for (auto& [part, icon] : child.status_icons) {
+      if (icon) DestroyIcon(icon);
+    }
+    child.status_icons.clear();
   }
   rec.children.clear();
   rec.by_hwnd.clear();
@@ -952,6 +958,22 @@ Error add_control_pump(GuiMap& guis, const EventSinkFn& sink,
   rec->by_hwnd.emplace(reinterpret_cast<std::uintptr_t>(child), spec.ctrl_id);
   rec->by_hmenu.emplace(hmenu_id, spec.ctrl_id);
   rec->children.emplace(spec.ctrl_id, record);
+  if (spec.kind == GuiService::GuiControlKind::TreeView) {
+    // Construction roots get stable ids too (creation order = top-level
+    // enumeration order, since roots append with TVI_LAST); without this
+    // the 3b node API could not address what AddTreeView created.
+    auto created = rec->children.find(spec.ctrl_id);
+    if (created != rec->children.end()) {
+      GuiChildRecord& stored = created->second;
+      HTREEITEM node = reinterpret_cast<HTREEITEM>(
+          SendMessageW(child, TVM_GETNEXTITEM, TVGN_CHILD, reinterpret_cast<LPARAM>(TVI_ROOT)));
+      while (node) {
+        stored.tree_items.emplace(stored.next_tree_id++, node);
+        node = reinterpret_cast<HTREEITEM>(
+            SendMessageW(child, TVM_GETNEXTITEM, TVGN_NEXT, reinterpret_cast<LPARAM>(node)));
+      }
+    }
+  }
 
   rec->prev_x = x;
   rec->prev_y = y;
@@ -2257,13 +2279,792 @@ Error GuiService::ctrl_set_cue(const GuiSpec& gui, const std::uint64_t ctrl_id,
         !err.ok()) {
       return err;
     }
-    if (child->kind != GuiService::GuiControlKind::Edit) {
-      return {Code::InvalidContract, "only Edit controls support cues"};
+    if (child->kind != GuiService::GuiControlKind::Edit &&
+        child->kind != GuiService::GuiControlKind::ComboBox &&
+        child->kind != GuiService::GuiControlKind::DropDownList) {
+      return {Code::InvalidContract, "only Edit and ComboBox controls support cues"};
     }
     const std::wstring wide = from_utf8(cue);
-    SendMessageW(child->hwnd, EM_SETCUEBANNER, activate ? TRUE : FALSE,
-                 reinterpret_cast<LPARAM>(wide.c_str()));
+    if (child->kind == GuiService::GuiControlKind::Edit) {
+      SendMessageW(child->hwnd, EM_SETCUEBANNER, activate ? TRUE : FALSE,
+                   reinterpret_cast<LPARAM>(wide.c_str()));
+    } else {
+      // CB_SETCUEBANNER takes no show-when-focused flag (wParam must be 0);
+      // the cue shows while the box is empty. Same AHK mapping as sMembersCB.
+      SendMessageW(child->hwnd, CB_SETCUEBANNER, 0, reinterpret_cast<LPARAM>(wide.c_str()));
+    }
     return Error::none();
+  });
+}
+
+// ---- batch 3b: per-kind control methods ------------------------------------
+
+namespace {
+
+// Text scratch for LV/TV/SB reads (AHK uses LV_TEXT_BUF_SIZE for the same).
+constexpr int kItemTextChars = 512;
+
+Error require_kind(const GuiChildRecord& child,
+                   std::initializer_list<GuiService::GuiControlKind> kinds, const char* op) {
+  for (const GuiService::GuiControlKind kind : kinds) {
+    if (child.kind == kind) return Error::none();
+  }
+  return {Code::InvalidContract, std::string(op) + " does not apply to this control kind"};
+}
+
+bool is_combo_kind(GuiService::GuiControlKind kind) {
+  using K = GuiService::GuiControlKind;
+  return kind == K::ComboBox || kind == K::DropDownList;
+}
+
+// Reverse-lookup a stable tree id from its handle (ids die with their
+// subtree, so a live handle always maps back).
+std::uint64_t tree_id_of(const GuiChildRecord& child, HTREEITEM item) {
+  if (!item) return 0;
+  for (const auto& [id, handle] : child.tree_items) {
+    if (handle == item) return id;
+  }
+  return 0;
+}
+
+// Drop the id and every descendant id before TVM_DELETEITEM unlinks them.
+void purge_tree_ids(GuiChildRecord& child, HWND hwnd, HTREEITEM root) {
+  HTREEITEM item = reinterpret_cast<HTREEITEM>(
+      SendMessageW(hwnd, TVM_GETNEXTITEM, TVGN_CHILD, reinterpret_cast<LPARAM>(root)));
+  while (item) {
+    HTREEITEM next = reinterpret_cast<HTREEITEM>(
+        SendMessageW(hwnd, TVM_GETNEXTITEM, TVGN_NEXT, reinterpret_cast<LPARAM>(item)));
+    purge_tree_ids(child, hwnd, item);
+    for (auto it = child.tree_items.begin(); it != child.tree_items.end();) {
+      if (it->second == item) {
+        it = child.tree_items.erase(it);
+        break;
+      }
+      ++it;
+    }
+    item = next;
+  }
+  for (auto it = child.tree_items.begin(); it != child.tree_items.end();) {
+    if (it->second == root) {
+      it = child.tree_items.erase(it);
+      break;
+    }
+    ++it;
+  }
+}
+
+// Depth-first next node (AHK TV_GetNext "Full" traversal): first child, else
+// next sibling, else up until a next sibling exists.
+HTREEITEM tree_next_document(HWND hwnd, HTREEITEM item) {
+  HTREEITEM next = reinterpret_cast<HTREEITEM>(
+      SendMessageW(hwnd, TVM_GETNEXTITEM, TVGN_CHILD, reinterpret_cast<LPARAM>(item)));
+  if (next) return next;
+  HTREEITEM cursor = item;
+  while (cursor) {
+    next = reinterpret_cast<HTREEITEM>(
+        SendMessageW(hwnd, TVM_GETNEXTITEM, TVGN_NEXT, reinterpret_cast<LPARAM>(cursor)));
+    if (next) return next;
+    cursor = reinterpret_cast<HTREEITEM>(
+        SendMessageW(hwnd, TVM_GETNEXTITEM, TVGN_PARENT, reinterpret_cast<LPARAM>(cursor)));
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+Error GuiService::ctrl_invoke(const GuiSpec& gui, const std::uint64_t ctrl_id,
+                              const GuiControlCall& call, GuiControlResult& out,
+                              const std::int64_t deadline_unix_ms,
+                              const rime::core::CancellationToken cancel) {
+  return run_pump(deadline_unix_ms, cancel, [&]() -> Error {
+    GuiRecord* rec = nullptr;
+    GuiChildRecord* child = nullptr;
+    if (const Error err = find_ctrl(impl_->guis, impl_->event_sink, gui, ctrl_id, rec, child);
+        !err.ok()) {
+      return err;
+    }
+    using K = GuiService::GuiControlKind;
+    using Op = GuiService::GuiControlCallOp;
+    const HWND hwnd = child->hwnd;
+    out = GuiControlResult{};
+    const char* op_name = "control method";
+
+    switch (call.op) {
+      // ---- list kinds (ListBox / ComboBox / DropDownList) ----
+      case Op::ListAdd: {
+        op_name = "Add";
+        if (const Error err = require_kind(*child, {K::ListBox, K::ComboBox, K::DropDownList}, op_name);
+            !err.ok()) {
+          return err;
+        }
+        if (call.columns.empty()) {
+          return {Code::InvalidContract, "Add needs at least one value"};
+        }
+        const bool combo = is_combo_kind(child->kind);
+        for (const std::string& value : call.columns) {
+          const std::wstring wide = from_utf8(value);
+          const LRESULT added = SendMessageW(hwnd, combo ? CB_ADDSTRING : LB_ADDSTRING, 0,
+                                             reinterpret_cast<LPARAM>(wide.c_str()));
+          if (added == CB_ERR) return {Code::ExecutionFailed, "Add failed to append the value"};
+        }
+        out.number = SendMessageW(hwnd, combo ? CB_GETCOUNT : LB_GETCOUNT, 0, 0);
+        return Error::none();
+      }
+      case Op::ListChoose: {
+        op_name = "Choose";
+        if (const Error err = require_kind(*child, {K::ListBox, K::ComboBox, K::DropDownList}, op_name);
+            !err.ok()) {
+          return err;
+        }
+        const bool combo = is_combo_kind(child->kind);
+        LRESULT picked = CB_ERR;
+        if (call.has_index) {
+          picked = SendMessageW(hwnd, combo ? CB_SETCURSEL : LB_SETCURSEL,
+                                static_cast<WPARAM>(call.index), 0);
+        } else {
+          const std::wstring wide = from_utf8(call.text);
+          picked = SendMessageW(hwnd, combo ? CB_FINDSTRINGEXACT : LB_FINDSTRINGEXACT, 0,
+                                reinterpret_cast<LPARAM>(wide.c_str()));
+          if (picked == CB_ERR) {
+            return {Code::InvalidContract, "Choose found no item with that text"};
+          }
+          picked = SendMessageW(hwnd, combo ? CB_SETCURSEL : LB_SETCURSEL,
+                                static_cast<WPARAM>(picked), 0);
+        }
+        if (picked == CB_ERR) return {Code::InvalidContract, "Choose index is out of range"};
+        out.number = picked;  // 0-based, like every other position here.
+        return Error::none();
+      }
+      case Op::ListDelete: {
+        op_name = "Delete";
+        if (const Error err = require_kind(*child, {K::ListBox, K::ComboBox, K::DropDownList}, op_name);
+            !err.ok()) {
+          return err;
+        }
+        const bool combo = is_combo_kind(child->kind);
+        if (!call.has_index) {
+          SendMessageW(hwnd, combo ? CB_RESETCONTENT : LB_RESETCONTENT, 0, 0);
+          out.number = 0;
+          return Error::none();
+        }
+        if (SendMessageW(hwnd, combo ? CB_DELETESTRING : LB_DELETESTRING,
+                         static_cast<WPARAM>(call.index), 0) == CB_ERR) {
+          return {Code::InvalidContract, "Delete index is out of range"};
+        }
+        out.number = SendMessageW(hwnd, combo ? CB_GETCOUNT : LB_GETCOUNT, 0, 0);
+        return Error::none();
+      }
+
+      // ---- ListView ----
+      case Op::LvAddRow:
+      case Op::LvInsertRow: {
+        op_name = call.op == Op::LvAddRow ? "Add" : "Insert";
+        if (const Error err = require_kind(*child, {K::ListView}, op_name); !err.ok()) {
+          return err;
+        }
+        if (call.columns.empty()) {
+          return {Code::InvalidContract, "a row needs at least one cell"};
+        }
+        const int count = ListView_GetItemCount(hwnd);
+        int at = count;
+        if (call.op == Op::LvInsertRow) {
+          if (!call.has_index || call.index < 0 || call.index > count) {
+            return {Code::InvalidContract, "Insert index is out of range"};
+          }
+          at = static_cast<int>(call.index);
+        }
+        const std::wstring first = from_utf8(call.columns[0]);
+        LVITEMW item{};
+        item.mask = LVIF_TEXT;
+        item.iItem = at;
+        item.pszText = const_cast<LPWSTR>(first.c_str());
+        if (ListView_InsertItem(hwnd, &item) < 0) {
+          return {Code::ExecutionFailed, "row insert failed"};
+        }
+        for (std::size_t col = 1; col < call.columns.size(); ++col) {
+          const std::wstring cell = from_utf8(call.columns[col]);
+          ListView_SetItemText(hwnd, at, static_cast<int>(col), const_cast<LPWSTR>(cell.c_str()));
+        }
+        if (call.selected.has_value() || call.focused.has_value()) {
+          UINT state = 0;
+          UINT mask = 0;
+          if (call.selected.has_value()) {
+            mask |= LVIS_SELECTED;
+            if (*call.selected) state |= LVIS_SELECTED;
+          }
+          if (call.focused.has_value()) {
+            mask |= LVIS_FOCUSED;
+            if (*call.focused) state |= LVIS_FOCUSED;
+          }
+          ListView_SetItemState(hwnd, at, state, mask);
+        }
+        if (call.checked.has_value()) {
+          ListView_SetExtendedListViewStyleEx(hwnd, LVS_EX_CHECKBOXES, LVS_EX_CHECKBOXES);
+          ListView_SetItemState(hwnd, at, INDEXTOSTATEIMAGEMASK(*call.checked ? 2 : 1),
+                                LVIS_STATEIMAGEMASK);
+        }
+        out.number = at;
+        return Error::none();
+      }
+      case Op::LvModifyRow: {
+        op_name = "Modify";
+        if (const Error err = require_kind(*child, {K::ListView}, op_name); !err.ok()) {
+          return err;
+        }
+        const int count = ListView_GetItemCount(hwnd);
+        if (!call.has_index || call.index < 0 || call.index >= count) {
+          return {Code::InvalidContract, "Modify index is out of range"};
+        }
+        const int at = static_cast<int>(call.index);
+        const int cols = Header_GetItemCount(ListView_GetHeader(hwnd));
+        for (std::size_t col = 0; col < call.columns.size(); ++col) {
+          if (static_cast<int>(col) >= cols) {
+            return {Code::InvalidContract, "Modify has more cells than columns"};
+          }
+          const std::wstring cell = from_utf8(call.columns[col]);
+          ListView_SetItemText(hwnd, at, static_cast<int>(col), const_cast<LPWSTR>(cell.c_str()));
+        }
+        if (call.selected.has_value() || call.focused.has_value()) {
+          UINT state = 0;
+          UINT mask = 0;
+          if (call.selected.has_value()) {
+            mask |= LVIS_SELECTED;
+            if (*call.selected) state |= LVIS_SELECTED;
+          }
+          if (call.focused.has_value()) {
+            mask |= LVIS_FOCUSED;
+            if (*call.focused) state |= LVIS_FOCUSED;
+          }
+          ListView_SetItemState(hwnd, at, state, mask);
+        }
+        if (call.checked.has_value()) {
+          ListView_SetExtendedListViewStyleEx(hwnd, LVS_EX_CHECKBOXES, LVS_EX_CHECKBOXES);
+          ListView_SetItemState(hwnd, at, INDEXTOSTATEIMAGEMASK(*call.checked ? 2 : 1),
+                                LVIS_STATEIMAGEMASK);
+        }
+        out.number = at;
+        return Error::none();
+      }
+      case Op::LvDeleteRows: {
+        op_name = "Delete";
+        if (const Error err = require_kind(*child, {K::ListView}, op_name); !err.ok()) {
+          return err;
+        }
+        if (!call.has_index) {
+          ListView_DeleteAllItems(hwnd);
+          out.number = 0;
+          return Error::none();
+        }
+        if (!ListView_DeleteItem(hwnd, static_cast<int>(call.index))) {
+          return {Code::InvalidContract, "Delete index is out of range"};
+        }
+        out.number = ListView_GetItemCount(hwnd);
+        return Error::none();
+      }
+      case Op::LvGetCount: {
+        op_name = "GetCount";
+        if (const Error err = require_kind(*child, {K::ListView}, op_name); !err.ok()) {
+          return err;
+        }
+        if (call.mode == "selected") {
+          out.number = ListView_GetSelectedCount(hwnd);
+        } else if (call.mode == "columns" || call.mode == "column") {
+          out.number = Header_GetItemCount(ListView_GetHeader(hwnd));
+        } else {
+          out.number = ListView_GetItemCount(hwnd);
+        }
+        return Error::none();
+      }
+      case Op::LvGetText: {
+        op_name = "GetText";
+        if (const Error err = require_kind(*child, {K::ListView}, op_name); !err.ok()) {
+          return err;
+        }
+        const int count = ListView_GetItemCount(hwnd);
+        const int col = call.has_sub ? static_cast<int>(call.sub) : 0;
+        const int cols = Header_GetItemCount(ListView_GetHeader(hwnd));
+        if (call.has_sub && (col < 0 || col >= cols)) {
+          return {Code::InvalidContract, "GetText column is out of range"};
+        }
+        if (!call.has_index) return {Code::InvalidContract, "GetText needs a row index"};
+        const int row = static_cast<int>(call.index);
+        if (row < 0 || row >= count) {
+          return {Code::InvalidContract, "GetText row is out of range"};
+        }
+        std::wstring buffer(static_cast<std::size_t>(kItemTextChars), L'\0');
+        ListView_GetItemText(hwnd, row, col, buffer.data(), kItemTextChars);
+        buffer.resize(std::wcslen(buffer.c_str()));
+        out.text = to_utf8(buffer);
+        return Error::none();
+      }
+      case Op::LvGetNext: {
+        op_name = "GetNext";
+        if (const Error err = require_kind(*child, {K::ListView}, op_name); !err.ok()) {
+          return err;
+        }
+        int start = -1;
+        if (call.has_index) {
+          if (call.index < -1) return {Code::InvalidContract, "GetNext start is out of range"};
+          start = static_cast<int>(call.index);
+        }
+        int found = -1;
+        if (call.mode == "focused") {
+          found = ListView_GetNextItem(hwnd, start, LVNI_FOCUSED);
+        } else if (call.mode == "checked") {
+          const int count = ListView_GetItemCount(hwnd);
+          for (int i = start + 1; i < count; ++i) {
+            if (ListView_GetCheckState(hwnd, i)) {
+              found = i;
+              break;
+            }
+          }
+        } else {  // "selected" and the default: AHK's default is selected.
+          found = ListView_GetNextItem(hwnd, start, LVNI_SELECTED);
+        }
+        out.number = found;  // -1 = none; the binding maps it to null.
+        return Error::none();
+      }
+      case Op::LvInsertCol:
+      case Op::LvModifyCol: {
+        op_name = call.op == Op::LvInsertCol ? "InsertCol" : "ModifyCol";
+        if (const Error err = require_kind(*child, {K::ListView}, op_name); !err.ok()) {
+          return err;
+        }
+        const int cols = Header_GetItemCount(ListView_GetHeader(hwnd));
+        int at = cols;
+        if (call.has_index) {
+          if (call.op == Op::LvInsertCol) {
+            if (call.index < 0 || call.index > cols) {
+              return {Code::InvalidContract, "InsertCol index is out of range"};
+            }
+            at = static_cast<int>(call.index);
+          } else {
+            if (call.index < 0 || call.index >= cols) {
+              return {Code::InvalidContract, "ModifyCol index is out of range"};
+            }
+            at = static_cast<int>(call.index);
+          }
+        } else if (call.op == Op::LvModifyCol) {
+          return {Code::InvalidContract, "ModifyCol needs a column index"};
+        }
+        LVCOLUMNW column{};
+        UINT mask = 0;
+        std::wstring title;
+        if (call.title.has_value()) {
+          title = from_utf8(*call.title);
+          column.pszText = const_cast<LPWSTR>(title.c_str());
+          mask |= LVCF_TEXT;
+        } else if (call.op == Op::LvInsertCol) {
+          title = L"";
+          column.pszText = const_cast<LPWSTR>(title.c_str());
+          mask |= LVCF_TEXT;
+        }
+        if (call.width.has_value()) {
+          if (*call.width < 0) return {Code::InvalidContract, "column width cannot be negative"};
+          column.cx = *call.width;
+          mask |= LVCF_WIDTH;
+        } else if (call.op == Op::LvInsertCol) {
+          column.cx = 100;
+          mask |= LVCF_WIDTH;
+        }
+        if (call.align.has_value()) {
+          if (*call.align == "center") {
+            column.fmt = LVCFMT_CENTER;
+          } else if (*call.align == "right") {
+            column.fmt = LVCFMT_RIGHT;
+          } else if (*call.align == "left") {
+            column.fmt = LVCFMT_LEFT;
+          } else {
+            return {Code::InvalidContract, "column align is left, center or right"};
+          }
+          mask |= LVCF_FMT;
+        } else if (call.op == Op::LvInsertCol) {
+          column.fmt = LVCFMT_LEFT;
+          mask |= LVCF_FMT;
+        }
+        column.mask = mask;
+        column.iSubItem = at;
+        if (call.op == Op::LvInsertCol) {
+          if (ListView_InsertColumn(hwnd, at, &column) < 0) {
+            return {Code::ExecutionFailed, "column insert failed"};
+          }
+          out.number = at;
+        } else {
+          if (!ListView_SetColumn(hwnd, at, &column)) {
+            return {Code::ExecutionFailed, "column modify failed"};
+          }
+          out.number = at;
+        }
+        return Error::none();
+      }
+      case Op::LvDeleteCol: {
+        op_name = "DeleteCol";
+        if (const Error err = require_kind(*child, {K::ListView}, op_name); !err.ok()) {
+          return err;
+        }
+        if (!call.has_index) return {Code::InvalidContract, "DeleteCol needs a column index"};
+        if (!ListView_DeleteColumn(hwnd, static_cast<int>(call.index))) {
+          return {Code::InvalidContract, "DeleteCol index is out of range"};
+        }
+        out.number = Header_GetItemCount(ListView_GetHeader(hwnd));
+        return Error::none();
+      }
+
+      // ---- TreeView (stable ids; HTREEITEMs never leave the pump) ----
+      case Op::TvAdd: {
+        op_name = "Add";
+        if (const Error err = require_kind(*child, {K::TreeView}, op_name); !err.ok()) {
+          return err;
+        }
+        if (call.text.empty()) return {Code::InvalidContract, "Add needs a node name"};
+        HTREEITEM parent = TVI_ROOT;
+        if (call.has_item) {
+          const auto found = child->tree_items.find(call.item);
+          if (found == child->tree_items.end()) {
+            return {Code::InvalidContract, "Add parent id is unknown"};
+          }
+          parent = found->second;
+        }
+        const std::wstring name = from_utf8(call.text);
+        TVINSERTSTRUCTW insert{};
+        insert.hParent = parent;
+        insert.hInsertAfter = TVI_LAST;
+        insert.item.mask = TVIF_TEXT;
+        insert.item.pszText = const_cast<LPWSTR>(name.c_str());
+        HTREEITEM created = reinterpret_cast<HTREEITEM>(
+            SendMessageW(hwnd, TVM_INSERTITEM, 0, reinterpret_cast<LPARAM>(&insert)));
+        if (!created) return {Code::ExecutionFailed, "node insert failed"};
+        const std::uint64_t id = child->next_tree_id++;
+        child->tree_items.emplace(id, created);
+        if (call.bold.has_value() && *call.bold) {
+          TVITEMW set{};
+          set.hItem = created;
+          set.mask = TVIF_STATE;
+          set.stateMask = TVIS_BOLD;
+          set.state = TVIS_BOLD;
+          SendMessageW(hwnd, TVM_SETITEM, 0, reinterpret_cast<LPARAM>(&set));
+        }
+        if (call.expanded.has_value() && *call.expanded) {
+          SendMessageW(hwnd, TVM_EXPAND, TVE_EXPAND, reinterpret_cast<LPARAM>(created));
+        }
+        if (call.selected.has_value() && *call.selected) {
+          SendMessageW(hwnd, TVM_SELECTITEM, TVGN_CARET, reinterpret_cast<LPARAM>(created));
+        }
+        out.item = id;
+        return Error::none();
+      }
+      case Op::TvDelete: {
+        op_name = "Delete";
+        if (const Error err = require_kind(*child, {K::TreeView}, op_name); !err.ok()) {
+          return err;
+        }
+        if (!call.has_item) {
+          SendMessageW(hwnd, TVM_DELETEITEM, 0, reinterpret_cast<LPARAM>(TVI_ROOT));
+          child->tree_items.clear();
+          out.number = 0;
+          return Error::none();
+        }
+        const auto found = child->tree_items.find(call.item);
+        if (found == child->tree_items.end()) {
+          return {Code::InvalidContract, "Delete id is unknown"};
+        }
+        purge_tree_ids(*child, hwnd, found->second);
+        SendMessageW(hwnd, TVM_DELETEITEM, 0, reinterpret_cast<LPARAM>(found->second));
+        out.number = static_cast<std::int64_t>(child->tree_items.size());
+        return Error::none();
+      }
+      case Op::TvModify: {
+        op_name = "Modify";
+        if (const Error err = require_kind(*child, {K::TreeView}, op_name); !err.ok()) {
+          return err;
+        }
+        if (!call.has_item) return {Code::InvalidContract, "Modify needs a node id"};
+        const auto found = child->tree_items.find(call.item);
+        if (found == child->tree_items.end()) {
+          return {Code::InvalidContract, "Modify id is unknown"};
+        }
+        const HTREEITEM hitem = found->second;
+        if (!call.text.empty()) {
+          const std::wstring name = from_utf8(call.text);
+          TVITEMW set{};
+          set.hItem = hitem;
+          set.mask = TVIF_TEXT;
+          set.pszText = const_cast<LPWSTR>(name.c_str());
+          SendMessageW(hwnd, TVM_SETITEM, 0, reinterpret_cast<LPARAM>(&set));
+        }
+        if (call.bold.has_value()) {
+          TVITEMW set{};
+          set.hItem = hitem;
+          set.mask = TVIF_STATE;
+          set.stateMask = TVIS_BOLD;
+          set.state = *call.bold ? TVIS_BOLD : 0;
+          SendMessageW(hwnd, TVM_SETITEM, 0, reinterpret_cast<LPARAM>(&set));
+        }
+        if (call.expanded.has_value()) {
+          SendMessageW(hwnd, TVM_EXPAND, *call.expanded ? TVE_EXPAND : TVE_COLLAPSE,
+                       reinterpret_cast<LPARAM>(hitem));
+        }
+        if (call.selected.has_value()) {
+          SendMessageW(hwnd, TVM_SELECTITEM, TVGN_CARET,
+                       *call.selected ? reinterpret_cast<LPARAM>(hitem) : 0);
+        }
+        out.item = call.item;
+        return Error::none();
+      }
+      case Op::TvGet: {
+        op_name = "Get";
+        if (const Error err = require_kind(*child, {K::TreeView}, op_name); !err.ok()) {
+          return err;
+        }
+        if (!call.has_item) return {Code::InvalidContract, "Get needs a node id"};
+        const auto found = child->tree_items.find(call.item);
+        if (found == child->tree_items.end()) {
+          return {Code::InvalidContract, "Get id is unknown"};
+        }
+        UINT mask = 0;
+        if (call.mode == "expanded") {
+          mask = TVIS_EXPANDED;
+        } else if (call.mode == "checked") {
+          mask = TVIS_STATEIMAGEMASK;
+        } else if (call.mode == "bold") {
+          mask = TVIS_BOLD;
+        } else {
+          return {Code::InvalidContract, "Get attribute is expanded, checked or bold"};
+        }
+        const UINT state = static_cast<UINT>(SendMessageW(hwnd, TVM_GETITEMSTATE,
+                                                          reinterpret_cast<WPARAM>(found->second),
+                                                          mask));
+        // AHK TV_Get (Gui.TreeView.cpp:407): checked means the 0x2000 image,
+        // anything else means any flag bit present.
+        out.boolean = (mask == TVIS_STATEIMAGEMASK) ? ((state & mask) == 0x2000u)
+                                                    : ((state & mask) != 0);
+        return Error::none();
+      }
+      case Op::TvGetChild:
+      case Op::TvGetParent:
+      case Op::TvGetPrev:
+      case Op::TvGetNext: {
+        if (call.op == Op::TvGetChild) {
+          op_name = "GetChild";
+        } else if (call.op == Op::TvGetParent) {
+          op_name = "GetParent";
+        } else if (call.op == Op::TvGetPrev) {
+          op_name = "GetPrev";
+        } else {
+          op_name = "GetNext";
+        }
+        if (const Error err = require_kind(*child, {K::TreeView}, op_name); !err.ok()) {
+          return err;
+        }
+        HTREEITEM next = nullptr;
+        if (!call.has_item) {
+          // Omitted id starts at the top: the first top-level node, from
+          // which sibling and document traversal agree (AHK's NULL start).
+          next = reinterpret_cast<HTREEITEM>(
+              SendMessageW(hwnd, TVM_GETNEXTITEM, TVGN_CHILD, reinterpret_cast<LPARAM>(TVI_ROOT)));
+        } else {
+          const auto found = child->tree_items.find(call.item);
+          if (found == child->tree_items.end()) {
+            return {Code::InvalidContract, "node id is unknown"};
+          }
+          if (call.op == Op::TvGetNext && call.mode == "document") {
+            next = tree_next_document(hwnd, found->second);
+          } else {
+            WPARAM flag = TVGN_NEXT;
+            if (call.op == Op::TvGetChild) flag = TVGN_CHILD;
+            if (call.op == Op::TvGetParent) flag = TVGN_PARENT;
+            if (call.op == Op::TvGetPrev) flag = TVGN_PREVIOUS;
+            next = reinterpret_cast<HTREEITEM>(SendMessageW(hwnd, TVM_GETNEXTITEM, flag,
+                                                            reinterpret_cast<LPARAM>(found->second)));
+          }
+        }
+        out.item = tree_id_of(*child, next);  // 0 = none; binding maps to null.
+        return Error::none();
+      }
+      case Op::TvGetSelection: {
+        op_name = "GetSelection";
+        if (const Error err = require_kind(*child, {K::TreeView}, op_name); !err.ok()) {
+          return err;
+        }
+        const HTREEITEM selected = reinterpret_cast<HTREEITEM>(
+            SendMessageW(hwnd, TVM_GETNEXTITEM, TVGN_CARET, 0));
+        out.item = tree_id_of(*child, selected);
+        return Error::none();
+      }
+      case Op::TvGetCount: {
+        op_name = "GetCount";
+        if (const Error err = require_kind(*child, {K::TreeView}, op_name); !err.ok()) {
+          return err;
+        }
+        out.number = TreeView_GetCount(hwnd);
+        return Error::none();
+      }
+      case Op::TvGetText: {
+        op_name = "GetText";
+        if (const Error err = require_kind(*child, {K::TreeView}, op_name); !err.ok()) {
+          return err;
+        }
+        if (!call.has_item) return {Code::InvalidContract, "GetText needs a node id"};
+        const auto found = child->tree_items.find(call.item);
+        if (found == child->tree_items.end()) {
+          return {Code::InvalidContract, "GetText id is unknown"};
+        }
+        std::wstring buffer(static_cast<std::size_t>(kItemTextChars), L'\0');
+        TVITEMW get{};
+        get.hItem = found->second;
+        get.mask = TVIF_TEXT;
+        get.pszText = buffer.data();
+        get.cchTextMax = kItemTextChars;
+        if (!SendMessageW(hwnd, TVM_GETITEM, 0, reinterpret_cast<LPARAM>(&get))) {
+          return {Code::InvalidContract, "GetText id is unknown"};
+        }
+        // MSDN: the control may repoint pszText instead of filling the
+        // buffer (same note as AHK TV_GetText).
+        out.text = to_utf8(get.pszText ? get.pszText : L"");
+        return Error::none();
+      }
+
+      // ---- StatusBar ----
+      case Op::SbSetParts: {
+        op_name = "SetParts";
+        if (const Error err = require_kind(*child, {K::StatusBar}, op_name); !err.ok()) {
+          return err;
+        }
+        if (call.widths.empty()) {
+          return {Code::InvalidContract, "SetParts needs at least one width"};
+        }
+        for (const int width : call.widths) {
+          if (width < -1 || width == 0) {
+            return {Code::InvalidContract, "part widths are positive pixels or -1 for fill"};
+          }
+        }
+        std::vector<int> edges;
+        edges.reserve(call.widths.size());
+        int acc = 0;
+        for (std::size_t i = 0; i < call.widths.size(); ++i) {
+          if (call.widths[i] == -1) {
+            edges.push_back(-1);  // fill the remainder; must be last
+            if (i + 1 != call.widths.size()) {
+              return {Code::InvalidContract, "only the last part can be -1"};
+            }
+          } else {
+            acc += call.widths[i];
+            edges.push_back(acc);
+          }
+        }
+        if (!SendMessageW(hwnd, SB_SETPARTS, edges.size(),
+                          reinterpret_cast<LPARAM>(edges.data()))) {
+          return {Code::ExecutionFailed, "SetParts was rejected by the control"};
+        }
+        out.number = static_cast<std::int64_t>(edges.size());
+        return Error::none();
+      }
+      case Op::SbSetText: {
+        op_name = "SetText";
+        if (const Error err = require_kind(*child, {K::StatusBar}, op_name); !err.ok()) {
+          return err;
+        }
+        const int part = call.has_index ? static_cast<int>(call.index) : 0;
+        if (part < 0 || part > 255) {
+          return {Code::InvalidContract, "SetText part is out of range"};
+        }
+        WPARAM style = static_cast<WPARAM>(part);
+        if (call.borders.has_value() && !*call.borders) style |= SBT_NOBORDERS;
+        const std::wstring wide = from_utf8(call.text);
+        if (!SendMessageW(hwnd, SB_SETTEXT, style, reinterpret_cast<LPARAM>(wide.c_str()))) {
+          return {Code::InvalidContract, "SetText part does not exist"};
+        }
+        out.number = part;
+        return Error::none();
+      }
+      case Op::SbSetIcon: {
+        op_name = "SetIcon";
+        if (const Error err = require_kind(*child, {K::StatusBar}, op_name); !err.ok()) {
+          return err;
+        }
+        if (call.text.empty()) return {Code::InvalidContract, "SetIcon needs a file"};
+        const int part = call.has_index ? static_cast<int>(call.index) : 0;
+        if (part < 0 || part > 255) {
+          return {Code::InvalidContract, "SetIcon part is out of range"};
+        }
+        const std::wstring file = from_utf8(call.text);
+        HICON icon = static_cast<HICON>(LoadImageW(nullptr, file.c_str(), IMAGE_ICON, 0, 0,
+                                                   LR_LOADFROMFILE | LR_DEFAULTSIZE));
+        if (!icon) {
+          // Resource library (.dll/.exe) + index, the AHK Filename shape.
+          const HICON extracted = ExtractIconW(nullptr, file.c_str(), call.icon_index);
+          if (reinterpret_cast<std::intptr_t>(extracted) <= 32) {
+            return {Code::InvalidContract, "SetIcon cannot load an icon from that file"};
+          }
+          icon = extracted;
+        }
+        const HICON previous = reinterpret_cast<HICON>(
+            SendMessageW(hwnd, SB_SETICON, static_cast<WPARAM>(part),
+                         reinterpret_cast<LPARAM>(icon)));
+        if (previous) DestroyIcon(previous);  // only we ever set part icons
+        child->status_icons[part] = icon;     // survivors die in free_record_state
+        out.number = part;
+        return Error::none();
+      }
+
+      // ---- singles ----
+      case Op::TabUseTab: {
+        op_name = "UseTab";
+        if (const Error err = require_kind(*child, {K::Tab}, op_name); !err.ok()) {
+          return err;
+        }
+        const int count = TabCtrl_GetItemCount(hwnd);
+        int at = -1;
+        if (call.has_index) {
+          if (call.index < 0 || call.index >= count) {
+            return {Code::InvalidContract, "UseTab index is out of range"};
+          }
+          at = static_cast<int>(call.index);
+        } else {
+          if (call.text.empty()) return {Code::InvalidContract, "UseTab needs an index or label"};
+          for (int i = 0; i < count; ++i) {
+            std::wstring buffer(static_cast<std::size_t>(kItemTextChars), L'\0');
+            TCITEMW item{};
+            item.mask = TCIF_TEXT;
+            item.pszText = buffer.data();
+            item.cchTextMax = kItemTextChars;
+            if (!TabCtrl_GetItem(hwnd, i, &item)) continue;
+            buffer.resize(std::wcslen(buffer.c_str()));
+            const std::string label = to_utf8(buffer);
+            const bool match = (call.mode == "prefix") ? label.rfind(call.text, 0) == 0
+                                                       : label == call.text;
+            if (match) {
+              at = i;
+              break;
+            }
+          }
+          if (at < 0) return {Code::InvalidContract, "UseTab found no tab with that label"};
+        }
+        TabCtrl_SetCurSel(hwnd, at);
+        out.number = at;
+        return Error::none();
+      }
+      case Op::DtSetFormat: {
+        op_name = "SetFormat";
+        if (const Error err = require_kind(*child, {K::DateTime}, op_name); !err.ok()) {
+          return err;
+        }
+        if (call.text.empty()) return {Code::InvalidContract, "SetFormat needs a picture"};
+        const std::wstring picture = from_utf8(call.text);
+        SendMessageW(hwnd, DTM_SETFORMATW, 0, reinterpret_cast<LPARAM>(picture.c_str()));
+        return Error::none();
+      }
+      case Op::HotkeySet: {
+        op_name = "SetHotkey";
+        if (const Error err = require_kind(*child, {K::Hotkey}, op_name); !err.ok()) {
+          return err;
+        }
+        if (call.hot_vk == 0) return {Code::InvalidContract, "SetHotkey needs a key"};
+        SendMessageW(hwnd, HKM_SETHOTKEY, MAKEWORD(call.hot_vk, call.hot_modifiers), 0);
+        return Error::none();
+      }
+    }
+    return {Code::InvalidContract, std::string(op_name) + " is not implemented"};
   });
 }
 

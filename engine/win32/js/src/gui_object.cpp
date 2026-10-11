@@ -31,6 +31,7 @@
 #include "rime/js/host.hpp"
 
 #include "async_task.hpp"
+#include "input_util.hpp"
 #include "quickjs.h"
 
 // Only for the SW_* show commands GuiService::gui_window_cmd takes.
@@ -38,6 +39,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+
+#include <commctrl.h>
 
 #include <cmath>
 #include <cstdint>
@@ -334,6 +337,139 @@ bool optional_bool_arg(JSContext* context, JSValueConst* argv, const int index,
     return false;
   }
   out = JS_ToBool(context, argv[index]) > 0;
+  return true;
+}
+
+// Optional positional boolean with a third state: missing/undefined/null
+// leaves `out` empty (leave unchanged); a present value must be a boolean.
+// Batch-3b row/node modifiers ride positionals (never a trailing object -
+// that slot is the ActionOptions, see is_action_object).
+bool optional_tri_arg(JSContext* context, JSValueConst* argv, const int index, const int end,
+                      const char* name, std::optional<bool>& out) {
+  if (index >= end || JS_IsUndefined(argv[index]) || JS_IsNull(argv[index])) return true;
+  if (!JS_IsBool(argv[index])) {
+    JS_ThrowTypeError(context, "%s must be a boolean", name);
+    return false;
+  }
+  out = JS_ToBool(context, argv[index]) > 0;
+  return true;
+}
+
+// Optional positional item id (TreeView stable ids, parent ids): an integer
+// >= 0. Missing/undefined/null leaves `out` empty.
+bool optional_id_arg(JSContext* context, JSValueConst* argv, const int index, const int end,
+                     const char* name, std::optional<std::uint64_t>& out) {
+  if (index >= end || JS_IsUndefined(argv[index]) || JS_IsNull(argv[index])) return true;
+  std::int64_t raw = 0;
+  const std::string label = std::string(name) + " must be a non-negative integer";
+  if (!js_int64_strict(context, argv[index], raw, label.c_str())) return false;
+  if (raw < 0) {
+    JS_ThrowRangeError(context, "%s is out of range", name);
+    return false;
+  }
+  out = static_cast<std::uint64_t>(raw);
+  return true;
+}
+
+// Required positional 0-based index (row, column, part, tab): an integer
+// >= 0. Negative values fail here, synchronously.
+bool required_index_arg(JSContext* context, JSValueConst* argv, const int index, const int end,
+                        const char* signature, const char* name, std::int64_t& out) {
+  if (index >= end || JS_IsUndefined(argv[index]) || JS_IsNull(argv[index])) {
+    JS_ThrowTypeError(context, "%s: %s is required", signature, name);
+    return false;
+  }
+  const std::string label = std::string(signature) + ": " + name + " must be a non-negative integer";
+  if (!js_int64_strict(context, argv[index], out, label.c_str())) return false;
+  if (out < 0) {
+    JS_ThrowRangeError(context, "%s: %s is out of range", signature, name);
+    return false;
+  }
+  return true;
+}
+
+// Optional positional 0-based index: missing/undefined/null leaves `out`
+// empty (Delete() clears, GetNext() starts at the top).
+bool optional_index_arg(JSContext* context, JSValueConst* argv, const int index, const int end,
+                        const char* signature, const char* name, std::optional<std::int64_t>& out) {
+  if (index >= end || JS_IsUndefined(argv[index]) || JS_IsNull(argv[index])) return true;
+  std::int64_t raw = 0;
+  const std::string label = std::string(signature) + ": " + name + " must be a non-negative integer";
+  if (!js_int64_strict(context, argv[index], raw, label.c_str())) return false;
+  if (raw < 0) {
+    JS_ThrowRangeError(context, "%s: %s is out of range", signature, name);
+    return false;
+  }
+  out = raw;
+  return true;
+}
+
+// Required positional node id (TreeView stable id): an integer >= 0.
+bool required_id_arg(JSContext* context, JSValueConst* argv, const int index, const int end,
+                     const char* signature, std::uint64_t& out) {
+  std::optional<std::uint64_t> maybe;
+  if (!optional_id_arg(context, argv, index, end, "node id", maybe)) return false;
+  if (!maybe.has_value()) {
+    JS_ThrowTypeError(context, "%s: node id is required", signature);
+    return false;
+  }
+  out = *maybe;
+  return true;
+}
+
+// Array of strings (row cells, option values, modifier names). Missing slot
+// is a TypeError - callers decide which positions may be omitted.
+bool read_string_array(JSContext* context, JSValueConst value, const char* what,
+                       std::vector<std::string>& out) {
+  if (!JS_IsArray(value)) {
+    JS_ThrowTypeError(context, "%s must be an array of strings", what);
+    return false;
+  }
+  std::int64_t length = 0;
+  if (JS_GetLength(context, value, &length) || length < 0) return false;
+  for (std::int64_t i = 0; i < length; ++i) {
+    JSValue item = JS_GetPropertyUint32(context, value, static_cast<std::uint32_t>(i));
+    bool ok = JS_IsString(item);
+    std::string text;
+    if (ok) {
+      const char* raw = JS_ToCString(context, item);
+      ok = raw != nullptr;
+      if (ok) {
+        text = raw;
+        JS_FreeCString(context, raw);
+      }
+    }
+    JS_FreeValue(context, item);
+    if (!ok) {
+      JS_ThrowTypeError(context, "%s must be an array of strings", what);
+      return false;
+    }
+    out.push_back(std::move(text));
+  }
+  return true;
+}
+
+// Array of integers (StatusBar part widths). Elements must be integral.
+bool read_int_array(JSContext* context, JSValueConst value, const char* what,
+                    std::vector<int>& out) {
+  if (!JS_IsArray(value)) {
+    JS_ThrowTypeError(context, "%s must be an array of integers", what);
+    return false;
+  }
+  std::int64_t length = 0;
+  if (JS_GetLength(context, value, &length) || length < 0) return false;
+  for (std::int64_t i = 0; i < length; ++i) {
+    JSValue item = JS_GetPropertyUint32(context, value, static_cast<std::uint32_t>(i));
+    std::int64_t raw = 0;
+    bool ok = js_int64_strict(context, item, raw, what);
+    JS_FreeValue(context, item);
+    if (!ok) return false;
+    if (raw < std::numeric_limits<int>::min() || raw > std::numeric_limits<int>::max()) {
+      JS_ThrowRangeError(context, "%s is out of range", what);
+      return false;
+    }
+    out.push_back(static_cast<int>(raw));
+  }
   return true;
 }
 
@@ -2268,13 +2404,48 @@ enum CtrlMethodMagic {
   kCtrlRedraw,
   kCtrlSetFont,
   kCtrlSetCue,
+  // Batch 3b: per-kind control methods. Add/Choose/Delete/Insert/Modify/
+  // GetCount/GetText/GetNext are shared names dispatched by kind (list
+  // kinds, ListView rows, TreeView nodes); the rest are kind-specific.
+  // SetImageList stays out (needs the 3c ImageList model).
+  kCtrlAdd,
+  kCtrlChoose,
+  kCtrlDelete,
+  kCtrlInsert,
+  kCtrlModify,
+  kCtrlGetCount,
+  kCtrlGetText,
+  kCtrlGetNext,
+  kCtrlInsertCol,
+  kCtrlModifyCol,
+  kCtrlDeleteCol,
+  kCtrlGet,
+  kCtrlGetChild,
+  kCtrlGetParent,
+  kCtrlGetPrev,
+  kCtrlGetSelection,
+  kCtrlSetParts,
+  kCtrlSetText,
+  kCtrlSetIcon,
+  kCtrlUseTab,
+  kCtrlSetFormat,
+  kCtrlSetHotkey,
   kCtrlMethodCount
 };
 
 constexpr const char* kCtrlMethodNames[] = {"Focus",   "GetPos",   "Move",    "OnCommand",
                                             "OnEvent", "OnMessage", "OnNotify", "Opt",
-                                            "Redraw",  "SetFont",  "SetCue"};
-constexpr int kCtrlMethodLengths[] = {0, 0, 4, 3, 3, 3, 3, 1, 0, 2, 2};
+                                            "Redraw",  "SetFont",  "SetCue",  "Add",
+                                            "Choose",  "Delete",   "Insert",  "Modify",
+                                            "GetCount", "GetText", "GetNext", "InsertCol",
+                                            "ModifyCol", "DeleteCol", "Get",  "GetChild",
+                                            "GetParent", "GetPrev", "GetSelection", "SetParts",
+                                            "SetText", "SetIcon",  "UseTab",  "SetFormat",
+                                            "SetHotkey"};
+constexpr int kCtrlMethodLengths[] = {0, 0, 4, 3, 3, 3, 3, 1, 0, 2, 2,
+                                      5, 1, 1, 5, 5, 1, 2, 2, 4,
+                                      4, 1, 2, 1, 1, 1, 0, 1,
+                                      3, 3, 2, 1, 2};
 
 static_assert(sizeof(kCtrlMethodNames) / sizeof(kCtrlMethodNames[0]) == kCtrlMethodCount);
 static_assert(sizeof(kCtrlMethodLengths) / sizeof(kCtrlMethodLengths[0]) == kCtrlMethodCount);
@@ -2308,6 +2479,47 @@ bool control_has_value(const ControlKind kind) {
          kind == ControlKind::Radio || kind == ControlKind::Progress ||
          kind == ControlKind::DateTime || kind == ControlKind::MonthCal ||
          kind == ControlKind::Slider || kind == ControlKind::UpDown;
+}
+
+// Batch-3b result faces: the service speaks one GuiControlResult; each
+// method declares which face it shows. OrNull faces map the service's
+// empty sentinel (-1 row, 0 node id) to null - never AHK's 0.
+enum class CtrlResultFace { Null, Number, Item, Text, Bool, NumberOrNull, ItemOrNull };
+
+JSValue start_ctrl_invoke(JSContext* context, GuiJsState* state, GuiJs& parent,
+                          const GuiService::GuiSpec& spec, const std::uint64_t ctrl_id,
+                          const ActionOptions& action, GuiService::GuiControlCall call,
+                          const CtrlResultFace face) {
+  return start_gui_op(
+      context, state, parent, action,
+      [spec, ctrl_id, call, face](GuiService& service, const std::int64_t deadline,
+                                  rime::core::CancellationToken cancel) -> AsyncOutcome {
+        GuiService::GuiControlResult result;
+        if (const Error error =
+                service.ctrl_invoke(spec, ctrl_id, call, result, deadline, cancel);
+            !error.ok()) {
+          return async_failure(error);
+        }
+        switch (face) {
+          case CtrlResultFace::Number:
+            return async_success(std::to_string(result.number));
+          case CtrlResultFace::Item:
+            return async_success(std::to_string(result.item));
+          case CtrlResultFace::Text:
+            return async_success(json::stringify(json::Value::string(result.text)));
+          case CtrlResultFace::Bool:
+            return async_success(result.boolean ? "true" : "false");
+          case CtrlResultFace::NumberOrNull:
+            return result.number < 0 ? async_success("null")
+                                     : async_success(std::to_string(result.number));
+          case CtrlResultFace::ItemOrNull:
+            return result.item == 0 ? async_success("null")
+                                    : async_success(std::to_string(result.item));
+          case CtrlResultFace::Null:
+          default:
+            return async_success("null");
+        }
+      });
 }
 
 JSValue ctrl_method(JSContext* context, JSValueConst this_val, int argc, JSValueConst* argv,
@@ -2457,6 +2669,544 @@ JSValue ctrl_method(JSContext* context, JSValueConst this_val, int argc, JSValue
                             return null_out(service.ctrl_set_cue(spec, ctrl_id, cue, activate,
                                                                  deadline, cancel));
                           });
+    }
+
+    case kCtrlAdd: {
+      if (!split()) return JS_EXCEPTION;
+      GuiService::GuiControlCall call;
+      CtrlResultFace face = CtrlResultFace::Number;
+      const ControlKind kind = control->kind;
+      if (kind == ControlKind::ListBox || kind == ControlKind::ComboBox ||
+          kind == ControlKind::DropDownList) {
+        if (end != 1) return JS_ThrowTypeError(context, "Add(value)");
+        if (JS_IsArray(argv[0])) {
+          if (!read_string_array(context, argv[0], "value", call.columns)) return JS_EXCEPTION;
+        } else {
+          std::string value;
+          if (!read_string(context, argv[0], "value", value)) return JS_EXCEPTION;
+          call.columns.push_back(std::move(value));
+        }
+        call.op = GuiService::GuiControlCallOp::ListAdd;
+      } else if (kind == ControlKind::ListView) {
+        if (end < 1 || end > 4) {
+          return JS_ThrowTypeError(context, "Add(columns, selected?, focused?, checked?)");
+        }
+        if (!read_string_array(context, argv[0], "columns", call.columns)) return JS_EXCEPTION;
+        if (!optional_tri_arg(context, argv, 1, end, "selected", call.selected) ||
+            !optional_tri_arg(context, argv, 2, end, "focused", call.focused) ||
+            !optional_tri_arg(context, argv, 3, end, "checked", call.checked)) {
+          return JS_EXCEPTION;
+        }
+        call.op = GuiService::GuiControlCallOp::LvAddRow;
+      } else if (kind == ControlKind::TreeView) {
+        if (end < 1 || end > 5) {
+          return JS_ThrowTypeError(context, "Add(text, parentId?, selected?, expanded?, bold?)");
+        }
+        if (!read_string(context, argv[0], "text", call.text)) return JS_EXCEPTION;
+        std::optional<std::uint64_t> parent;
+        if (!optional_id_arg(context, argv, 1, end, "parentId", parent)) return JS_EXCEPTION;
+        if (parent.has_value()) {
+          call.item = *parent;
+          call.has_item = true;
+        }
+        if (!optional_tri_arg(context, argv, 2, end, "selected", call.selected) ||
+            !optional_tri_arg(context, argv, 3, end, "expanded", call.expanded) ||
+            !optional_tri_arg(context, argv, 4, end, "bold", call.bold)) {
+          return JS_EXCEPTION;
+        }
+        call.op = GuiService::GuiControlCallOp::TvAdd;
+        face = CtrlResultFace::Item;
+      } else {
+        return JS_ThrowTypeError(context, "Add() is not supported by this control");
+      }
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call, face);
+    }
+
+    case kCtrlChoose: {
+      if (!split()) return JS_EXCEPTION;
+      const ControlKind kind = control->kind;
+      if (kind != ControlKind::ListBox && kind != ControlKind::ComboBox &&
+          kind != ControlKind::DropDownList) {
+        return JS_ThrowTypeError(context, "Choose() needs a list control");
+      }
+      if (end != 1) return JS_ThrowTypeError(context, "Choose(index | text)");
+      GuiService::GuiControlCall call;
+      call.op = GuiService::GuiControlCallOp::ListChoose;
+      if (JS_IsString(argv[0])) {
+        if (!read_string(context, argv[0], "text", call.text)) return JS_EXCEPTION;
+      } else {
+        std::optional<std::int64_t> at;
+        if (!optional_index_arg(context, argv, 0, end, "Choose", "index", at)) return JS_EXCEPTION;
+        if (!at.has_value()) return JS_ThrowTypeError(context, "Choose(index | text)");
+        call.index = *at;
+        call.has_index = true;
+      }
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Number);
+    }
+
+    case kCtrlDelete: {
+      if (!split()) return JS_EXCEPTION;
+      GuiService::GuiControlCall call;
+      const ControlKind kind = control->kind;
+      if (kind == ControlKind::ListBox || kind == ControlKind::ComboBox ||
+          kind == ControlKind::DropDownList) {
+        if (end > 1) return JS_ThrowTypeError(context, "Delete(index?)");
+        call.op = GuiService::GuiControlCallOp::ListDelete;
+        std::optional<std::int64_t> at;
+        if (!optional_index_arg(context, argv, 0, end, "Delete", "index", at)) return JS_EXCEPTION;
+        if (at.has_value()) {
+          call.index = *at;
+          call.has_index = true;
+        }
+      } else if (kind == ControlKind::ListView) {
+        if (end > 1) return JS_ThrowTypeError(context, "Delete(index?)");
+        call.op = GuiService::GuiControlCallOp::LvDeleteRows;
+        std::optional<std::int64_t> at;
+        if (!optional_index_arg(context, argv, 0, end, "Delete", "index", at)) return JS_EXCEPTION;
+        if (at.has_value()) {
+          call.index = *at;
+          call.has_index = true;
+        }
+      } else if (kind == ControlKind::TreeView) {
+        if (end > 1) return JS_ThrowTypeError(context, "Delete(nodeId?)");
+        call.op = GuiService::GuiControlCallOp::TvDelete;
+        std::optional<std::uint64_t> id;
+        if (!optional_id_arg(context, argv, 0, end, "node id", id)) return JS_EXCEPTION;
+        if (id.has_value()) {
+          call.item = *id;
+          call.has_item = true;
+        }
+      } else {
+        return JS_ThrowTypeError(context, "Delete() is not supported by this control");
+      }
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Number);
+    }
+
+    case kCtrlInsert: {
+      if (!split()) return JS_EXCEPTION;
+      if (control->kind != ControlKind::ListView) {
+        return JS_ThrowTypeError(context, "Insert() needs a ListView");
+      }
+      if (end < 2 || end > 5) {
+        return JS_ThrowTypeError(context, "Insert(index, columns, selected?, focused?, checked?)");
+      }
+      GuiService::GuiControlCall call;
+      call.op = GuiService::GuiControlCallOp::LvInsertRow;
+      if (!required_index_arg(context, argv, 0, end, "Insert", "index", call.index)) {
+        return JS_EXCEPTION;
+      }
+      call.has_index = true;
+      if (!read_string_array(context, argv[1], "columns", call.columns)) return JS_EXCEPTION;
+      if (!optional_tri_arg(context, argv, 2, end, "selected", call.selected) ||
+          !optional_tri_arg(context, argv, 3, end, "focused", call.focused) ||
+          !optional_tri_arg(context, argv, 4, end, "checked", call.checked)) {
+        return JS_EXCEPTION;
+      }
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Number);
+    }
+
+    case kCtrlModify: {
+      if (!split()) return JS_EXCEPTION;
+      GuiService::GuiControlCall call;
+      CtrlResultFace face = CtrlResultFace::Number;
+      if (control->kind == ControlKind::ListView) {
+        if (end < 1 || end > 5) {
+          return JS_ThrowTypeError(context,
+                                    "Modify(index, columns?, selected?, focused?, checked?)");
+        }
+        call.op = GuiService::GuiControlCallOp::LvModifyRow;
+        if (!required_index_arg(context, argv, 0, end, "Modify", "index", call.index)) {
+          return JS_EXCEPTION;
+        }
+        call.has_index = true;
+        if (end > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+          if (!read_string_array(context, argv[1], "columns", call.columns)) return JS_EXCEPTION;
+        }
+        if (!optional_tri_arg(context, argv, 2, end, "selected", call.selected) ||
+            !optional_tri_arg(context, argv, 3, end, "focused", call.focused) ||
+            !optional_tri_arg(context, argv, 4, end, "checked", call.checked)) {
+          return JS_EXCEPTION;
+        }
+      } else if (control->kind == ControlKind::TreeView) {
+        if (end < 1 || end > 5) {
+          return JS_ThrowTypeError(context, "Modify(nodeId, text?, selected?, expanded?, bold?)");
+        }
+        call.op = GuiService::GuiControlCallOp::TvModify;
+        if (!required_id_arg(context, argv, 0, end, "Modify", call.item)) return JS_EXCEPTION;
+        call.has_item = true;
+        if (!optional_string_arg(context, argc, argv, 1, "Modify", "text", call.text)) {
+          return JS_EXCEPTION;
+        }
+        if (!optional_tri_arg(context, argv, 2, end, "selected", call.selected) ||
+            !optional_tri_arg(context, argv, 3, end, "expanded", call.expanded) ||
+            !optional_tri_arg(context, argv, 4, end, "bold", call.bold)) {
+          return JS_EXCEPTION;
+        }
+        face = CtrlResultFace::Item;
+      } else {
+        return JS_ThrowTypeError(context, "Modify() needs a ListView or TreeView");
+      }
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call, face);
+    }
+
+    case kCtrlGetCount: {
+      if (!split()) return JS_EXCEPTION;
+      GuiService::GuiControlCall call;
+      if (control->kind == ControlKind::ListView) {
+        if (end > 1) return JS_ThrowTypeError(context, "GetCount(mode?)");
+        call.op = GuiService::GuiControlCallOp::LvGetCount;
+        if (!optional_string_arg(context, argc, argv, 0, "GetCount", "mode", call.mode)) {
+          return JS_EXCEPTION;
+        }
+        call.mode = ascii_lower(call.mode);
+      } else if (control->kind == ControlKind::TreeView) {
+        if (end > 0) return JS_ThrowTypeError(context, "GetCount()");
+        call.op = GuiService::GuiControlCallOp::TvGetCount;
+      } else {
+        return JS_ThrowTypeError(context, "GetCount() needs a ListView or TreeView");
+      }
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Number);
+    }
+
+    case kCtrlGetText: {
+      if (!split()) return JS_EXCEPTION;
+      GuiService::GuiControlCall call;
+      if (control->kind == ControlKind::ListView) {
+        if (end < 1 || end > 2) return JS_ThrowTypeError(context, "GetText(row, column?)");
+        call.op = GuiService::GuiControlCallOp::LvGetText;
+        if (!required_index_arg(context, argv, 0, end, "GetText", "row", call.index)) {
+          return JS_EXCEPTION;
+        }
+        call.has_index = true;
+        std::optional<std::int64_t> column;
+        if (!optional_index_arg(context, argv, 1, end, "GetText", "column", column)) {
+          return JS_EXCEPTION;
+        }
+        if (column.has_value()) {
+          call.sub = *column;
+          call.has_sub = true;
+        }
+      } else if (control->kind == ControlKind::TreeView) {
+        if (end != 1) return JS_ThrowTypeError(context, "GetText(nodeId)");
+        call.op = GuiService::GuiControlCallOp::TvGetText;
+        if (!required_id_arg(context, argv, 0, end, "GetText", call.item)) return JS_EXCEPTION;
+        call.has_item = true;
+      } else {
+        return JS_ThrowTypeError(context, "GetText() needs a ListView or TreeView");
+      }
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Text);
+    }
+
+    case kCtrlGetNext: {
+      if (!split()) return JS_EXCEPTION;
+      GuiService::GuiControlCall call;
+      CtrlResultFace face = CtrlResultFace::NumberOrNull;
+      if (control->kind == ControlKind::ListView) {
+        if (end > 2) return JS_ThrowTypeError(context, "GetNext(start?, filter?)");
+        call.op = GuiService::GuiControlCallOp::LvGetNext;
+        if (end > 0 && !JS_IsUndefined(argv[0]) && !JS_IsNull(argv[0])) {
+          std::int64_t start = -1;
+          const std::string label("GetNext: start must be an integer >= -1");
+          if (!js_int64_strict(context, argv[0], start, label.c_str())) return JS_EXCEPTION;
+          if (start < -1) return JS_ThrowRangeError(context, "GetNext: start is out of range");
+          call.index = start;
+          call.has_index = true;
+        }
+        if (!optional_string_arg(context, argc, argv, 1, "GetNext", "filter", call.mode)) {
+          return JS_EXCEPTION;
+        }
+        call.mode = ascii_lower(call.mode);
+        if (!call.mode.empty() && call.mode != "selected" && call.mode != "focused" &&
+            call.mode != "checked") {
+          return JS_ThrowTypeError(context, "GetNext: filter is selected, focused or checked");
+        }
+      } else if (control->kind == ControlKind::TreeView) {
+        if (end > 2) return JS_ThrowTypeError(context, "GetNext(nodeId?, traversal?)");
+        call.op = GuiService::GuiControlCallOp::TvGetNext;
+        std::optional<std::uint64_t> id;
+        if (!optional_id_arg(context, argv, 0, end, "node id", id)) return JS_EXCEPTION;
+        if (id.has_value()) {
+          call.item = *id;
+          call.has_item = true;
+        }
+        if (!optional_string_arg(context, argc, argv, 1, "GetNext", "traversal", call.mode)) {
+          return JS_EXCEPTION;
+        }
+        call.mode = ascii_lower(call.mode);
+        if (call.mode.empty()) call.mode = "sibling";
+        if (call.mode != "sibling" && call.mode != "document") {
+          return JS_ThrowTypeError(context, "GetNext: traversal is sibling or document");
+        }
+        face = CtrlResultFace::ItemOrNull;
+      } else {
+        return JS_ThrowTypeError(context, "GetNext() needs a ListView or TreeView");
+      }
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call, face);
+    }
+
+    case kCtrlInsertCol:
+    case kCtrlModifyCol: {
+      if (!split()) return JS_EXCEPTION;
+      if (control->kind != ControlKind::ListView) {
+        return JS_ThrowTypeError(context, "column methods need a ListView");
+      }
+      const bool insert = magic == kCtrlInsertCol;
+      const char* signature =
+          insert ? "InsertCol(index?, title?, width?, align?)" : "ModifyCol(index, title?, width?, align?)";
+      if ((!insert && end < 1) || end > 4) return JS_ThrowTypeError(context, "%s", signature);
+      GuiService::GuiControlCall call;
+      call.op = insert ? GuiService::GuiControlCallOp::LvInsertCol
+                       : GuiService::GuiControlCallOp::LvModifyCol;
+      if (insert) {
+        std::optional<std::int64_t> at;
+        if (!optional_index_arg(context, argv, 0, end, signature, "index", at)) return JS_EXCEPTION;
+        if (at.has_value()) {
+          call.index = *at;
+          call.has_index = true;
+        }
+      } else {
+        if (!required_index_arg(context, argv, 0, end, signature, "index", call.index)) {
+          return JS_EXCEPTION;
+        }
+        call.has_index = true;
+      }
+      if (end > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
+        std::string title;
+        if (!read_string(context, argv[1], "title", title)) return JS_EXCEPTION;
+        call.title = std::move(title);
+      }
+      std::optional<int> width;
+      if (!optional_int_arg(context, argv, 2, end, "width", width)) return JS_EXCEPTION;
+      if (width.has_value()) call.width = *width;
+      if (end > 3 && !JS_IsUndefined(argv[3]) && !JS_IsNull(argv[3])) {
+        std::string align;
+        if (!read_string(context, argv[3], "align", align)) return JS_EXCEPTION;
+        align = ascii_lower(align);
+        if (align != "left" && align != "center" && align != "right") {
+          return JS_ThrowTypeError(context, "%s: align is left, center or right", signature);
+        }
+        call.align = std::move(align);
+      }
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Number);
+    }
+
+    case kCtrlDeleteCol: {
+      if (!split()) return JS_EXCEPTION;
+      if (control->kind != ControlKind::ListView) {
+        return JS_ThrowTypeError(context, "DeleteCol() needs a ListView");
+      }
+      if (end != 1) return JS_ThrowTypeError(context, "DeleteCol(index)");
+      GuiService::GuiControlCall call;
+      call.op = GuiService::GuiControlCallOp::LvDeleteCol;
+      if (!required_index_arg(context, argv, 0, end, "DeleteCol", "index", call.index)) {
+        return JS_EXCEPTION;
+      }
+      call.has_index = true;
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Number);
+    }
+
+    case kCtrlGet: {
+      if (!split()) return JS_EXCEPTION;
+      if (control->kind != ControlKind::TreeView) {
+        return JS_ThrowTypeError(context, "Get() needs a TreeView");
+      }
+      if (end != 2) return JS_ThrowTypeError(context, "Get(nodeId, attribute)");
+      GuiService::GuiControlCall call;
+      call.op = GuiService::GuiControlCallOp::TvGet;
+      if (!required_id_arg(context, argv, 0, end, "Get", call.item)) return JS_EXCEPTION;
+      call.has_item = true;
+      if (!read_string(context, argv[1], "attribute", call.mode)) return JS_EXCEPTION;
+      call.mode = ascii_lower(call.mode);
+      if (call.mode != "expanded" && call.mode != "checked" && call.mode != "bold") {
+        return JS_ThrowTypeError(context, "Get: attribute is expanded, checked or bold");
+      }
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Bool);
+    }
+
+    case kCtrlGetChild:
+    case kCtrlGetParent:
+    case kCtrlGetPrev: {
+      if (!split()) return JS_EXCEPTION;
+      if (control->kind != ControlKind::TreeView) {
+        return JS_ThrowTypeError(context, "tree navigation needs a TreeView");
+      }
+      const char* signature =
+          magic == kCtrlGetChild ? "GetChild(nodeId)" : magic == kCtrlGetParent ? "GetParent(nodeId)"
+                                                                                : "GetPrev(nodeId)";
+      if (end != 1) return JS_ThrowTypeError(context, "%s", signature);
+      GuiService::GuiControlCall call;
+      call.op = magic == kCtrlGetChild ? GuiService::GuiControlCallOp::TvGetChild
+                : magic == kCtrlGetParent ? GuiService::GuiControlCallOp::TvGetParent
+                                          : GuiService::GuiControlCallOp::TvGetPrev;
+      if (!required_id_arg(context, argv, 0, end, signature, call.item)) return JS_EXCEPTION;
+      call.has_item = true;
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::ItemOrNull);
+    }
+
+    case kCtrlGetSelection: {
+      if (!split()) return JS_EXCEPTION;
+      if (control->kind != ControlKind::TreeView) {
+        return JS_ThrowTypeError(context, "GetSelection() needs a TreeView");
+      }
+      if (end > 0) return JS_ThrowTypeError(context, "GetSelection()");
+      GuiService::GuiControlCall call;
+      call.op = GuiService::GuiControlCallOp::TvGetSelection;
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::ItemOrNull);
+    }
+
+    case kCtrlSetParts: {
+      if (!split()) return JS_EXCEPTION;
+      if (control->kind != ControlKind::StatusBar) {
+        return JS_ThrowTypeError(context, "SetParts() needs a StatusBar");
+      }
+      if (end != 1) return JS_ThrowTypeError(context, "SetParts(widths)");
+      GuiService::GuiControlCall call;
+      call.op = GuiService::GuiControlCallOp::SbSetParts;
+      if (!read_int_array(context, argv[0], "widths", call.widths)) return JS_EXCEPTION;
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Number);
+    }
+
+    case kCtrlSetText: {
+      if (!split()) return JS_EXCEPTION;
+      if (control->kind != ControlKind::StatusBar) {
+        return JS_ThrowTypeError(context, "SetText() needs a StatusBar");
+      }
+      if (end < 1 || end > 3) {
+        return JS_ThrowTypeError(context, "SetText(text, part?, borders?)");
+      }
+      GuiService::GuiControlCall call;
+      call.op = GuiService::GuiControlCallOp::SbSetText;
+      if (!read_string(context, argv[0], "text", call.text)) return JS_EXCEPTION;
+      std::optional<std::int64_t> part;
+      if (!optional_index_arg(context, argv, 1, end, "SetText", "part", part)) return JS_EXCEPTION;
+      if (part.has_value()) {
+        call.index = *part;
+        call.has_index = true;
+      }
+      if (!optional_tri_arg(context, argv, 2, end, "borders", call.borders)) {
+        return JS_EXCEPTION;
+      }
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Number);
+    }
+
+    case kCtrlSetIcon: {
+      if (!split()) return JS_EXCEPTION;
+      if (control->kind != ControlKind::StatusBar) {
+        return JS_ThrowTypeError(context, "SetIcon() needs a StatusBar");
+      }
+      if (end < 1 || end > 3) {
+        return JS_ThrowTypeError(context, "SetIcon(file, iconIndex?, part?)");
+      }
+      GuiService::GuiControlCall call;
+      call.op = GuiService::GuiControlCallOp::SbSetIcon;
+      if (!read_string(context, argv[0], "file", call.text)) return JS_EXCEPTION;
+      std::optional<int> icon_index;
+      if (!optional_int_arg(context, argv, 1, end, "iconIndex", icon_index)) return JS_EXCEPTION;
+      if (icon_index.has_value()) {
+        if (*icon_index < 0) return JS_ThrowRangeError(context, "SetIcon: iconIndex is out of range");
+        call.icon_index = *icon_index;
+      }
+      std::optional<std::int64_t> part;
+      if (!optional_index_arg(context, argv, 2, end, "SetIcon", "part", part)) return JS_EXCEPTION;
+      if (part.has_value()) {
+        call.index = *part;
+        call.has_index = true;
+      }
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Number);
+    }
+
+    case kCtrlUseTab: {
+      if (!split()) return JS_EXCEPTION;
+      if (control->kind != ControlKind::Tab) {
+        return JS_ThrowTypeError(context, "UseTab() needs a Tab control");
+      }
+      if (end < 1 || end > 2) return JS_ThrowTypeError(context, "UseTab(index | label, exactMatch?)");
+      GuiService::GuiControlCall call;
+      call.op = GuiService::GuiControlCallOp::TabUseTab;
+      if (JS_IsString(argv[0])) {
+        if (!read_string(context, argv[0], "label", call.text)) return JS_EXCEPTION;
+      } else {
+        std::optional<std::int64_t> at;
+        if (!optional_index_arg(context, argv, 0, end, "UseTab", "index", at)) {
+          return JS_EXCEPTION;
+        }
+        if (!at.has_value()) return JS_ThrowTypeError(context, "UseTab(index | label, exactMatch?)");
+        call.index = *at;
+        call.has_index = true;
+      }
+      bool exact_match = true;
+      if (!optional_bool_arg(context, argv, 1, end, "exactMatch", exact_match)) {
+        return JS_EXCEPTION;
+      }
+      call.mode = exact_match ? "exact" : "prefix";
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Number);
+    }
+
+    case kCtrlSetFormat: {
+      if (!split()) return JS_EXCEPTION;
+      if (control->kind != ControlKind::DateTime) {
+        return JS_ThrowTypeError(context, "SetFormat() needs a DateTime control");
+      }
+      if (end != 1) return JS_ThrowTypeError(context, "SetFormat(picture)");
+      GuiService::GuiControlCall call;
+      call.op = GuiService::GuiControlCallOp::DtSetFormat;
+      if (!read_string(context, argv[0], "picture", call.text)) return JS_EXCEPTION;
+      if (call.text.empty()) return JS_ThrowTypeError(context, "SetFormat: picture must not be empty");
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Null);
+    }
+
+    case kCtrlSetHotkey: {
+      if (!split()) return JS_EXCEPTION;
+      if (control->kind != ControlKind::Hotkey) {
+        return JS_ThrowTypeError(context, "SetHotkey() needs a Hotkey control");
+      }
+      if (end != 2) return JS_ThrowTypeError(context, "SetHotkey(modifiers, key)");
+      std::vector<std::string> modifiers;
+      if (!read_string_array(context, argv[0], "modifiers", modifiers)) return JS_EXCEPTION;
+      GuiService::GuiControlCall call;
+      call.op = GuiService::GuiControlCallOp::HotkeySet;
+      for (const std::string& name : modifiers) {
+        const std::string lower = ascii_lower(name);
+        if (lower == "shift" || lower == "lshift" || lower == "rshift") {
+          call.hot_modifiers |= HOTKEYF_SHIFT;
+        } else if (lower == "ctrl" || lower == "control" || lower == "lctrl" ||
+                   lower == "rctrl" || lower == "lcontrol" || lower == "rcontrol") {
+          call.hot_modifiers |= HOTKEYF_CONTROL;
+        } else if (lower == "alt" || lower == "lalt" || lower == "ralt") {
+          call.hot_modifiers |= HOTKEYF_ALT;
+        } else {
+          return JS_ThrowTypeError(context, "SetHotkey: modifier is shift, ctrl or alt");
+        }
+      }
+      std::string key;
+      if (!read_string(context, argv[1], "key", key)) return JS_EXCEPTION;
+      std::uint32_t vk = 0;
+      std::string key_error;
+      if (!chord_key(ascii_lower(key), vk, key_error)) {
+        JS_ThrowTypeError(context, "SetHotkey: %s", key_error.c_str());
+        return JS_EXCEPTION;
+      }
+      if (vk == 0 || vk > 0xFF) {
+        return JS_ThrowTypeError(context, "SetHotkey: key has no hotkey virtual key");
+      }
+      call.hot_vk = static_cast<std::uint8_t>(vk);
+      return start_ctrl_invoke(context, state, *parent, spec, ctrl_id, action, call,
+                               CtrlResultFace::Null);
     }
 
     default:

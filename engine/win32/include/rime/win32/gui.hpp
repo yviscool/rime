@@ -11,6 +11,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace rime::win32 {
 
@@ -432,6 +433,99 @@ class GuiService {
                                  const std::string& cue, bool activate,
                                  std::int64_t deadline_unix_ms,
                                  rime::core::CancellationToken cancel);
+
+  // ---- batch 3b: per-kind control methods --------------------------------
+  // One tagged call crosses the pump (ctrl_invoke); the JS binding parses
+  // arguments per kind and every method below is kind-checked on the pump
+  // (wrong kind = InvalidContract, same as ctrl_set_cue's Edit-only rule).
+  // Add/Choose/Delete/Insert/Modify/GetCount/GetText/GetNext are shared
+  // names dispatched by kind: list kinds (ListBox/ComboBox/DropDownList),
+  // ListView rows, TreeView nodes. Positions are 0-based (AHK's 1-based
+  // rows/columns are NOT kept); empty results are null/0, never AHK's 0-id.
+  // TreeView nodes are addressed by stable ids issued at Add (per control,
+  // from 1); HTREEITEM handles never leave the pump.
+  enum class GuiControlCallOp {
+    ListAdd,
+    ListChoose,
+    ListDelete,
+    LvAddRow,
+    LvInsertRow,
+    LvModifyRow,
+    LvDeleteRows,
+    LvGetCount,
+    LvGetText,
+    LvGetNext,
+    LvInsertCol,
+    LvModifyCol,
+    LvDeleteCol,
+    TvAdd,
+    TvDelete,
+    TvModify,
+    TvGet,
+    TvGetChild,
+    TvGetCount,
+    TvGetNext,
+    TvGetParent,
+    TvGetPrev,
+    TvGetSelection,
+    TvGetText,
+    SbSetParts,
+    SbSetText,
+    SbSetIcon,
+    TabUseTab,
+    DtSetFormat,
+    HotkeySet,
+  };
+  struct GuiControlCall {
+    GuiControlCallOp op{GuiControlCallOp::ListAdd};
+    // 0-based row/column/part/index (-1 = omitted). has_index distinguishes
+    // an explicit 0 from "no argument" (Delete() clears, Delete(0) removes).
+    std::int64_t index{-1};
+    bool has_index{false};
+    // Second axis: GetText column (ListView), unused elsewhere.
+    std::int64_t sub{0};
+    bool has_sub{false};
+    // TreeView node id (0 = omitted: TvAdd at root, TvDelete clears all).
+    std::uint64_t item{0};
+    bool has_item{false};
+    // Name (TvAdd), format picture (DtSetFormat), value (ListChoose text),
+    // file (SbSetIcon), label (TabUseTab by name).
+    std::string text;
+    // Normalized lowercase selector: count mode / next filter / Get
+    // attribute ("expanded"|"checked"|"bold") / traversal / column align.
+    std::string mode;
+    // Row cells (LV), option values (ListAdd), part widths are numbers.
+    std::vector<std::string> columns;
+    std::vector<int> widths;
+    // Row/node modifier boxes; nullopt = leave unchanged.
+    std::optional<bool> selected;
+    std::optional<bool> focused;
+    std::optional<bool> checked;
+    std::optional<bool> expanded;
+    std::optional<bool> bold;
+    // StatusBar SetText style box. Win32 only offers SBT_NOBORDERS here
+    // (SBT_OWNERDRAW needs DRAWITEM handling: out of scope, documented).
+    std::optional<bool> borders;
+    // ListView column box.
+    std::optional<int> width;
+    std::optional<std::string> title;
+    std::optional<std::string> align;
+    // SbSetIcon resource index inside file/dll.
+    int icon_index{0};
+    // HotkeySet chord, parsed JS-side (same letters as Hotkey content).
+    std::uint8_t hot_modifiers{0};
+    std::uint8_t hot_vk{0};
+  };
+  struct GuiControlResult {
+    std::int64_t number{0};
+    std::uint64_t item{0};
+    std::string text;
+    bool boolean{false};
+  };
+  rime::core::Error ctrl_invoke(const GuiSpec& gui, std::uint64_t ctrl_id,
+                                const GuiControlCall& call, GuiControlResult& out,
+                                std::int64_t deadline_unix_ms,
+                                rime::core::CancellationToken cancel);
 
   // How many Gui windows the pump currently owns (tests and diagnostics;
   // never a handle).

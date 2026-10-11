@@ -51,6 +51,28 @@ export interface GuiControlNative {
   Focus(action?: NativeActionOptions): Promise<unknown>;
   Move(x: number, y: number, w?: number, h?: number, action?: NativeActionOptions): Promise<unknown>;
   SetCue(text: string, action?: NativeActionOptions): Promise<unknown>;
+  Add(a: string | string[] | number, b?: number | boolean | string, c?: boolean, d?: boolean, e?: boolean, action?: NativeActionOptions): Promise<unknown>;
+  Choose(value: number | string, action?: NativeActionOptions): Promise<unknown>;
+  Delete(index?: number, action?: NativeActionOptions): Promise<unknown>;
+  Insert(index: number, columns: string[], selected?: boolean, focused?: boolean, checked?: boolean, action?: NativeActionOptions): Promise<unknown>;
+  Modify(index: number, columns?: string[] | string, b?: boolean | string, c?: boolean, d?: boolean, e?: boolean, action?: NativeActionOptions): Promise<unknown>;
+  GetCount(mode?: string, action?: NativeActionOptions): Promise<unknown>;
+  GetText(row: number, column?: number, action?: NativeActionOptions): Promise<unknown>;
+  GetNext(start?: number, filter?: string, action?: NativeActionOptions): Promise<unknown>;
+  InsertCol(index?: number, title?: string, width?: number, align?: string, action?: NativeActionOptions): Promise<unknown>;
+  ModifyCol(index: number, title?: string, width?: number, align?: string, action?: NativeActionOptions): Promise<unknown>;
+  DeleteCol(index: number, action?: NativeActionOptions): Promise<unknown>;
+  Get(nodeId: number, attribute: string, action?: NativeActionOptions): Promise<unknown>;
+  GetChild(nodeId: number, action?: NativeActionOptions): Promise<unknown>;
+  GetParent(nodeId: number, action?: NativeActionOptions): Promise<unknown>;
+  GetPrev(nodeId: number, action?: NativeActionOptions): Promise<unknown>;
+  GetSelection(action?: NativeActionOptions): Promise<unknown>;
+  SetParts(widths: number[], action?: NativeActionOptions): Promise<unknown>;
+  SetText(text: string, part?: number, borders?: boolean, action?: NativeActionOptions): Promise<unknown>;
+  SetIcon(file: string, iconIndex?: number, part?: number, action?: NativeActionOptions): Promise<unknown>;
+  UseTab(index: number | string, exactMatch?: boolean, action?: NativeActionOptions): Promise<unknown>;
+  SetFormat(picture: string, action?: NativeActionOptions): Promise<unknown>;
+  SetHotkey(modifiers: string[], key: string, action?: NativeActionOptions): Promise<unknown>;
 }
 
 async function createGuiBridge(): Promise<{
@@ -349,6 +371,153 @@ export class GuiControl {
   setCue(text: string, options?: ActionOptions): Promise<void> {
     return runAction(options, (native) =>
       this.native.SetCue(text, native).then(() => undefined),
+    );
+  }
+
+  // ---- batch 3b: per-kind control methods --------------------------------
+  // Positions are 0-based and misses resolve null (gui-menu.md §4.x). Add /
+  // Delete / Modify / GetCount / GetText / GetNext are shared native names
+  // dispatched by kind: list kinds take option values, ListView takes rows,
+  // TreeView takes stable node ids issued by add.
+
+  /** List kinds: append value(s), returns the new count. */
+  add(value: string | string[], options?: ActionOptions): Promise<number>;
+  /** ListView: append a row, returns its 0-based index. */
+  add(columns: string[], selected?: boolean, focused?: boolean, checked?: boolean, options?: ActionOptions): Promise<number>;
+  /** TreeView: append a node under parentId (omitted = root), returns its id. */
+  add(text: string, parentId?: number, selected?: boolean, expanded?: boolean, bold?: boolean, options?: ActionOptions): Promise<number>;
+  add(a: string | string[], ...rest: unknown[]): Promise<number> {
+    const [b, c, d, e, options] = rest;
+    return runAction(options as ActionOptions | undefined, (native) =>
+      this.native.Add(a, b as number | boolean | string | undefined, c as boolean | undefined,
+        d as boolean | undefined, e as boolean | undefined, native).then(Number),
+    );
+  }
+  /** List kinds only: select by 0-based index or exact text. */
+  choose(value: number | string, options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      this.native.Choose(value, native).then(Number),
+    );
+  }
+  /** List/ListView: remove index (omitted clears). TreeView: remove node (omitted clears). */
+  deleteItem(index?: number, options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      this.native.Delete(index, native).then(Number),
+    );
+  }
+  /** ListView only: insert a row at index. */
+  insert(index: number, columns: string[], selected?: boolean, focused?: boolean, checked?: boolean, options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      this.native.Insert(index, columns, selected, focused, checked, native).then(Number),
+    );
+  }
+  /** ListView: rewrite row cells and/or flags. TreeView: rename a node and/or flags. */
+  modify(index: number, ...rest: unknown[]): Promise<number> {
+    const [second, b, c, d, e, options] = rest;
+    return runAction(options as ActionOptions | undefined, (native) =>
+      this.native.Modify(index, second as string[] | string | undefined,
+        b as boolean | string | undefined, c as boolean | undefined, d as boolean | undefined,
+        e as boolean | undefined, native).then(Number),
+    );
+  }
+  /** ListView: row count (mode all/selected/columns). TreeView: node count. */
+  getCount(mode?: string, options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      this.native.GetCount(mode, native).then(Number),
+    );
+  }
+  /** ListView: cell text. TreeView: pass a node id as row. */
+  getText(row: number, column?: number, options?: ActionOptions): Promise<string> {
+    return runAction(options, (native) =>
+      this.native.GetText(row, column, native).then(String),
+    );
+  }
+  /** ListView: next matching row (null when none). TreeView: pass a node id. */
+  getNext(start?: number, filter?: string, options?: ActionOptions): Promise<number | null> {
+    return runAction(options, (native) =>
+      this.native.GetNext(start, filter, native).then((v) => (v === null ? null : Number(v))),
+    );
+  }
+  /** ListView only: insert a column (omitted index appends). */
+  insertCol(index?: number, title?: string, width?: number, align?: string, options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      this.native.InsertCol(index, title, width, align, native).then(Number),
+    );
+  }
+  /** ListView only: retitle/resize/realign a column. */
+  modifyCol(index: number, title?: string, width?: number, align?: string, options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      this.native.ModifyCol(index, title, width, align, native).then(Number),
+    );
+  }
+  /** ListView only: remove a column, returns the remaining count. */
+  deleteCol(index: number, options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      this.native.DeleteCol(index, native).then(Number),
+    );
+  }
+  /** TreeView only: expanded/checked/bold flag of a node. */
+  get(nodeId: number, attribute: string, options?: ActionOptions): Promise<boolean> {
+    return runAction(options, (native) =>
+      this.native.Get(nodeId, attribute, native).then((v) => v === true),
+    );
+  }
+  /** TreeView only: first child / parent / previous sibling (null when none). */
+  getChild(nodeId: number, options?: ActionOptions): Promise<number | null> {
+    return runAction(options, (native) =>
+      this.native.GetChild(nodeId, native).then((v) => (v === null ? null : Number(v))),
+    );
+  }
+  getParent(nodeId: number, options?: ActionOptions): Promise<number | null> {
+    return runAction(options, (native) =>
+      this.native.GetParent(nodeId, native).then((v) => (v === null ? null : Number(v))),
+    );
+  }
+  getPrev(nodeId: number, options?: ActionOptions): Promise<number | null> {
+    return runAction(options, (native) =>
+      this.native.GetPrev(nodeId, native).then((v) => (v === null ? null : Number(v))),
+    );
+  }
+  /** TreeView only: selected node id (null when none). */
+  getSelection(options?: ActionOptions): Promise<number | null> {
+    return runAction(options, (native) =>
+      this.native.GetSelection(native).then((v) => (v === null ? null : Number(v))),
+    );
+  }
+  /** StatusBar only: set part widths (positive pixels, last may be -1 for fill). */
+  setParts(widths: number[], options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      this.native.SetParts(widths, native).then(Number),
+    );
+  }
+  /** StatusBar only: set part text. */
+  setText(text: string, part?: number, borders?: boolean, options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      this.native.SetText(text, part, borders, native).then(Number),
+    );
+  }
+  /** StatusBar only: set a part icon from a .ico file or a dll/exe index. */
+  setIcon(file: string, iconIndex?: number, part?: number, options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      this.native.SetIcon(file, iconIndex, part, native).then(Number),
+    );
+  }
+  /** Tab only: select by 0-based index or label. */
+  useTab(index: number | string, exactMatch?: boolean, options?: ActionOptions): Promise<number> {
+    return runAction(options, (native) =>
+      this.native.UseTab(index, exactMatch, native).then(Number),
+    );
+  }
+  /** DateTime only: set the Win32 format picture (e.g. "yyyy-MM-dd"). */
+  setFormat(picture: string, options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      this.native.SetFormat(picture, native).then(() => undefined),
+    );
+  }
+  /** Hotkey only: set the chord from modifier names and a key name. */
+  setHotkey(modifiers: string[], key: string, options?: ActionOptions): Promise<void> {
+    return runAction(options, (native) =>
+      this.native.SetHotkey(modifiers, key, native).then(() => undefined),
     );
   }
 }

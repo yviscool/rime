@@ -1152,6 +1152,288 @@ int main() {
     require(wcscmp(part, L"left") == 0, "first part is 'left'");
   }
 
+  // ---- S9e: batch-3b control methods ---------------------------------------
+  // Every method resolves a service-observed value (row counts from
+  // LVM_GETITEMCOUNT, ids from the pump registry, text from control reads);
+  // a facade answering from its own mirror cannot produce them. C++
+  // cross-checks below re-read the same state with raw OS messages.
+  // A 1x1 ICO is written to %TEMP% for SetIcon (deleted after the call;
+  // the bar owns its private copy from then on).
+  std::wstring ico_path;
+  {
+    wchar_t temp_dir[MAX_PATH]{};
+    require(GetTempPathW(MAX_PATH, temp_dir) != 0, "GetTempPathW works");
+    ico_path = std::wstring(temp_dir) + L"rime-gui-icon.ico";
+    // Hand-rolled 1x1 32bpp ICO. Offsets are file-absolute: ICONDIR
+    // (0-5), entry (6-21, image at 22), BITMAPINFOHEADER (22-61: size at
+    // 22, width at 26, height+xor+and at 30, planes at 34, bpp at 36,
+    // sizeImage at 42), XOR mask (62-65, opaque red), AND mask (66-69).
+    // The header fields sit immediately after the 4-byte size - an earlier
+    // revision put them 2 bytes late (width at 28) and LoadImage rejected
+    // every file; bisected against OneDrive.ico's real 16x16 image.
+    unsigned char ico[70]{};
+    ico[2] = 1;  // ICONDIR type = icon
+    ico[4] = 1;  // one image
+    ico[6] = 1;  // entry width 1
+    ico[7] = 1;  // entry height 1 (0 would mean 256)
+    ico[8] = 0;  // no palette
+    ico[10] = 1;  // entry planes
+    ico[12] = 32;  // 32bpp
+    ico[14] = 48;  // image bytes (40 header + 4 xor + 4 and)
+    ico[18] = 22;  // image offset (ICONDIR 6 + entry 16)
+    ico[22] = 40;  // BITMAPINFOHEADER size
+    ico[26] = 1;  // width
+    ico[30] = 2;  // biHeight: xor rows + and rows
+    ico[34] = 1;  // planes
+    ico[36] = 32;  // bpp
+    ico[42] = 8;  // image size (xor 4 + and 4)
+    ico[62] = 0;  // xor pixel B
+    ico[63] = 0;  // xor pixel G
+    ico[64] = 0xFF;  // xor pixel R
+    ico[65] = 0xFF;  // xor pixel A: opaque
+    HANDLE file = CreateFileW(ico_path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_TEMPORARY, nullptr);
+    require(file != INVALID_HANDLE_VALUE, "scratch ICO is writable");
+    DWORD written = 0;
+    const BOOL wrote = WriteFile(file, ico, sizeof(ico), &written, nullptr);
+    CloseHandle(file);
+    require(wrote && written == sizeof(ico), "scratch ICO wrote fully");
+  }
+  std::string ico_js;
+  {
+    int needed = WideCharToMultiByte(CP_UTF8, 0, ico_path.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    require(needed > 1, "ICO path converts to UTF-8");
+    std::string utf8(static_cast<std::size_t>(needed - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, ico_path.c_str(), -1, utf8.data(), needed, nullptr, nullptr);
+    ico_js.reserve(utf8.size() + 8);
+    for (const char c : utf8) {
+      if (c == '\\') ico_js += "\\\\";
+      else ico_js += c;
+    }
+  }
+  check(runtime,
+        "const g = globalThis.g;\n"
+        "globalThis.m9e = {};\n"
+        "globalThis.m9eDone = 'pending';\n"
+        "(async () => {\n"
+        "  const m = globalThis.m9e;\n"
+        "  m.lb = await g.AddListBox('x10 y1100 w200 h60', ['a', 'b', 'c']);\n"
+        "  m.added = await m.lb.Add(['d', 'e']);\n"
+        "  m.choose = await m.lb.Choose(1);\n"
+        "  m.chooseText = await m.lb.Choose('d');\n"
+        "  m.deleted = await m.lb.Delete(0);\n"
+        "  m.cleared = await m.lb.Delete();\n"
+        "  m.cb = await g.AddComboBox('x220 y1100 w200', ['x', 'y']);\n"
+        "  m.cbCue = await m.cb.SetCue('pick one');\n"
+        "  m.ed = await g.AddEdit('x430 y1100 w200', 'keep');\n"
+        "  m.edCue = await m.ed.SetCue('type here', false);\n"
+        "  const lv = globalThis.wr.listview;\n"
+        "  m.r0 = await lv.Add(['a1', 'b1']);\n"
+        "  m.r1 = await lv.Add(['a2', 'b2'], true);\n"
+        "  m.count = await lv.GetCount();\n"
+        "  m.sel = await lv.GetCount('selected');\n"
+        "  m.cols = await lv.GetCount('columns');\n"
+        "  m.t = await lv.GetText(0, 1);\n"
+        "  m.nx = await lv.GetNext();\n"
+        "  m.nxNone = await lv.GetNext(1);\n"
+        "  m.ins = await lv.Insert(1, ['m1', 'm2']);\n"
+        "  m.mod = await lv.Modify(0, ['z1']);\n"
+        "  m.t2 = await lv.GetText(0);\n"
+        "  m.foc = await lv.Modify(2, undefined, undefined, true);\n"
+        "  m.nxFoc = await lv.GetNext(-1, 'focused');\n"
+        "  m.chkRow = await lv.Add(['c1', 'c2'], undefined, undefined, true);\n"
+        "  m.nxChk = await lv.GetNext(-1, 'checked');\n"
+        "  m.newCol = await lv.InsertCol(2, 'C', 80, 'right');\n"
+        "  m.modCol = await lv.ModifyCol(0, 'A!', 120, 'center');\n"
+        "  m.cols2 = await lv.GetCount('columns');\n"
+        "  m.delCol = await lv.DeleteCol(2);\n"
+        "  m.delRow = await lv.Delete(0);\n"
+        "  const tv = globalThis.wr.tree;\n"
+        "  m.n1 = await tv.Add('root3');\n"
+        "  m.c1 = await tv.Add('child1', m.n1);\n"
+        "  m.tcnt = await tv.GetCount();\n"
+        "  m.tx = await tv.GetText(m.c1);\n"
+        "  m.ch = await tv.GetChild(m.n1);\n"
+        "  m.pa = await tv.GetParent(m.c1);\n"
+        "  m.nxSib = await tv.GetNext(m.c1);\n"
+        "  m.nxDoc = await tv.GetNext(m.n1, 'document');\n"
+        "  m.first = await tv.GetNext();\n"
+        "  m.prev = await tv.GetPrev(m.c1);\n"
+        "  m.exp = await tv.Get(m.n1, 'expanded');\n"
+        "  m.bold = await tv.Get(m.n1, 'bold');\n"
+        "  m.modN = await tv.Modify(m.n1, 'root3!', true, true);\n"
+        "  m.selN = await tv.GetSelection();\n"
+        "  m.exp2 = await tv.Get(m.n1, 'expanded');\n"
+        "  m.delN = await tv.Delete(m.n1);\n"
+        "  m.tcnt2 = await tv.GetCount();\n"
+        "  try { await tv.GetText(m.c1); m.stale = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.stale = e && e.code ? e.code : '?'; }\n"
+        "  try { await lv.Delete(99); m.oob = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.oob = e && e.code ? e.code : '?'; }\n"
+        "  try { await lv.SetParts([1]); m.kind = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.kind = (e && e.constructor ? e.constructor.name : '?') + ':' +\n"
+        "    (e && e.message ? e.message : ''); }\n"
+        "  try { await m.lb.SetCue('x'); m.cueKind = 'NO-REFUSE'; }\n"
+        "  catch (e) { m.cueKind = e && e.code ? e.code : '?'; }\n"
+        "  const sb = globalThis.wr.status;\n"
+        "  m.parts = await sb.SetParts([100, 150]);\n"
+        "  m.st1 = await sb.SetText('hello', 1);\n"
+        "  m.st0 = await sb.SetText('plain', 0, false);\n"
+        "  m.icon = await sb.SetIcon('" +
+        ico_js + "');\n"
+        "  const tab = globalThis.wr.tab;\n"
+        "  m.use1 = await tab.UseTab(1);\n"
+        "  m.useName = await tab.UseTab('T1');\n"
+        "  m.dt = await g.AddDateTime('x10 y1200 w200');\n"
+        "  m.fmt = await m.dt.SetFormat('yyyy');\n"
+        "  m.hk = await globalThis.wr.hotkey.SetHotkey(['ctrl', 'shift'], 'A');\n"
+        "})().then(() => { globalThis.m9eDone = 'ok'; },\n"
+        "  e => { globalThis.m9eDone = { code: (e && e.code) || '',\n"
+        "    ctor: e && e.constructor ? e.constructor.name : '?',\n"
+        "    message: String((e && e.message) || '') }; });\n",
+        "gui-object-3b-invoke.mjs");
+  require_ok(runtime.settle(30000ms), "3b invoke settle");
+  require(DeleteFileW(ico_path.c_str()) != FALSE, "scratch ICO is removed");
+  check(runtime,
+        "const m = globalThis.m9e;\n"
+        "if (globalThis.m9eDone !== 'ok')\n"
+        "  throw new Error('3b sequence failed: ' + JSON.stringify(globalThis.m9eDone));\n"
+        "const eq = (key, actual, want) => {\n"
+        "  if (actual !== want) throw new Error(key + ': got ' + JSON.stringify(actual) +\n"
+        "    ', want ' + JSON.stringify(want));\n"
+        "};\n"
+        "eq('added', m.added, 5);\n"
+        "eq('choose', m.choose, 1);\n"
+        "eq('chooseText', m.chooseText, 3);\n"
+        "eq('deleted', m.deleted, 4);\n"
+        "eq('cleared', m.cleared, 0);\n"
+        "eq('cbCue', m.cbCue, null);\n"
+        "eq('edCue', m.edCue, null);\n"
+        "eq('r0', m.r0, 0);\n"
+        "eq('r1', m.r1, 1);\n"
+        "eq('count', m.count, 2);\n"
+        "eq('sel', m.sel, 1);\n"
+        "eq('cols', m.cols, 2);\n"
+        "eq('t', m.t, 'b1');\n"
+        "eq('nx', m.nx, 1);\n"
+        "eq('nxNone', m.nxNone, null);\n"
+        "eq('ins', m.ins, 1);\n"
+        "eq('mod', m.mod, 0);\n"
+        "eq('t2', m.t2, 'z1');\n"
+        "eq('foc', m.foc, 2);\n"
+        "eq('nxFoc', m.nxFoc, 2);\n"
+        "eq('nxChk', m.nxChk, m.chkRow);\n"
+        "eq('newCol', m.newCol, 2);\n"
+        "eq('modCol', m.modCol, 0);\n"
+        "eq('cols2', m.cols2, 3);\n"
+        "eq('delCol', m.delCol, 2);\n"
+        "eq('delRow', m.delRow, 3);\n"
+        "eq('tcnt', m.tcnt, 4);\n"
+        "eq('tx', m.tx, 'child1');\n"
+        "eq('ch', m.ch, m.c1);\n"
+        "eq('pa', m.pa, m.n1);\n"
+        "eq('nxSib', m.nxSib, null);\n"
+        "eq('nxDoc', m.nxDoc, m.c1);\n"
+        "eq('prev', m.prev, null);\n"
+        "eq('exp', m.exp, false);\n"
+        "eq('bold', m.bold, false);\n"
+        "eq('modN', m.modN, m.n1);\n"
+        "eq('selN', m.selN, m.n1);\n"
+        "eq('exp2', m.exp2, true);\n"
+        "eq('delN', m.delN, 2);\n"
+        "eq('tcnt2', m.tcnt2, 2);\n"
+        "eq('stale', m.stale, 'invalid_contract');\n"
+        "eq('oob', m.oob, 'invalid_contract');\n"
+        "eq('cueKind', m.cueKind, 'invalid_contract');\n"
+        "eq('first', m.first, 1);\n"
+        "eq('kind', m.kind, 'TypeError:SetParts() needs a StatusBar');\n"
+        "eq('parts', m.parts, 2);\n"
+        "eq('st1', m.st1, 1);\n"
+        "eq('st0', m.st0, 0);\n"
+        "eq('icon', m.icon, 0);\n"
+        "eq('use1', m.use1, 1);\n"
+        "eq('useName', m.useName, 0);\n"
+        "eq('fmt', m.fmt, null);\n"
+        "eq('hk', m.hk, null);\n",
+        "gui-object-3b-assert.mjs");
+  {
+    // OS re-read of the same state: row/column counts and surviving text
+    // on the real controls, the bar's parts/icon, the hotkey chord and the
+    // DateTime year-only text. Final LV state is [m1, a2, c1] in 2 columns
+    // (row 0 deleted, third column deleted); TV is back to its 2 roots.
+    HWND listview = find_child(hwnd, L"SysListView32");
+    require(listview != nullptr, "FindWindowExW finds the ListView child");
+    require(SendMessageW(listview, LVM_GETITEMCOUNT, 0, 0) == 3, "three rows survive");
+    HWND header =
+        reinterpret_cast<HWND>(SendMessageW(listview, LVM_GETHEADER, 0, 0));
+    require(SendMessageW(header, HDM_GETITEMCOUNT, 0, 0) == 2, "two columns survive");
+    wchar_t cell[64]{};
+    LVITEMW get_cell{};
+    get_cell.mask = LVIF_TEXT;
+    get_cell.iItem = 0;
+    get_cell.iSubItem = 0;
+    get_cell.pszText = cell;
+    get_cell.cchTextMax = 64;
+    require(SendMessageW(listview, LVM_GETITEMW, 0, reinterpret_cast<LPARAM>(&get_cell)) != FALSE,
+            "LVM_GETITEM reads row 0");
+    require(wcscmp(cell, L"m1") == 0, "row 0 col 0 is 'm1'");
+    HWND tree = find_child(hwnd, L"SysTreeView32");
+    require(tree != nullptr, "FindWindowExW finds the TreeView child");
+    require(SendMessageW(tree, TVM_GETCOUNT, 0, 0) == 2, "the subtree delete left two roots");
+    HWND status = nullptr;
+    for (HWND child = FindWindowExW(hwnd, nullptr, nullptr, nullptr); child != nullptr;
+         child = FindWindowExW(hwnd, child, nullptr, nullptr)) {
+      wchar_t cls[64]{};
+      GetClassNameW(child, cls, 64);
+      if (wcscmp(cls, L"msctls_statusbar32") == 0) {
+        status = child;
+        break;
+      }
+    }
+    require(status != nullptr, "status bar enumerates");
+    require(SendMessageW(status, SB_GETPARTS, 0, 0) == 2, "SetParts left two parts");
+    wchar_t part1[64]{};
+    SendMessageW(status, SB_GETTEXTW, 1, reinterpret_cast<LPARAM>(part1));
+    require(wcscmp(part1, L"hello") == 0, "part 1 reads 'hello'");
+    require(SendMessageW(status, SB_GETICON, 0, 0) != 0, "part 0 carries the icon");
+    HWND hotkey = find_child(hwnd, L"msctls_hotkey32");
+    require(hotkey != nullptr, "FindWindowExW finds the Hotkey child");
+    require(SendMessageW(hotkey, HKM_GETHOTKEY, 0, 0) == MAKEWORD('A', HOTKEYF_CONTROL | HOTKEYF_SHIFT),
+            "HKM_GETHOTKEY reads Ctrl+Shift+A");
+    SYSTEMTIME now{};
+    GetLocalTime(&now);
+    wchar_t year[8]{};
+    swprintf_s(year, L"%04u", now.wYear);
+    bool year_only = false;
+    for (HWND dt = FindWindowExW(hwnd, nullptr, L"SysDateTimePick32", nullptr); dt != nullptr;
+         dt = FindWindowExW(hwnd, dt, L"SysDateTimePick32", nullptr)) {
+      wchar_t text[64]{};
+      GetWindowTextW(dt, text, 64);
+      if (wcscmp(text, year) == 0) year_only = true;
+    }
+    require(year_only, "one DateTime shows the year only");
+    // Cue banners have no mirror to consult (there is no service-side
+    // getter, same as AHK): read them with the OS getters. Child order is
+    // not contractual, so every ComboBox/Edit is probed and at least one
+    // must carry the banner this section set.
+    bool combo_cue = false;
+    for (HWND cb = FindWindowExW(hwnd, nullptr, L"ComboBox", nullptr); cb != nullptr;
+         cb = FindWindowExW(hwnd, cb, L"ComboBox", nullptr)) {
+      wchar_t cue[64]{};
+      SendMessageW(cb, CB_GETCUEBANNER, reinterpret_cast<WPARAM>(cue), 64);
+      if (wcscmp(cue, L"pick one") == 0) combo_cue = true;
+    }
+    require(combo_cue, "one ComboBox carries its cue banner");
+    bool edit_cue = false;
+    for (HWND ed = FindWindowExW(hwnd, nullptr, L"Edit", nullptr); ed != nullptr;
+         ed = FindWindowExW(hwnd, ed, L"Edit", nullptr)) {
+      wchar_t cue[64]{};
+      SendMessageW(ed, EM_GETCUEBANNER, reinterpret_cast<WPARAM>(cue), 64);
+      if (wcscmp(cue, L"type here") == 0) edit_cue = true;
+    }
+    require(edit_cue, "one Edit carries its cue banner");
+  }
+
   // ---- S10/S11: Resize, driven by this test's own SetWindowPos -----------
   check(runtime,
         "const g = globalThis.g;\n"
