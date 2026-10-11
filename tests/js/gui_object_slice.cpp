@@ -1764,10 +1764,10 @@ int main() {
   {
     HWND listview = find_child(hwnd, L"SysListView32");
     require(listview != nullptr, "FindWindowExW finds the ListView child");
-    HIMAGELIST small = reinterpret_cast<HIMAGELIST>(
+    HIMAGELIST small_list = reinterpret_cast<HIMAGELIST>(
         SendMessageW(listview, LVM_GETIMAGELIST, LVSIL_SMALL, 0));
-    require(small != nullptr, "the small list is wired into the ListView");
-    require(ImageList_GetImageCount(small) == 1, "one icon landed in the list");
+    require(small_list != nullptr, "the small list is wired into the ListView");
+    require(ImageList_GetImageCount(small_list) == 1, "one icon landed in the list");
     // Row 0 is the S9e survivor ('m1'); the S9g row 'pic' sits at index 3
     // with image 0 (S9e left 3 rows, S9g appended one).
     LVITEMW row{};
@@ -1780,7 +1780,7 @@ int main() {
     require(tree != nullptr, "FindWindowExW finds the TreeView child");
     HIMAGELIST normal = reinterpret_cast<HIMAGELIST>(
         SendMessageW(tree, TVM_GETIMAGELIST, TVSIL_NORMAL, 0));
-    require(normal == small, "both controls share the one list");
+    require(normal == small_list, "both controls share the one list");
     // The S9g node 'pnode' is the last root (S9d left r1/r2, S9e deleted
     // its subtree, S9g appended one): walk roots to the end.
     HTREEITEM node = reinterpret_cast<HTREEITEM>(
