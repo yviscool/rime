@@ -2327,7 +2327,10 @@ std::uint64_t tree_id_of(const GuiChildRecord& child, HTREEITEM item) {
   return 0;
 }
 
-// Drop the id and every descendant id before TVM_DELETEITEM unlinks them.
+// Drop every id in the subtree rooted at `root` (children first), then
+// root's own entry. Map erase never invalidates the other iterators, but
+// callers must not touch their own lookup iterator afterwards - the root
+// entry it points at is gone (MSVC debug iterators abort on exactly that).
 void purge_tree_ids(GuiChildRecord& child, HWND hwnd, HTREEITEM root) {
   HTREEITEM item = reinterpret_cast<HTREEITEM>(
       SendMessageW(hwnd, TVM_GETNEXTITEM, TVGN_CHILD, reinterpret_cast<LPARAM>(root)));
@@ -2335,13 +2338,6 @@ void purge_tree_ids(GuiChildRecord& child, HWND hwnd, HTREEITEM root) {
     HTREEITEM next = reinterpret_cast<HTREEITEM>(
         SendMessageW(hwnd, TVM_GETNEXTITEM, TVGN_NEXT, reinterpret_cast<LPARAM>(item)));
     purge_tree_ids(child, hwnd, item);
-    for (auto it = child.tree_items.begin(); it != child.tree_items.end();) {
-      if (it->second == item) {
-        it = child.tree_items.erase(it);
-        break;
-      }
-      ++it;
-    }
     item = next;
   }
   for (auto it = child.tree_items.begin(); it != child.tree_items.end();) {
@@ -2768,8 +2764,10 @@ Error GuiService::ctrl_invoke(const GuiSpec& gui, const std::uint64_t ctrl_id,
         if (found == child->tree_items.end()) {
           return {Code::InvalidContract, "Delete id is unknown"};
         }
-        purge_tree_ids(*child, hwnd, found->second);
-        SendMessageW(hwnd, TVM_DELETEITEM, 0, reinterpret_cast<LPARAM>(found->second));
+        // Hoist the handle: purge erases the entry `found` points at.
+        const HTREEITEM doomed = found->second;
+        purge_tree_ids(*child, hwnd, doomed);
+        SendMessageW(hwnd, TVM_DELETEITEM, 0, reinterpret_cast<LPARAM>(doomed));
         out.number = static_cast<std::int64_t>(child->tree_items.size());
         return Error::none();
       }
