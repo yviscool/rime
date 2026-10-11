@@ -3453,14 +3453,15 @@ Error GuiService::menu_destroy(const std::uint64_t menu_id, const std::int64_t d
     }
     // Detach from every parent menu, keeping position: a submenu slot
     // reverts to a plain item with its minted command (callbacks keep
-    // working). Hoist the handle: the record is erased below.
-    const HMENU doomed = it->second.hmenu;
+    // working).
     for (auto& [parent_id, parent] : impl_->menus) {
       if (parent_id == menu_id) continue;
       for (std::size_t pos = 0; pos < parent.items.size(); ++pos) {
         GuiMenuItemRecord& slot = parent.items[pos];
         if (slot.submenu != menu_id) continue;
-        DeleteMenu(parent.hmenu, reinterpret_cast<UINT_PTR>(doomed), MF_BYCOMMAND);
+        // Submenu slots are id'd by child handle (UINT_PTR-wide); address
+        // by position instead of truncating the handle into a UINT id.
+        DeleteMenu(parent.hmenu, static_cast<UINT>(pos), MF_BYPOSITION);
         InsertMenuW(parent.hmenu, static_cast<UINT>(pos), MF_BYPOSITION | MF_STRING,
                     slot.command, slot.name.c_str());
         slot.submenu = 0;
@@ -3603,14 +3604,9 @@ Error GuiService::menu_invoke(std::uint64_t menu_id, const GuiMenuCall& call, Gu
         GuiMenuItemRecord doomed = std::move(menu->items[pos]);
         menu->items.erase(menu->items.begin() + static_cast<std::ptrdiff_t>(pos));
         if (doomed.submenu != 0) {
-          // Submenu slots are id'd by child handle, not by command.
-          const auto child = impl_->menus.find(doomed.submenu);
-          if (child != impl_->menus.end()) {
-            DeleteMenu(menu->hmenu, reinterpret_cast<UINT_PTR>(child->second.hmenu),
-                       MF_BYCOMMAND);
-          } else {
-            DeleteMenu(menu->hmenu, static_cast<UINT>(pos), MF_BYPOSITION);
-          }
+          // Submenu slots are id'd by child handle (UINT_PTR-wide): address
+          // by position, never truncate the handle into a UINT id.
+          DeleteMenu(menu->hmenu, static_cast<UINT>(pos), MF_BYPOSITION);
         } else if (doomed.command != 0) {
           DeleteMenu(menu->hmenu, doomed.command, MF_BYCOMMAND);
         } else {
