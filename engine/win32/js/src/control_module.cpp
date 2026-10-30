@@ -338,29 +338,6 @@ JSValue control_resolve(JSContext* context, JSValueConst, int argc, JSValueConst
       options.cancellation_id);
 }
 
-// Shared shape for click/focus/setText/getText/sendText: strict id, arity,
-// capability gate, then a routed Action with target {"control", "<id>"}.
-JSValue control_action(JSContext* context, int argc, JSValueConst* argv,
-                      const char* signature, const char* type, std::string payload_json,
-                      ControlModuleBinding* binding) {
-  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
-      !binding->next_action_id) {
-    return JS_ThrowInternalError(context, "rime:control is not wired");
-  }
-  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "%s", signature);
-  std::uint64_t id = 0;
-  if (!strict_control_id(context, argv[0], id, signature)) return JS_EXCEPTION;
-  if (!binding->kernel->allows("windows.automation.control")) {
-    return throw_capability_error(context, "windows.automation.control");
-  }
-  ActionOptions options;
-  if (argc == 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
-  auto action = make_action(*binding->next_action_id, "rime:control", type,
-                            "windows.automation.control",
-                            {"control", std::to_string(id)}, std::move(payload_json), options);
-  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
-}
-
 bool read_click_option_string(JSContext* context, JSValueConst object, const char* call,
                               const char* field, const char* const* names, std::size_t count,
                               std::string& out, bool& present) {
@@ -388,6 +365,42 @@ bool read_click_option_string(JSContext* context, JSValueConst object, const cha
   return false;
 }
 
+bool read_strategy_option(JSContext* context, JSValueConst object, const char* call,
+                          std::string& out, bool& present) {
+  if (JS_IsUndefined(object) || JS_IsNull(object) || !is_plain_object(object)) return true;
+  static constexpr const char* kStrategies[] = {"auto", "message", "uia", "visual"};
+  return read_click_option_string(context, object, call, "strategy", kStrategies, 4, out, present);
+}
+
+// Shared shape for click/focus/setText/getText/sendText: strict id, arity,
+// capability gate, then a routed Action with target {"control", "<id>"}.
+JSValue control_action(JSContext* context, int argc, JSValueConst* argv,
+                      const char* signature, const char* type, json::Value payload,
+                      ControlModuleBinding* binding) {
+  if (!binding || !binding->service || !binding->kernel || !binding->dispatcher ||
+      !binding->next_action_id) {
+    return JS_ThrowInternalError(context, "rime:control is not wired");
+  }
+  if (argc < 1 || argc > 2) return JS_ThrowTypeError(context, "%s", signature);
+  std::uint64_t id = 0;
+  if (!strict_control_id(context, argv[0], id, signature)) return JS_EXCEPTION;
+  if (!binding->kernel->allows("windows.automation.control")) {
+    return throw_capability_error(context, "windows.automation.control");
+  }
+  ActionOptions options;
+  if (argc == 2 && !parse_action_options(context, argv[1], options)) return JS_EXCEPTION;
+  if (argc == 2 && is_plain_object(argv[1])) {
+    std::string strategy;
+    bool has_strategy = false;
+    if (!read_strategy_option(context, argv[1], type, strategy, has_strategy)) return JS_EXCEPTION;
+    if (has_strategy) payload.set("strategy", json::Value::string(strategy));
+  }
+  auto action = make_action(*binding->next_action_id, "rime:control", type,
+                            "windows.automation.control",
+                            {"control", std::to_string(id)}, json::stringify(payload), options);
+  return run_action(context, *binding->dispatcher, std::move(action), options.cancellation_id);
+}
+
 // control.click(id[, opts[, options]]) -> { clicks }
 JSValue control_click(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                       void* opaque) {
@@ -412,6 +425,12 @@ JSValue control_click(JSContext* context, JSValueConst, int argc, JSValueConst* 
     }
     if (has_button) payload.set("button", json::Value::string(button));
     if (has_phase) payload.set("phase", json::Value::string(phase));
+    std::string strategy;
+    bool has_strategy = false;
+    if (!read_strategy_option(context, argv[1], "click", strategy, has_strategy)) {
+      return JS_EXCEPTION;
+    }
+    if (has_strategy) payload.set("strategy", json::Value::string(strategy));
     JSValue count_value = JS_GetPropertyStr(context, argv[1], "count");
     if (JS_IsException(count_value)) return JS_EXCEPTION;
     if (!JS_IsUndefined(count_value) && !JS_IsNull(count_value)) {
@@ -464,7 +483,7 @@ JSValue control_click(JSContext* context, JSValueConst, int argc, JSValueConst* 
   const int action_argc = argc == 3 ? 2 : argc;
   JSValueConst action_argv[2] = {argv[0], argc == 3 ? argv[2] : JS_UNDEFINED};
   return control_action(context, action_argc, const_cast<JSValueConst*>(action_argv),
-                        "click(id[, opts[, options]])", "control.click", json::stringify(payload),
+                        "click(id[, opts[, options]])", "control.click", std::move(payload),
                         binding);
 }
 
@@ -472,8 +491,8 @@ JSValue control_click(JSContext* context, JSValueConst, int argc, JSValueConst* 
 JSValue control_focus(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                       void* opaque) {
   auto* binding = static_cast<ControlModuleBinding*>(opaque);
-  return control_action(context, argc, argv, "focus(id[, options])", "control.focus", "{}",
-                        binding);
+  return control_action(context, argc, argv, "focus(id[, options])", "control.focus",
+                        json::Value::object(), binding);
 }
 
 // control.setText(id, text[, options]) / control.sendText(id, text[, options])
@@ -490,7 +509,7 @@ JSValue control_text(JSContext* context, int argc, JSValueConst* argv, const cha
   JS_FreeCString(context, text);
   JSValueConst action_argv[2] = {argv[0], argc == 3 ? argv[2] : JS_UNDEFINED};
   return control_action(context, argc == 3 ? 2 : 1, const_cast<JSValueConst*>(action_argv),
-                        signature, type, json::stringify(payload), binding);
+                        signature, type, std::move(payload), binding);
 }
 
 JSValue control_set_text(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
@@ -511,8 +530,8 @@ JSValue control_send_text(JSContext* context, JSValueConst, int argc, JSValueCon
 JSValue control_get_text(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
                          void* opaque) {
   auto* binding = static_cast<ControlModuleBinding*>(opaque);
-  return control_action(context, argc, argv, "getText(id[, options])", "control.gettext", "{}",
-                        binding);
+  return control_action(context, argc, argv, "getText(id[, options])", "control.gettext",
+                        json::Value::object(), binding);
 }
 
 // ---- Phase 2 verbs --------------------------------------------------------
@@ -531,6 +550,12 @@ JSValue dispatch_control(JSContext* context, JSValueConst id_value, JSValueConst
   }
   ActionOptions options;
   if (has_options && !parse_action_options(context, options_value, options)) return JS_EXCEPTION;
+  if (has_options && is_plain_object(options_value)) {
+    std::string strategy;
+    bool has_strategy = false;
+    if (!read_strategy_option(context, options_value, type, strategy, has_strategy)) return JS_EXCEPTION;
+    if (has_strategy) payload.set("strategy", json::Value::string(strategy));
+  }
   auto action = make_action(*binding->next_action_id, "rime:control", type,
                             "windows.automation.control",
                             {"control", std::to_string(id)}, json::stringify(payload), options);

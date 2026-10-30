@@ -1490,9 +1490,7 @@ std::string Host::inspect(const std::string& request_json) {
     }
     tasks.set("async", json::Value::number(static_cast<double>(promise_count)));
     tasks.set("queued", json::Value::number(static_cast<double>(completion_count)));
-  tasks.set("timers", json::Value::number(static_cast<double>(timer_.pending())));
-  tasks.set("worker", json::Value::number(
-                          static_cast<double>(rime::core::WorkerService::instance().pending())));
+    tasks.set("timers", json::Value::number(static_cast<double>(timer_.pending())));
     tasks.set("worker", json::Value::number(
                             static_cast<double>(rime::core::WorkerService::instance().pending())));
     tasks.set("callbacks", json::Value::number(static_cast<double>(callback_count())));

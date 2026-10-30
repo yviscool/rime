@@ -224,6 +224,8 @@ export const actions = {
 
 裸句柄、线程 ID、COM 指针、窗口过程、Hook 地址、任意 DLL 调用、任意内存读写、未审计消息发送、内部调度队列和 Native 对象指针不进入标准 TS API。需要这些能力时使用隔离插件和版本化 token。
 
+嵌入式 Host 的生命周期与安全卸载由版本化 Host ABI（`k_host_abi_version = 1`，参见 `docs/api/abi-and-language.md`）严格管控，提供 `load/execute/error/inspect/exit/unload` 状态机与 8 项活动资源的逐项诊断。
+
 ## 11. 设计结果
 
 标准库不是 AHK 函数的逐项翻译，而是以 Windows 对象图和 Action Kernel 为核心的组合式 TS 系统：

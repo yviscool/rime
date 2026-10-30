@@ -54,6 +54,8 @@ class TargetWindow final {
 
   // Set when the button's WM_COMMAND / BN_CLICKED reaches the window proc.
   [[nodiscard]] bool invoked() const { return invoked_.load(); }
+  [[nodiscard]] HWND edit() const { return edit_.load(); }
+  [[nodiscard]] HWND checkbox() const { return checkbox_.load(); }
 
  private:
   static LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -89,6 +91,16 @@ class TargetWindow final {
       DestroyWindow(window);
       return;
     }
+    HWND edit = CreateWindowExW(
+        0, L"EDIT", L"InitialText", WS_CHILD | WS_VISIBLE | ES_LEFT, 40, 90,
+        240, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(2)),
+        window_class.hInstance, nullptr);
+    HWND checkbox = CreateWindowExW(
+        0, L"BUTTON", L"RimeAutomationNativeCheck", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 40, 130,
+        240, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(3)),
+        window_class.hInstance, nullptr);
+    edit_.store(edit);
+    checkbox_.store(checkbox);
     ShowWindow(window, SW_SHOW);
     thread_id_ = GetCurrentThreadId();
     ready_.store(true);
@@ -104,6 +116,8 @@ class TargetWindow final {
   std::thread thread_;
   std::atomic<bool> ready_{false};
   std::atomic<bool> invoked_{false};
+  std::atomic<HWND> edit_{nullptr};
+  std::atomic<HWND> checkbox_{nullptr};
   DWORD thread_id_{0};
 };
 
@@ -165,6 +179,53 @@ int main() {
     std::this_thread::sleep_for(10ms);
   }
   assert(target.invoked());
+
+  // element_from_hwnd directly snapshots live controls.
+  ElementSnapshot edit_snap;
+  assert(service.element_from_hwnd(target.edit(), edit_snap).ok());
+  assert(edit_snap.id > 0);
+  assert(edit_snap.control_type == "edit");
+
+  // ValuePattern: get_value reads, set_value mutates text.
+  std::string value_text;
+  assert(service.get_value(edit_snap.id, value_text).ok());
+  assert(value_text == "InitialText");
+  assert(service.set_value(edit_snap.id, "UpdatedViaUia").ok());
+  assert(service.get_value(edit_snap.id, value_text).ok());
+  assert(value_text == "UpdatedViaUia");
+
+  // set_focus brings focus to the control.
+  assert(service.set_focus(edit_snap.id).ok());
+
+  // TogglePattern: get_toggle_state reads, set_toggle_state and toggle flip state.
+  ElementSnapshot check_snap;
+  assert(service.element_from_hwnd(target.checkbox(), check_snap).ok());
+  assert(check_snap.id > 0);
+  int toggle_state = -1;
+  assert(service.get_toggle_state(check_snap.id, toggle_state).ok());
+  assert(toggle_state == 0);  // Off
+
+  bool is_on = false;
+  assert(service.set_toggle_state(check_snap.id, 1, is_on).ok());
+  assert(is_on);
+  const auto toggled_on_by = std::chrono::steady_clock::now() + 5s;
+  while (toggle_state != 1 && std::chrono::steady_clock::now() < toggled_on_by) {
+    std::this_thread::sleep_for(10ms);
+    assert(service.get_toggle_state(check_snap.id, toggle_state).ok());
+  }
+  assert(toggle_state == 1);  // On
+
+  assert(service.toggle(check_snap.id).ok());
+  const auto toggled_off_by = std::chrono::steady_clock::now() + 5s;
+  while (toggle_state != 0 && std::chrono::steady_clock::now() < toggled_off_by) {
+    std::this_thread::sleep_for(10ms);
+    assert(service.get_toggle_state(check_snap.id, toggle_state).ok());
+  }
+  assert(toggle_state == 0);  // Toggled back to Off
+
+  // Clean up registered edit and checkbox element references.
+  assert(service.release(edit_snap.id));
+  assert(service.release(check_snap.id));
 
   // Contract violations answer without side effects.
   FindQuery empty;

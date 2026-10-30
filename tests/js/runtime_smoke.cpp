@@ -401,15 +401,30 @@ void test_host_abi() {
   assert(abi.state() == rime::js::HostAbiState::Created);
   assert(abi.exit_code() == 0);
 
+  // execute before load fails with InvalidState
+  const auto premature = abi.execute();
+  assert(!premature.ok());
+  assert(premature.code == rime::core::Error::Code::InvalidState);
+
   int exit_code = -1;
   abi.set_exit_handler([&](int code) { exit_code = code; });
 
   // load stages, execute evaluates, and execute repeats while loaded.
   assert(abi.load("globalThis.booted = 1;", "boot.js").ok());
   assert(abi.state() == rime::js::HostAbiState::Loaded);
+
+  // inspect() in Loaded state works cleanly without script evaluation
+  const std::string loaded_inspect = abi.inspect(R"({"kind":"modules"})");
+  assert(loaded_inspect.find("\"modules\"") != std::string::npos);
+
   assert(abi.execute().ok());
   assert(abi.state() == rime::js::HostAbiState::Executed);
   assert(abi.execute().ok());
+
+  // inspect() in Executed state provides live diagnostics
+  const std::string executed_inspect = abi.inspect(R"({"kind":"tasks"})");
+  assert(executed_inspect.find("\"async\"") != std::string::npos);
+  assert(executed_inspect.find("\"timers\"") != std::string::npos);
 
   // The state machine refuses a second load.
   const auto second_load = abi.load("globalThis.other = 1;", "other.js");
@@ -435,6 +450,30 @@ void test_host_abi() {
   assert(fail_where == "fail.js");
   assert(fail_message.find("abi boom") != std::string::npos);
   assert(!failing.execute().ok());  // failed is terminal for execute
+
+  const auto fail_second_load = failing.load("globalThis.again = 1;", "again.js");
+  assert(!fail_second_load.ok());
+  assert(fail_second_load.code == rime::core::Error::Code::InvalidState);
+
+  // Unloading a Failed host cleans up and transitions to Unloaded
+  assert(failing.unload().ok());
+  assert(failing.state() == rime::js::HostAbiState::Unloaded);
+  assert(failing.unload().ok());  // idempotent
+
+  // load/execute on an Unloaded host must fail with InvalidState
+  const auto post_unload_load = failing.load("globalThis.x = 1;", "x.js");
+  assert(!post_unload_load.ok());
+  assert(post_unload_load.code == rime::core::Error::Code::InvalidState);
+  const auto post_unload_exec = failing.execute();
+  assert(!post_unload_exec.ok());
+  assert(post_unload_exec.code == rime::core::Error::Code::InvalidState);
+
+  // Unloading directly from Loaded state succeeds cleanly
+  rime::js::HostAbi load_only;
+  assert(load_only.load("globalThis.loadOnly = 1;", "load-only.js").ok());
+  assert(load_only.state() == rime::js::HostAbiState::Loaded);
+  assert(load_only.unload().ok());
+  assert(load_only.state() == rime::js::HostAbiState::Unloaded);
 
   // unload must fail while a subscription is outstanding, explaining why.
   rime::js::HostAbi busy_abi;
@@ -591,6 +630,53 @@ void test_host_abi_pending_event() {
   assert(abi.state() == rime::js::HostAbiState::Unloaded);
 }
 
+// The bound-async-route and queued-completion reasons in the same shape:
+// active routes or completions queueing up before drain() block unload with
+// itemized diagnostics, and take_route / drain release them cleanly.
+void test_host_abi_routes_and_completions() {
+  rime::js::HostAbi abi;
+  assert(abi.load("globalThis.routeReady = true;", "route.js").ok());
+  assert(abi.execute().ok());
+  assert(abi.state() == rime::js::HostAbiState::Executed);
+
+  // 1. Bound async route blocks unload with itemized reason
+  assert(abi.host().route_count() == 0);
+  rime::core::CancellationSource cancel_source;
+  abi.host().bind_route(42, {1001, cancel_source.token()});
+  assert(abi.host().route_count() == 1);
+
+  const auto route_busy = abi.unload();
+  assert(!route_busy.ok());
+  assert(route_busy.code == rime::core::Error::Code::InvalidState);
+  assert(route_busy.message.find("1 bound async route(s)") != std::string::npos);
+  assert(abi.state() == rime::js::HostAbiState::Executed);
+
+  // Clearing the route via take_route removes the reason
+  rime::js::Host::AsyncRoute out_route;
+  assert(abi.host().take_route(42, out_route));
+  assert(out_route.token == 1001);
+  assert(abi.host().route_count() == 0);
+
+  // 2. Queued completion blocks unload with itemized reason
+  assert(abi.host().pending_completion_count() == 0);
+  abi.host().complete_async(1001, true, "{\"ok\":true}");
+  assert(abi.host().pending_completion_count() == 1);
+
+  const auto completion_busy = abi.unload();
+  assert(!completion_busy.ok());
+  assert(completion_busy.code == rime::core::Error::Code::InvalidState);
+  assert(completion_busy.message.find("1 queued completion(s)") != std::string::npos);
+  assert(abi.state() == rime::js::HostAbiState::Executed);
+
+  // Draining flushes completions
+  assert(abi.drain() >= 1);
+  assert(abi.host().pending_completion_count() == 0);
+
+  // Unload now succeeds cleanly
+  assert(abi.unload().ok());
+  assert(abi.state() == rime::js::HostAbiState::Unloaded);
+}
+
 // Duplicate native registrations fail at add time with InvalidContract and
 // the offending specifier, instead of surviving until start() where the
 // registry would silently keep only the first match.
@@ -620,6 +706,7 @@ int main() {
   test_host_abi();
   test_host_abi_held_callback();
   test_host_abi_pending_event();
+  test_host_abi_routes_and_completions();
   test_native_registration_duplicates();
   return 0;
 }

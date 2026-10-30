@@ -344,6 +344,13 @@ class WindowService final {
   // Screen-coordinates rect of the control (AHK GetWindowRect rule).
   rime::core::Error control_rect(std::uint64_t id, Rect& out,
                                  std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Resolves the HWND behind a control/window id on the UI lane (for internal service coordination).
+  // TargetGone when unknown or destroyed.
+  rime::core::Error control_hwnd(std::uint64_t id, void*& out,
+                                 std::chrono::milliseconds timeout = std::chrono::seconds(5));
+  // Reads the class name of the control on the UI lane.
+  rime::core::Error control_class_name(std::uint64_t id, std::string& out,
+                                       std::chrono::milliseconds timeout = std::chrono::seconds(5));
   // Liveness probe for dispose(): true when the id still resolves.
   rime::core::Error control_alive(std::uint64_t id, bool& out,
                                   std::chrono::milliseconds timeout = std::chrono::seconds(5));

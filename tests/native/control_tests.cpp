@@ -1,6 +1,7 @@
 // Realism: L5 - real Win32 control messages against a fixture window the
 // test creates, asserts and destroys itself; needs an interactive desktop
 // and runs exclusively.
+#include "rime/automation/uia_service.hpp"
 #include "rime/win32/control_executor.hpp"
 #include "rime/win32/window.hpp"
 
@@ -438,7 +439,9 @@ int main(int argc, char** argv) {
       std::unordered_set<std::string>{"windows.automation.control"});
   auto trace = std::make_shared<InMemoryTrace>();
   Kernel kernel(policy, trace);
-  auto executor = std::make_shared<ControlExecutor>(windows);
+  rime::automation::UiaService uia_service;
+  assert(uia_service.start().ok());
+  auto executor = std::make_shared<ControlExecutor>(windows, &uia_service);
   for (const char* type :
        {"control.click", "control.focus", "control.settext", "control.gettext",
         "control.sendtext", "control.list.add", "control.list.delete", "control.list.choose",
@@ -519,6 +522,60 @@ int main(int argc, char** argv) {
       if (!settled) std::this_thread::sleep_for(5ms);
     }
     assert(settled);
+  }
+
+  // 3-tier strategy verification: Uia, Visual, Message, Auto.
+  {
+    const std::size_t base_clicks = target.clicks();
+    Result uia_click = run_one(dispatcher, make_action(50, "control.click", button,
+                                                       "{\"strategy\": \"uia\"}"));
+    assert(uia_click.succeeded);
+    assert(poll_true(5s, [&] { return target.clicks() == base_clicks + 1; }));
+
+    Result visual_click = run_one(dispatcher, make_action(51, "control.click", button,
+                                                          "{\"strategy\": \"visual\"}"));
+    assert(visual_click.succeeded);
+    assert(poll_true(5s, [&] { return target.clicks() == base_clicks + 2; }));
+
+    Result msg_click = run_one(dispatcher, make_action(52, "control.click", button,
+                                                       "{\"strategy\": \"message\"}"));
+    assert(msg_click.succeeded);
+    assert(poll_true(5s, [&] { return target.clicks() == base_clicks + 3; }));
+
+    Result auto_click = run_one(dispatcher, make_action(53, "control.click", button,
+                                                        "{\"strategy\": \"auto\"}"));
+    assert(auto_click.succeeded);
+    assert(poll_true(5s, [&] { return target.clicks() == base_clicks + 4; }));
+
+    // Focus with UIA and Visual strategies.
+    Result uia_focus = run_one(dispatcher, make_action(54, "control.focus", button,
+                                                       "{\"strategy\": \"uia\"}"));
+    assert(uia_focus.succeeded);
+    Result visual_focus = run_one(dispatcher, make_action(55, "control.focus", button,
+                                                          "{\"strategy\": \"visual\"}"));
+    assert(visual_focus.succeeded);
+
+    // setText and getText with UIA ValuePattern strategy.
+    Result uia_set = run_one(dispatcher, make_action(56, "control.settext", edit,
+                                                     "{\"text\": \"via-uia-value\", \"strategy\": \"uia\"}"));
+    assert(uia_set.succeeded);
+    Result uia_get = run_one(dispatcher, make_action(57, "control.gettext", edit,
+                                                     "{\"strategy\": \"uia\"}"));
+    assert(uia_get.succeeded);
+    assert(uia_get.value.find("text") && uia_get.value.find("text")->as_string() == "via-uia-value");
+
+    // Visual setText and getText without OCR is unsupported.
+    Result visual_set = run_one(dispatcher, make_action(58, "control.settext", edit,
+                                                        "{\"text\": \"nope\", \"strategy\": \"visual\"}"));
+    assert(!visual_set.succeeded && visual_set.error.code == Code::Unsupported);
+    Result visual_get = run_one(dispatcher, make_action(59, "control.gettext", edit,
+                                                        "{\"strategy\": \"visual\"}"));
+    assert(!visual_get.succeeded && visual_get.error.code == Code::Unsupported);
+
+    // Invalid strategy name rejected.
+    Result bad_strat = run_one(dispatcher, make_action(60, "control.click", button,
+                                                       "{\"strategy\": \"magic\"}"));
+    assert(!bad_strat.succeeded && bad_strat.error.code == Code::InvalidContract);
   }
 
   // Contract rejections stay InvalidContract, never silent fallbacks.
@@ -701,6 +758,19 @@ int main(int argc, char** argv) {
   }
   Result bad_check = run("control.setchecked", check, "{\"checked\": 2}");
   assert(!bad_check.succeeded && bad_check.error.code == Code::InvalidContract);
+
+  // Checkbox with UIA TogglePattern strategy and Visual unsupported.
+  {
+    Result uia_check = run("control.setchecked", check, "{\"checked\": 1, \"strategy\": \"uia\"}");
+    assert(uia_check.succeeded);
+    Result uia_is_checked = run("control.ischecked", check, "{\"strategy\": \"uia\"}");
+    assert(uia_is_checked.succeeded);
+
+    Result visual_check = run("control.setchecked", check, "{\"checked\": 1, \"strategy\": \"visual\"}");
+    assert(!visual_check.succeeded && visual_check.error.code == Code::Unsupported);
+    Result visual_is_checked = run("control.ischecked", check, "{\"strategy\": \"visual\"}");
+    assert(!visual_is_checked.succeeded && visual_is_checked.error.code == Code::Unsupported);
+  }
 
   // ---- Visibility / geometry / tab index -----------------------------------
   const std::string tab_buttons = std::to_string(tab_buttons_id);
@@ -982,6 +1052,7 @@ int main(int argc, char** argv) {
     CloseHandle(stop);
   }
 
+  assert(uia_service.stop().ok());
   assert(windows.stop().ok());
   target.stop();
   rime::core::LaneRegistry::instance().release(rime::core::Lane::Worker);

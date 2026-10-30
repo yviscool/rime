@@ -75,6 +75,29 @@ class UiaService final {
   // the id is unknown or stale; Unsupported when the element has no invoke
   // pattern; ExecutionFailed when the element is disabled or COM fails.
   rime::core::Error invoke(std::uint64_t id);
+  // Reads text value via IUIAutomationValuePattern. TargetGone when the id
+  // is unknown or stale; Unsupported when the element has no value pattern;
+  // ExecutionFailed when COM fails.
+  rime::core::Error get_value(std::uint64_t id, std::string& out);
+  // Sets text value via IUIAutomationValuePattern. TargetGone when the id
+  // is unknown or stale; Unsupported when the element has no value pattern
+  // or is read-only; ExecutionFailed when COM fails.
+  rime::core::Error set_value(std::uint64_t id, const std::string& text);
+  // Toggles state via IUIAutomationTogglePattern. TargetGone when the id
+  // is unknown or stale; Unsupported when the element has no toggle pattern;
+  // ExecutionFailed when COM fails.
+  rime::core::Error toggle(std::uint64_t id);
+  // Reads toggle state via IUIAutomationTogglePattern: 0 = Off, 1 = On,
+  // 2 = Indeterminate. TargetGone when stale; Unsupported when no toggle pattern.
+  rime::core::Error get_toggle_state(std::uint64_t id, int& out_state);
+  // Sets toggle state: target_state 0 = Off, 1 = On, -1 = Toggle.
+  // out_checked returns whether the final state is On.
+  rime::core::Error set_toggle_state(std::uint64_t id, int target_state, bool& out_checked);
+  // Focuses the element via IUIAutomationElement::SetFocus.
+  rime::core::Error set_focus(std::uint64_t id);
+  // Registers an element directly from an HWND on the MTA thread and builds
+  // its snapshot.
+  rime::core::Error element_from_hwnd(void* hwnd, ElementSnapshot& out);
   // Drops a registered element reference. False when the id is unknown or
   // the service is not running.
   bool release(std::uint64_t id);

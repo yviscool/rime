@@ -246,6 +246,14 @@ int main() {
   rime::desktop::DesktopHost desktop_host(host_runtime);
   assert(desktop_host.start().ok());
   assert(desktop_host.state() == rime::desktop::HostState::Running);
+  // start() can only be called once
+  const auto second_start = desktop_host.start();
+  assert(!second_start.ok());
+  assert(second_start.code == rime::core::Error::Code::InvalidState);
+
+  assert(desktop_host.stop().ok());
+  assert(desktop_host.state() == rime::desktop::HostState::Stopped);
+  // stop() is idempotent
   assert(desktop_host.stop().ok());
   assert(desktop_host.state() == rime::desktop::HostState::Stopped);
   return 0;

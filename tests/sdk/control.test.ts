@@ -9,9 +9,33 @@ import { Control } from "../../sdk/src/control";
 // literal, so a facade that leaks 1-based numbering or the 0-sentinel to
 // callers cannot pass by agreeing with itself.
 
-const calls: Array<{ method: string; index?: number }> = [];
+const calls: Array<{ method: string; index?: number; strategy?: string }> = [];
 
 const bridge = {
+  async click(_id: ControlId, opts?: any, options?: any) {
+    calls.push({ method: "click", strategy: opts?.strategy ?? options?.strategy });
+    return { clicks: 1 };
+  },
+  async focus(_id: ControlId, options?: any) {
+    calls.push({ method: "focus", strategy: options?.strategy });
+    return { focused: true as const };
+  },
+  async setText(_id: ControlId, text: string, options?: any) {
+    calls.push({ method: "setText", strategy: options?.strategy });
+    return { text };
+  },
+  async getText(_id: ControlId, options?: any) {
+    calls.push({ method: "getText", strategy: options?.strategy });
+    return { text: "hello" };
+  },
+  async sendText(_id: ControlId, text: string, options?: any) {
+    calls.push({ method: "sendText", strategy: options?.strategy });
+    return { text };
+  },
+  async isChecked(_id: ControlId, options?: any) {
+    calls.push({ method: "isChecked", strategy: options?.strategy });
+    return { checked: true };
+  },
   async listAdd() {
     calls.push({ method: "listAdd" });
     return { index: 3 };
@@ -52,8 +76,12 @@ const bridge = {
     calls.push({ method: "statusbarText", index: part });
     return { text: "ready" };
   },
-  async setChecked(_id: ControlId, checked: boolean | -1 | 0 | 1) {
-    calls.push({ method: "setChecked", index: checked === true ? 1 : checked === false ? 0 : checked });
+  async setChecked(_id: ControlId, checked: boolean | -1 | 0 | 1, _ensure?: boolean, options?: any) {
+    calls.push({
+      method: "setChecked",
+      index: checked === true ? 1 : checked === false ? 0 : checked,
+      strategy: options?.strategy,
+    });
     return { checked: checked !== 0 };
   },
 };
@@ -112,9 +140,9 @@ test("setChecked takes boolean or toggle, never numbers", async () => {
   await control.setChecked(false);
   await control.setChecked("toggle");
   expect(calls).toStrictEqual([
-    { method: "setChecked", index: 1 },
-    { method: "setChecked", index: 0 },
-    { method: "setChecked", index: -1 },
+    { method: "setChecked", index: 1, strategy: "auto" },
+    { method: "setChecked", index: 0, strategy: "auto" },
+    { method: "setChecked", index: -1, strategy: "auto" },
   ]);
 });
 
@@ -124,4 +152,27 @@ test("negative and fractional indexes throw before the bridge runs", async () =>
   expect(() => control.listDelete(1.5)).toThrow(TypeError);
   expect(() => control.tabSelect(-2)).toThrow(TypeError);
   expect(calls).toStrictEqual([]);
+});
+
+test("control methods forward strategy to bridge", async () => {
+  const control = new Control(11, { id: 11 as ControlId, className: "Button", classNN: "Button1" }, "uia");
+  await control.click({ button: "left" });
+  await control.click(undefined, { strategy: "visual" });
+  await control.focus();
+  await control.setText("val", { strategy: "message" });
+  await control.getText();
+  await control.sendText("abc");
+  await control.setChecked(true, false, { strategy: "uia" });
+  await control.isChecked();
+
+  expect(calls).toStrictEqual([
+    { method: "click", strategy: "uia" },
+    { method: "click", strategy: "visual" },
+    { method: "focus", strategy: "uia" },
+    { method: "setText", strategy: "message" },
+    { method: "getText", strategy: "uia" },
+    { method: "sendText", strategy: "uia" },
+    { method: "setChecked", index: 1, strategy: "uia" },
+    { method: "isChecked", strategy: "uia" },
+  ]);
 });

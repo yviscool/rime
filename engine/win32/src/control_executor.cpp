@@ -173,6 +173,47 @@ bool utf8_to_wide_strict(const std::string& utf8, std::wstring& out, std::string
   return true;
 }
 
+enum class ControlStrategy { Auto, Message, Uia, Visual };
+
+bool read_strategy(const rime::core::json::Value& payload, ControlStrategy& out,
+                   std::string& error) {
+  const rime::core::json::Value* field = payload.find("strategy");
+  if (!field) {
+    out = ControlStrategy::Auto;
+    return true;
+  }
+  if (!field->is_string()) {
+    error = "control strategy must be a string";
+    return false;
+  }
+  const std::string s = field->as_string();
+  if (s == "auto") {
+    out = ControlStrategy::Auto;
+    return true;
+  } else if (s == "message") {
+    out = ControlStrategy::Message;
+    return true;
+  } else if (s == "uia") {
+    out = ControlStrategy::Uia;
+    return true;
+  } else if (s == "visual") {
+    out = ControlStrategy::Visual;
+    return true;
+  }
+  error = "control strategy must be auto, message, uia or visual";
+  return false;
+}
+
+bool is_modern_framework_class(const std::string& class_name) {
+  std::string lower = class_name;
+  for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return lower.find("directui") != std::string::npos ||
+         lower.find("corewindow") != std::string::npos ||
+         lower.find("chrome_widget") != std::string::npos ||
+         lower.find("xaml") != std::string::npos ||
+         lower.find("appframewindow") != std::string::npos;
+}
+
 }  // namespace
 
 rime::action::Result ControlExecutor::execute(const rime::action::Action& action,
@@ -194,6 +235,25 @@ rime::action::Result ControlExecutor::execute(const rime::action::Action& action
   if (!remaining_timeout(action, timeout)) {
     return fail(action, Code::Timeout, action.type + " deadline already passed");
   }
+
+  ControlStrategy strategy = ControlStrategy::Auto;
+  std::string strategy_error;
+  if (!read_strategy(*payload.value, strategy, strategy_error)) {
+    return fail(action, Code::InvalidContract, strategy_error);
+  }
+
+  auto resolve_uia_element = [&](std::uint64_t control_id,
+                                 rime::automation::ElementSnapshot& out) -> rime::core::Error {
+    if (!uia_service_) {
+      return {Code::Unsupported, "UIA service is not available"};
+    }
+    void* hwnd = nullptr;
+    const auto hwnd_err = service_.control_hwnd(control_id, hwnd, timeout);
+    if (hwnd_err.ok() && hwnd) {
+      return uia_service_->element_from_hwnd(hwnd, out);
+    }
+    return uia_service_->read(control_id, out);
+  };
 
   if (action.type == "control.click") {
     int vk = VK_LBUTTON;
@@ -268,6 +328,81 @@ rime::action::Result ControlExecutor::execute(const rime::action::Action& action
       return fail(action, Code::InvalidContract,
                   "control.click settleMs must be an integer in 0..3600000");
     }
+
+    if (strategy == ControlStrategy::Uia) {
+      rime::automation::ElementSnapshot snap;
+      if (const auto uia_resolve = resolve_uia_element(id, snap); !uia_resolve.ok()) {
+        return fail(action, uia_resolve.code, uia_resolve.message);
+      }
+      if (const auto op = uia_service_->invoke(snap.id); !op.ok()) {
+        return fail(action, op.code, op.message);
+      }
+      if (settle_ms > 0 && !settle_wait(settle_ms, cancellation)) {
+        return {action.id, false, true, "control.click cancelled during settle",
+                {Code::Cancelled, "cancelled"}, {}};
+      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+      rime::core::json::Value result_value = rime::core::json::Value::object();
+      result_value.set("clicks", rime::core::json::Value::number(static_cast<double>(count)));
+      return {action.id, true, false, "control clicked via UIA", {}, std::move(result_value)};
+    }
+
+    if (strategy == ControlStrategy::Visual) {
+      Rect rect{};
+      if (const auto rect_err = service_.control_rect(id, rect, timeout); !rect_err.ok()) {
+        return fail(action, rect_err.code, rect_err.message);
+      }
+      click.x = (x != 0 ? x : rect.width() / 2);
+      click.y = (y != 0 ? y : rect.height() / 2);
+      if (const auto click_error = service_.control_click(id, click, timeout); !click_error.ok()) {
+        return fail(action, click_error.code, click_error.message);
+      }
+      if (settle_ms > 0 && !settle_wait(settle_ms, cancellation)) {
+        return {action.id, false, true, "control.click cancelled during settle",
+                {Code::Cancelled, "cancelled"}, {}};
+      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+      rime::core::json::Value result_value = rime::core::json::Value::object();
+      result_value.set("clicks", rime::core::json::Value::number(static_cast<double>(count)));
+      return {action.id, true, false, "control clicked via visual coordinate", {}, std::move(result_value)};
+    }
+
+    if (strategy == ControlStrategy::Auto) {
+      std::string class_name;
+      (void)service_.control_class_name(id, class_name, timeout);
+      if (is_modern_framework_class(class_name) && uia_service_) {
+        rime::automation::ElementSnapshot snap;
+        if (resolve_uia_element(id, snap).ok() && uia_service_->invoke(snap.id).ok()) {
+          if (settle_ms > 0 && !settle_wait(settle_ms, cancellation)) {
+            return {action.id, false, true, "control.click cancelled during settle",
+                    {Code::Cancelled, "cancelled"}, {}};
+          }
+          if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+          rime::core::json::Value result_value = rime::core::json::Value::object();
+          result_value.set("clicks", rime::core::json::Value::number(static_cast<double>(count)));
+          return {action.id, true, false, "control clicked via UIA", {}, std::move(result_value)};
+        }
+      }
+      auto click_error = service_.control_click(id, click, timeout);
+      if (!click_error.ok() && uia_service_) {
+        rime::automation::ElementSnapshot snap;
+        if (resolve_uia_element(id, snap).ok() && uia_service_->invoke(snap.id).ok()) {
+          click_error = rime::core::Error::none();
+        }
+      }
+      if (!click_error.ok()) {
+        return fail(action, click_error.code, click_error.message);
+      }
+      if (settle_ms > 0 && !settle_wait(settle_ms, cancellation)) {
+        return {action.id, false, true, "control.click cancelled during settle",
+                {Code::Cancelled, "cancelled"}, {}};
+      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+      rime::core::json::Value result_value = rime::core::json::Value::object();
+      result_value.set("clicks", rime::core::json::Value::number(static_cast<double>(count)));
+      return {action.id, true, false, "control clicked", {}, std::move(result_value)};
+    }
+
     if (const auto click_error = service_.control_click(id, click, timeout); !click_error.ok()) {
       return fail(action, click_error.code, click_error.message);
     }
@@ -282,6 +417,46 @@ rime::action::Result ControlExecutor::execute(const rime::action::Action& action
   }
 
   if (action.type == "control.focus") {
+    if (strategy == ControlStrategy::Uia) {
+      rime::automation::ElementSnapshot snap;
+      if (const auto uia_resolve = resolve_uia_element(id, snap); !uia_resolve.ok()) {
+        return fail(action, uia_resolve.code, uia_resolve.message);
+      }
+      if (const auto op = uia_service_->set_focus(snap.id); !op.ok()) {
+        return fail(action, op.code, op.message);
+      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+      rime::core::json::Value result_value = rime::core::json::Value::object();
+      result_value.set("focused", rime::core::json::Value::boolean(true));
+      return {action.id, true, false, "control focused via UIA", {}, std::move(result_value)};
+    }
+    if (strategy == ControlStrategy::Visual) {
+      WindowService::ControlClick click;
+      click.activate = true;
+      if (const auto click_err = service_.control_click(id, click, timeout); !click_err.ok()) {
+        return fail(action, click_err.code, click_err.message);
+      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+      rime::core::json::Value result_value = rime::core::json::Value::object();
+      result_value.set("focused", rime::core::json::Value::boolean(true));
+      return {action.id, true, false, "control focused via visual click", {}, std::move(result_value)};
+    }
+    if (strategy == ControlStrategy::Auto) {
+      auto focus_error = service_.control_focus(id, timeout);
+      if (!focus_error.ok() && uia_service_) {
+        rime::automation::ElementSnapshot snap;
+        if (resolve_uia_element(id, snap).ok() && uia_service_->set_focus(snap.id).ok()) {
+          focus_error = rime::core::Error::none();
+        }
+      }
+      if (!focus_error.ok()) {
+        return fail(action, focus_error.code, focus_error.message);
+      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+      rime::core::json::Value result_value = rime::core::json::Value::object();
+      result_value.set("focused", rime::core::json::Value::boolean(true));
+      return {action.id, true, false, "control focused", {}, std::move(result_value)};
+    }
     if (const auto focus_error = service_.control_focus(id, timeout); !focus_error.ok()) {
       return fail(action, focus_error.code, focus_error.message);
     }
@@ -297,17 +472,55 @@ rime::action::Result ControlExecutor::execute(const rime::action::Action& action
     if (!read_text_field(*payload.value, "text", action.type, utf8, field_error)) {
       return fail(action, Code::InvalidContract, field_error);
     }
+    if (strategy == ControlStrategy::Visual) {
+      return fail(action, Code::Unsupported,
+                  std::string("visual strategy does not support ") +
+                      (action.type == "control.settext" ? "setText without OCR" : "sendText"));
+    }
+    if (strategy == ControlStrategy::Uia) {
+      rime::automation::ElementSnapshot snap;
+      if (const auto uia_resolve = resolve_uia_element(id, snap); !uia_resolve.ok()) {
+        return fail(action, uia_resolve.code, uia_resolve.message);
+      }
+      if (const auto op = uia_service_->set_value(snap.id, utf8); !op.ok()) {
+        return fail(action, op.code, op.message);
+      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+      rime::core::json::Value result_value = rime::core::json::Value::object();
+      result_value.set("text", rime::core::json::Value::string(utf8));
+      return {action.id, true, false, "control text set via UIA ValuePattern", {}, std::move(result_value)};
+    }
     // Service takes wide text; the UTF-8 -> wide step rejects garbage loudly
     // (MB_ERR_INVALID_CHARS) instead of silently clearing the control.
     std::wstring wide;
     if (!utf8_to_wide_strict(utf8, wide, field_error, action.type)) {
       return fail(action, Code::InvalidContract, field_error);
     }
+    if (strategy == ControlStrategy::Auto && action.type == "control.settext") {
+      std::string class_name;
+      (void)service_.control_class_name(id, class_name, timeout);
+      if (is_modern_framework_class(class_name) && uia_service_) {
+        rime::automation::ElementSnapshot snap;
+        if (resolve_uia_element(id, snap).ok() && uia_service_->set_value(snap.id, utf8).ok()) {
+          if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+          rime::core::json::Value result_value = rime::core::json::Value::object();
+          result_value.set("text", rime::core::json::Value::string(utf8));
+          return {action.id, true, false, "control text set via UIA ValuePattern", {}, std::move(result_value)};
+        }
+      }
+    }
     rime::core::Error op_error = rime::core::Error::none();
     if (action.type == "control.settext") {
       op_error = service_.control_set_text(id, wide, timeout);
     } else {
       op_error = service_.control_send_text(id, wide, timeout);
+    }
+    if (!op_error.ok() && strategy == ControlStrategy::Auto && action.type == "control.settext" &&
+        uia_service_) {
+      rime::automation::ElementSnapshot snap;
+      if (resolve_uia_element(id, snap).ok() && uia_service_->set_value(snap.id, utf8).ok()) {
+        op_error = rime::core::Error::none();
+      }
     }
     if (!op_error.ok()) {
       return fail(action, op_error.code, op_error.message);
@@ -318,6 +531,15 @@ rime::action::Result ControlExecutor::execute(const rime::action::Action& action
     return {action.id, true, false,
             action.type == "control.settext" ? "control text set" : "control text sent", {},
             std::move(result_value)};
+  }
+
+  if (strategy == ControlStrategy::Uia || strategy == ControlStrategy::Visual) {
+    if (action.type != "control.setchecked" && action.type != "control.ischecked" &&
+        action.type != "control.gettext") {
+      return fail(action, Code::Unsupported,
+                  std::string(strategy == ControlStrategy::Uia ? "uia" : "visual") +
+                      " strategy is not supported for " + action.type);
+    }
   }
 
   // ---- List family ------------------------------------------------------
@@ -576,8 +798,66 @@ rime::action::Result ControlExecutor::execute(const rime::action::Action& action
       }
       ensure_active = active->as_bool();
     }
+    const int target_check = static_cast<int>(raw);
+
+    if (strategy == ControlStrategy::Visual) {
+      return fail(action, Code::Unsupported, "visual strategy does not support control.setchecked");
+    }
+
+    if (strategy == ControlStrategy::Uia) {
+      rime::automation::ElementSnapshot snap;
+      if (const auto uia_resolve = resolve_uia_element(id, snap); !uia_resolve.ok()) {
+        return fail(action, uia_resolve.code, uia_resolve.message);
+      }
+      bool final_checked = false;
+      if (const auto op = uia_service_->set_toggle_state(snap.id, target_check, final_checked); !op.ok()) {
+        return fail(action, op.code, op.message);
+      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+      rime::core::json::Value result_value = rime::core::json::Value::object();
+      result_value.set("checked", rime::core::json::Value::boolean(final_checked));
+      return {action.id, true, false, "control check set via UIA TogglePattern", {}, std::move(result_value)};
+    }
+
+    if (strategy == ControlStrategy::Auto) {
+      std::string class_name;
+      (void)service_.control_class_name(id, class_name, timeout);
+      if (is_modern_framework_class(class_name) && uia_service_) {
+        rime::automation::ElementSnapshot snap;
+        if (resolve_uia_element(id, snap).ok()) {
+          bool final_checked = false;
+          if (uia_service_->set_toggle_state(snap.id, target_check, final_checked).ok()) {
+            if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+            rime::core::json::Value result_value = rime::core::json::Value::object();
+            result_value.set("checked", rime::core::json::Value::boolean(final_checked));
+            return {action.id, true, false, "control check set via UIA TogglePattern", {}, std::move(result_value)};
+          }
+        }
+      }
+      auto op = service_.control_set_checked(id, target_check, ensure_active, timeout);
+      if (!op.ok() && uia_service_) {
+        rime::automation::ElementSnapshot snap;
+        if (resolve_uia_element(id, snap).ok()) {
+          bool final_checked = false;
+          if (uia_service_->set_toggle_state(snap.id, target_check, final_checked).ok()) {
+            if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+            rime::core::json::Value result_value = rime::core::json::Value::object();
+            result_value.set("checked", rime::core::json::Value::boolean(final_checked));
+            return {action.id, true, false, "control check set via UIA TogglePattern", {}, std::move(result_value)};
+          }
+        }
+      }
+      if (!op.ok()) {
+        return fail(action, op.code, op.message);
+      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+      rime::core::json::Value result_value = rime::core::json::Value::object();
+      result_value.set("checked", rime::core::json::Value::boolean(raw != 0.0));
+      return {action.id, true, false, "control check set", {}, std::move(result_value)};
+    }
+
     if (const auto op =
-            service_.control_set_checked(id, static_cast<int>(raw), ensure_active, timeout);
+            service_.control_set_checked(id, target_check, ensure_active, timeout);
         !op.ok()) {
       return fail(action, op.code, op.message);
     }
@@ -587,6 +867,63 @@ rime::action::Result ControlExecutor::execute(const rime::action::Action& action
     return {action.id, true, false, "control check set", {}, std::move(result_value)};
   }
   if (action.type == "control.ischecked") {
+    if (strategy == ControlStrategy::Visual) {
+      return fail(action, Code::Unsupported, "visual strategy does not support control.ischecked");
+    }
+
+    if (strategy == ControlStrategy::Uia) {
+      rime::automation::ElementSnapshot snap;
+      if (const auto uia_resolve = resolve_uia_element(id, snap); !uia_resolve.ok()) {
+        return fail(action, uia_resolve.code, uia_resolve.message);
+      }
+      int state = 0;
+      if (const auto op = uia_service_->get_toggle_state(snap.id, state); !op.ok()) {
+        return fail(action, op.code, op.message);
+      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+      rime::core::json::Value result_value = rime::core::json::Value::object();
+      result_value.set("checked", rime::core::json::Value::boolean(state == 1));
+      return {action.id, true, false, "control check read via UIA TogglePattern", {}, std::move(result_value)};
+    }
+
+    if (strategy == ControlStrategy::Auto) {
+      std::string class_name;
+      (void)service_.control_class_name(id, class_name, timeout);
+      if (is_modern_framework_class(class_name) && uia_service_) {
+        rime::automation::ElementSnapshot snap;
+        if (resolve_uia_element(id, snap).ok()) {
+          int state = 0;
+          if (uia_service_->get_toggle_state(snap.id, state).ok()) {
+            if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+            rime::core::json::Value result_value = rime::core::json::Value::object();
+            result_value.set("checked", rime::core::json::Value::boolean(state == 1));
+            return {action.id, true, false, "control check read via UIA TogglePattern", {}, std::move(result_value)};
+          }
+        }
+      }
+      bool checked = false;
+      auto op = service_.control_is_checked(id, checked, timeout);
+      if (!op.ok() && uia_service_) {
+        rime::automation::ElementSnapshot snap;
+        if (resolve_uia_element(id, snap).ok()) {
+          int state = 0;
+          if (uia_service_->get_toggle_state(snap.id, state).ok()) {
+            if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+            rime::core::json::Value result_value = rime::core::json::Value::object();
+            result_value.set("checked", rime::core::json::Value::boolean(state == 1));
+            return {action.id, true, false, "control check read via UIA TogglePattern", {}, std::move(result_value)};
+          }
+        }
+      }
+      if (!op.ok()) {
+        return fail(action, op.code, op.message);
+      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+      rime::core::json::Value result_value = rime::core::json::Value::object();
+      result_value.set("checked", rime::core::json::Value::boolean(checked));
+      return {action.id, true, false, "control check read", {}, std::move(result_value)};
+    }
+
     bool checked = false;
     if (const auto op = service_.control_is_checked(id, checked, timeout); !op.ok()) {
       return fail(action, op.code, op.message);
@@ -807,8 +1144,59 @@ rime::action::Result ControlExecutor::execute(const rime::action::Action& action
     return {action.id, true, false, "control statusbar matched", {}, std::move(result_value)};
   }
 
-  // control.gettext: no payload fields.
+  // control.gettext
   if (action.type == "control.gettext") {
+    if (strategy == ControlStrategy::Visual) {
+      return fail(action, Code::Unsupported, "visual strategy does not support control.gettext without OCR");
+    }
+
+    if (strategy == ControlStrategy::Uia) {
+      rime::automation::ElementSnapshot snap;
+      if (const auto uia_resolve = resolve_uia_element(id, snap); !uia_resolve.ok()) {
+        return fail(action, uia_resolve.code, uia_resolve.message);
+      }
+      std::string out;
+      if (const auto op = uia_service_->get_value(snap.id, out); !op.ok()) {
+        return fail(action, op.code, op.message);
+      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+      rime::core::json::Value result_value = rime::core::json::Value::object();
+      result_value.set("text", rime::core::json::Value::string(out));
+      return {action.id, true, false, "control text read via UIA ValuePattern", {}, std::move(result_value)};
+    }
+
+    if (strategy == ControlStrategy::Auto) {
+      std::string class_name;
+      (void)service_.control_class_name(id, class_name, timeout);
+      if (is_modern_framework_class(class_name) && uia_service_) {
+        rime::automation::ElementSnapshot snap;
+        if (resolve_uia_element(id, snap).ok()) {
+          std::string out;
+          if (uia_service_->get_value(snap.id, out).ok()) {
+            if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+            rime::core::json::Value result_value = rime::core::json::Value::object();
+            result_value.set("text", rime::core::json::Value::string(out));
+            return {action.id, true, false, "control text read via UIA ValuePattern", {}, std::move(result_value)};
+          }
+        }
+      }
+      std::string out;
+      auto read_error = service_.control_get_text(id, out, timeout);
+      if (!read_error.ok() && uia_service_) {
+        rime::automation::ElementSnapshot snap;
+        if (resolve_uia_element(id, snap).ok() && uia_service_->get_value(snap.id, out).ok()) {
+          read_error = rime::core::Error::none();
+        }
+      }
+      if (!read_error.ok()) {
+        return fail(action, read_error.code, read_error.message);
+      }
+      if (const auto bad = contract::cancel_after(action, cancellation)) return *bad;
+      rime::core::json::Value result_value = rime::core::json::Value::object();
+      result_value.set("text", rime::core::json::Value::string(out));
+      return {action.id, true, false, "control text read", {}, std::move(result_value)};
+    }
+
     std::string out;
     if (const auto read_error = service_.control_get_text(id, out, timeout);
         !read_error.ok()) {

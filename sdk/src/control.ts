@@ -36,10 +36,24 @@ export interface ControlClickOptions {
   activate?: boolean;
   pos?: { x: number; y: number };
   settleMs?: number;
+  strategy?: ControlStrategy;
 }
 
-/** Strategy for text paths. `auto` tries the message first (AHK semantics). */
-export type ControlTextStrategy = "message" | "uia" | "auto";
+/** 3-tier control strategy: direct Win32 message, UIA pattern, visual coordinate fallback, or auto negotiation. */
+export type ControlStrategy = "auto" | "message" | "uia" | "visual";
+
+/** Backward-compatible alias for text paths. */
+export type ControlTextStrategy = ControlStrategy;
+
+/** Options for mutating control actions with strategy selection. */
+export interface ControlActionOptions extends ActionOptions {
+  strategy?: ControlStrategy;
+}
+
+/** Wire options passed to the control bridge. */
+export interface ControlNativeActionOptions extends NativeActionOptions {
+  strategy?: ControlStrategy;
+}
 
 /** Bridge of the `rime:control` module (Win32 control verbs). */
 export interface ControlBridge {
@@ -53,16 +67,16 @@ export interface ControlBridge {
   click(
     id: ControlId,
     opts?: ControlClickOptions,
-    options?: NativeActionOptions,
+    options?: ControlNativeActionOptions,
   ): Promise<{ clicks: number }>;
   /** AttachThreadInput + SetFocus. Never reports focus failure. */
-  focus(id: ControlId, options?: NativeActionOptions): Promise<{ focused: true }>;
-  /** WM_SETTEXT round trip. */
-  setText(id: ControlId, text: string, options?: NativeActionOptions): Promise<{ text: string }>;
-  /** WM_GETTEXTLENGTH + WM_GETTEXT round trip. */
-  getText(id: ControlId, options?: NativeActionOptions): Promise<{ text: string }>;
+  focus(id: ControlId, options?: ControlNativeActionOptions): Promise<{ focused: true }>;
+  /** WM_SETTEXT round trip or UIA ValuePattern. */
+  setText(id: ControlId, text: string, options?: ControlNativeActionOptions): Promise<{ text: string }>;
+  /** WM_GETTEXTLENGTH + WM_GETTEXT round trip or UIA ValuePattern. */
+  getText(id: ControlId, options?: ControlNativeActionOptions): Promise<{ text: string }>;
   /** RAW_TEXT keystrokes (WM_CHAR, no parsing). */
-  sendText(id: ControlId, text: string, options?: NativeActionOptions): Promise<{ text: string }>;
+  sendText(id: ControlId, text: string, options?: ControlNativeActionOptions): Promise<{ text: string }>;
   /** Single Win32 reads. Synchronous (no Action, no trace). */
   isVisible(id: ControlId): boolean;
   /** Single Win32 reads. Synchronous (no Action, no trace). */
@@ -118,10 +132,10 @@ export interface ControlBridge {
     id: ControlId,
     checked: boolean | -1 | 0 | 1,
     ensureActive?: boolean,
-    options?: NativeActionOptions,
+    options?: ControlNativeActionOptions,
   ): Promise<{ checked: boolean }>;
   /** Checkbox state. */
-  isChecked(id: ControlId, options?: NativeActionOptions): Promise<{ checked: boolean }>;
+  isChecked(id: ControlId, options?: ControlNativeActionOptions): Promise<{ checked: boolean }>;
   /** Show without activating (SW_SHOWNOACTIVATE). */
   show(id: ControlId, options?: NativeActionOptions): Promise<{ visible: true }>;
   /** Hide. */
@@ -238,14 +252,14 @@ export class Control {
   constructor(
     readonly windowId: number,
     readonly snapshot: ControlSnapshot,
-    private readonly strategy: ControlTextStrategy = "auto",
+    readonly strategy: ControlStrategy = "auto",
   ) {}
 
   /** Resolve a spec against a window. */
   static async resolve(
     windowId: number,
     spec: ControlSpec,
-    options?: ActionOptions & { strategy?: ControlTextStrategy },
+    options?: ActionOptions & { strategy?: ControlStrategy },
   ): Promise<Control> {
     const { strategy, ...rest } = options ?? {};
     const snapshot = await runAction(rest, (native) =>
@@ -259,42 +273,48 @@ export class Control {
   }
 
   /** Posts click message(s); resolves `{ clicks }`. */
-  click(opts?: ControlClickOptions, options?: ActionOptions): Promise<{ clicks: number }> {
+  click(opts?: ControlClickOptions, options?: ControlActionOptions): Promise<{ clicks: number }> {
     const id = this.id;
+    const strategy = opts?.strategy ?? options?.strategy ?? this.strategy;
+    const clickOpts = { ...opts, ...(strategy ? { strategy } : {}) };
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.click(id, opts, native)),
+      controlBridge().then((bridge) => bridge.click(id, clickOpts, { ...native, strategy })),
     );
   }
 
   /** AttachThreadInput + SetFocus. */
-  focus(options?: ActionOptions): Promise<{ focused: true }> {
+  focus(options?: ControlActionOptions): Promise<{ focused: true }> {
     const id = this.id;
+    const strategy = options?.strategy ?? this.strategy;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.focus(id, native)),
+      controlBridge().then((bridge) => bridge.focus(id, { ...native, strategy })),
     );
   }
 
-  /** WM_SETTEXT round trip. */
-  setText(text: string, options?: ActionOptions): Promise<{ text: string }> {
+  /** WM_SETTEXT round trip or UIA ValuePattern. */
+  setText(text: string, options?: ControlActionOptions): Promise<{ text: string }> {
     const id = this.id;
+    const strategy = options?.strategy ?? this.strategy;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.setText(id, text, native)),
+      controlBridge().then((bridge) => bridge.setText(id, text, { ...native, strategy })),
     );
   }
 
-  /** WM_GETTEXTLENGTH + WM_GETTEXT round trip. */
-  getText(options?: ActionOptions): Promise<{ text: string }> {
+  /** WM_GETTEXTLENGTH + WM_GETTEXT round trip or UIA ValuePattern. */
+  getText(options?: ControlActionOptions): Promise<{ text: string }> {
     const id = this.id;
+    const strategy = options?.strategy ?? this.strategy;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.getText(id, native)),
+      controlBridge().then((bridge) => bridge.getText(id, { ...native, strategy })),
     );
   }
 
   /** RAW_TEXT keystrokes (WM_CHAR, no parsing). */
-  sendText(text: string, options?: ActionOptions): Promise<{ text: string }> {
+  sendText(text: string, options?: ControlActionOptions): Promise<{ text: string }> {
     const id = this.id;
+    const strategy = options?.strategy ?? this.strategy;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.sendText(id, text, native)),
+      controlBridge().then((bridge) => bridge.sendText(id, text, { ...native, strategy })),
     );
   }
 
@@ -429,20 +449,22 @@ export class Control {
   setChecked(
     checked: boolean | "toggle",
     ensureActive?: boolean,
-    options?: ActionOptions,
+    options?: ControlActionOptions,
   ): Promise<{ checked: boolean }> {
     const id = this.id;
     const wire = checked === "toggle" ? -1 : checked ? 1 : 0;
+    const strategy = options?.strategy ?? this.strategy;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.setChecked(id, wire, ensureActive, native)),
+      controlBridge().then((bridge) => bridge.setChecked(id, wire, ensureActive, { ...native, strategy })),
     );
   }
 
   /** Checkbox state. */
-  isChecked(options?: ActionOptions): Promise<{ checked: boolean }> {
+  isChecked(options?: ControlActionOptions): Promise<{ checked: boolean }> {
     const id = this.id;
+    const strategy = options?.strategy ?? this.strategy;
     return runAction(options, (native) =>
-      controlBridge().then((bridge) => bridge.isChecked(id, native)),
+      controlBridge().then((bridge) => bridge.isChecked(id, { ...native, strategy })),
     );
   }
 

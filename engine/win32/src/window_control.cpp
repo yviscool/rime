@@ -460,6 +460,59 @@ rime::core::Error WindowService::control_alive(const std::uint64_t id, bool& out
   return result;
 }
 
+rime::core::Error WindowService::control_hwnd(const std::uint64_t id, void*& out,
+                                              const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control hwnd lookup timed out before dispatch"};
+  }
+  out = nullptr;
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        out = static_cast<void*>(control);
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
+rime::core::Error WindowService::control_class_name(const std::uint64_t id, std::string& out,
+                                                    const std::chrono::milliseconds timeout) {
+  if (past_deadline(timeout)) {
+    return {Code::InvalidContract, "control class name lookup timed out before dispatch"};
+  }
+  out.clear();
+  Error result = Error::none();
+  const auto call_error = ui().call(
+      [&] {
+        if (const auto lane_error = lane::require_lane(lane::Lane::Ui); !lane_error.ok()) {
+          result = lane_error;
+          return;
+        }
+        const HWND control = registry().hwnd_for(id);
+        if (!control) {
+          result = {Code::TargetGone, kControlGoneMessage};
+          return;
+        }
+        wchar_t buf[256] = {0};
+        if (GetClassNameW(control, buf, 256) > 0) {
+          out = to_utf8(buf);
+        }
+      },
+      timeout);
+  if (!call_error.ok()) return call_error;
+  return result;
+}
+
 rime::core::Error WindowService::control_id_for_hwnd(const std::uint64_t window_id, void* hwnd,
                                                       std::uint64_t& out,
                                                       const std::chrono::milliseconds timeout) {  if (past_deadline(timeout)) {

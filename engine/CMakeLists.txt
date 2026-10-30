@@ -1,6 +1,6 @@
 add_subdirectory(core)
 add_subdirectory(action)
 if (WIN32)
-  add_subdirectory(win32)
   add_subdirectory(automation)
+  add_subdirectory(win32)
 endif()

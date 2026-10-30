@@ -558,6 +558,281 @@ struct UiaService::Impl final {
     }
   }
 
+  void get_value_job(std::uint64_t id, std::string& out, Error& error) {
+    error = Error::none();
+    out.clear();
+    ComRef<IUIAutomationElement> element = take_element(id, error);
+    if (!element) return;
+
+    IUnknown* raw_pattern = nullptr;
+    const HRESULT pattern_hr = element->GetCurrentPattern(UIA_ValuePatternId, &raw_pattern);
+    ComRef<IUIAutomationValuePattern> pattern;
+    if (raw_pattern) {
+      raw_pattern->QueryInterface(IID_IUIAutomationValuePattern,
+                                  reinterpret_cast<void**>(pattern.put()));
+      raw_pattern->Release();
+    }
+    if (FAILED(pattern_hr) || !pattern) {
+      if (is_gone(pattern_hr)) {
+        drop_element(id);
+        error = {Code::TargetGone, "element " + std::to_string(id) + " is gone"};
+      } else {
+        error = {Code::Unsupported,
+                 "element " + std::to_string(id) + " does not support value pattern"};
+      }
+      return;
+    }
+
+    BSTR val = nullptr;
+    const HRESULT get_hr = pattern->get_CurrentValue(&val);
+    if (FAILED(get_hr)) {
+      if (val) SysFreeString(val);
+      if (is_gone(get_hr)) {
+        drop_element(id);
+        error = {Code::TargetGone, "element " + std::to_string(id) + " is gone"};
+      } else {
+        error = {Code::ExecutionFailed, widen_error("element get_value failed", get_hr)};
+      }
+      return;
+    }
+    if (val) {
+      out = narrow_utf8(val);
+      SysFreeString(val);
+    }
+  }
+
+  void set_value_job(std::uint64_t id, const std::string& text, Error& error) {
+    error = Error::none();
+    ComRef<IUIAutomationElement> element = take_element(id, error);
+    if (!element) return;
+
+    IUnknown* raw_pattern = nullptr;
+    const HRESULT pattern_hr = element->GetCurrentPattern(UIA_ValuePatternId, &raw_pattern);
+    ComRef<IUIAutomationValuePattern> pattern;
+    if (raw_pattern) {
+      raw_pattern->QueryInterface(IID_IUIAutomationValuePattern,
+                                  reinterpret_cast<void**>(pattern.put()));
+      raw_pattern->Release();
+    }
+    if (FAILED(pattern_hr) || !pattern) {
+      if (is_gone(pattern_hr)) {
+        drop_element(id);
+        error = {Code::TargetGone, "element " + std::to_string(id) + " is gone"};
+      } else {
+        error = {Code::Unsupported,
+                 "element " + std::to_string(id) + " does not support value pattern"};
+      }
+      return;
+    }
+
+    BOOL is_readonly = FALSE;
+    const HRESULT ro_hr = pattern->get_CurrentIsReadOnly(&is_readonly);
+    if (SUCCEEDED(ro_hr) && is_readonly) {
+      error = {Code::Unsupported, "element " + std::to_string(id) + " is read-only"};
+      return;
+    }
+
+    const std::wstring wide = widen(text);
+    BSTR val = SysAllocStringLen(wide.c_str(), static_cast<UINT>(wide.size()));
+    const HRESULT set_hr = pattern->SetValue(val);
+    if (val) SysFreeString(val);
+    if (FAILED(set_hr)) {
+      if (is_gone(set_hr)) {
+        drop_element(id);
+        error = {Code::TargetGone, "element " + std::to_string(id) + " is gone"};
+      } else {
+        error = {Code::ExecutionFailed, widen_error("element set_value failed", set_hr)};
+      }
+    }
+  }
+
+  void toggle_job(std::uint64_t id, Error& error) {
+    error = Error::none();
+    ComRef<IUIAutomationElement> element = take_element(id, error);
+    if (!element) return;
+
+    IUnknown* raw_pattern = nullptr;
+    const HRESULT pattern_hr = element->GetCurrentPattern(UIA_TogglePatternId, &raw_pattern);
+    ComRef<IUIAutomationTogglePattern> pattern;
+    if (raw_pattern) {
+      raw_pattern->QueryInterface(IID_IUIAutomationTogglePattern,
+                                  reinterpret_cast<void**>(pattern.put()));
+      raw_pattern->Release();
+    }
+    if (FAILED(pattern_hr) || !pattern) {
+      if (is_gone(pattern_hr)) {
+        drop_element(id);
+        error = {Code::TargetGone, "element " + std::to_string(id) + " is gone"};
+      } else {
+        error = {Code::Unsupported,
+                 "element " + std::to_string(id) + " does not support toggle pattern"};
+      }
+      return;
+    }
+
+    const HRESULT toggle_hr = pattern->Toggle();
+    if (FAILED(toggle_hr)) {
+      if (is_gone(toggle_hr)) {
+        drop_element(id);
+        error = {Code::TargetGone, "element " + std::to_string(id) + " is gone"};
+      } else {
+        error = {Code::ExecutionFailed, widen_error("element toggle failed", toggle_hr)};
+      }
+    }
+  }
+
+  void get_toggle_state_job(std::uint64_t id, int& out_state, Error& error) {
+    error = Error::none();
+    out_state = 0;
+    ComRef<IUIAutomationElement> element = take_element(id, error);
+    if (!element) return;
+
+    IUnknown* raw_pattern = nullptr;
+    const HRESULT pattern_hr = element->GetCurrentPattern(UIA_TogglePatternId, &raw_pattern);
+    ComRef<IUIAutomationTogglePattern> pattern;
+    if (raw_pattern) {
+      raw_pattern->QueryInterface(IID_IUIAutomationTogglePattern,
+                                  reinterpret_cast<void**>(pattern.put()));
+      raw_pattern->Release();
+    }
+    if (FAILED(pattern_hr) || !pattern) {
+      if (is_gone(pattern_hr)) {
+        drop_element(id);
+        error = {Code::TargetGone, "element " + std::to_string(id) + " is gone"};
+      } else {
+        error = {Code::Unsupported,
+                 "element " + std::to_string(id) + " does not support toggle pattern"};
+      }
+      return;
+    }
+
+    ToggleState state = ToggleState_Off;
+    const HRESULT hr = pattern->get_CurrentToggleState(&state);
+    if (FAILED(hr)) {
+      if (is_gone(hr)) {
+        drop_element(id);
+        error = {Code::TargetGone, "element " + std::to_string(id) + " is gone"};
+      } else {
+        error = {Code::ExecutionFailed, widen_error("element get_CurrentToggleState failed", hr)};
+      }
+      return;
+    }
+    out_state = static_cast<int>(state);
+  }
+
+  void set_toggle_state_job(std::uint64_t id, int target_state, bool& out_checked, Error& error) {
+    error = Error::none();
+    out_checked = false;
+    ComRef<IUIAutomationElement> element = take_element(id, error);
+    if (!element) return;
+
+    IUnknown* raw_pattern = nullptr;
+    const HRESULT pattern_hr = element->GetCurrentPattern(UIA_TogglePatternId, &raw_pattern);
+    ComRef<IUIAutomationTogglePattern> pattern;
+    if (raw_pattern) {
+      raw_pattern->QueryInterface(IID_IUIAutomationTogglePattern,
+                                  reinterpret_cast<void**>(pattern.put()));
+      raw_pattern->Release();
+    }
+    if (FAILED(pattern_hr) || !pattern) {
+      if (is_gone(pattern_hr)) {
+        drop_element(id);
+        error = {Code::TargetGone, "element " + std::to_string(id) + " is gone"};
+      } else {
+        error = {Code::Unsupported,
+                 "element " + std::to_string(id) + " does not support toggle pattern"};
+      }
+      return;
+    }
+
+    if (target_state == -1) {
+      const HRESULT hr = pattern->Toggle();
+      if (FAILED(hr)) {
+        if (is_gone(hr)) {
+          drop_element(id);
+          error = {Code::TargetGone, "element " + std::to_string(id) + " is gone"};
+        } else {
+          error = {Code::ExecutionFailed, widen_error("element toggle failed", hr)};
+        }
+        return;
+      }
+      ToggleState current_state = ToggleState_Off;
+      (void)pattern->get_CurrentToggleState(&current_state);
+      out_checked = (current_state == ToggleState_On);
+      return;
+    }
+
+    ToggleState current_state = ToggleState_Off;
+    HRESULT hr = pattern->get_CurrentToggleState(&current_state);
+    if (FAILED(hr)) {
+      if (is_gone(hr)) {
+        drop_element(id);
+        error = {Code::TargetGone, "element " + std::to_string(id) + " is gone"};
+      } else {
+        error = {Code::ExecutionFailed, widen_error("reading toggle state failed", hr)};
+      }
+      return;
+    }
+
+    const ToggleState desired = (target_state != 0) ? ToggleState_On : ToggleState_Off;
+    if (current_state != desired) {
+      hr = pattern->Toggle();
+      if (FAILED(hr)) {
+        if (is_gone(hr)) {
+          drop_element(id);
+          error = {Code::TargetGone, "element " + std::to_string(id) + " is gone"};
+        } else {
+          error = {Code::ExecutionFailed, widen_error("element toggle failed", hr)};
+        }
+        return;
+      }
+    }
+    out_checked = (desired == ToggleState_On);
+  }
+
+  void set_focus_job(std::uint64_t id, Error& error) {
+    error = Error::none();
+    ComRef<IUIAutomationElement> element = take_element(id, error);
+    if (!element) return;
+    const HRESULT hr = element->SetFocus();
+    if (FAILED(hr)) {
+      if (is_gone(hr)) {
+        drop_element(id);
+        error = {Code::TargetGone, "element " + std::to_string(id) + " is gone"};
+      } else {
+        error = {Code::ExecutionFailed, widen_error("element SetFocus failed", hr)};
+      }
+    }
+  }
+
+  void element_from_hwnd_job(void* hwnd, ElementSnapshot& out, Error& error) {
+    error = Error::none();
+    out = ElementSnapshot{};
+    if (!hwnd || !IsWindow(static_cast<HWND>(hwnd))) {
+      error = {Code::TargetGone, "window handle is invalid or gone"};
+      return;
+    }
+    if (!automation) {
+      error = {Code::InvalidState, "automation client is not available"};
+      return;
+    }
+    ComRef<IUIAutomationElement> element;
+    const HRESULT hr =
+        automation->ElementFromHandle(static_cast<HWND>(hwnd), element.put());
+    if (FAILED(hr) || !element) {
+      if (is_gone(hr)) {
+        error = {Code::TargetGone, "window handle is gone"};
+      } else {
+        error = {Code::ExecutionFailed, widen_error("ElementFromHandle failed", hr)};
+      }
+      return;
+    }
+    const std::uint64_t id = register_element(element.get());
+    if (!snapshot_of(element.get(), id, out, error)) {
+      drop_element(id);
+    }
+  }
+
   void release_job(std::uint64_t id, bool& out) {
     out = elements.erase(id) > 0;
     element_count.store(elements.size(), std::memory_order_relaxed);
@@ -644,6 +919,102 @@ Error UiaService::invoke(const std::uint64_t id) {
       impl_->invoke_job(id, job_error);
     } catch (...) {
       job_error = {Code::ExecutionFailed, "automation invoke failed"};
+    }
+  });
+  if (!queued.ok()) return queued;
+  return job_error;
+}
+
+Error UiaService::get_value(const std::uint64_t id, std::string& out) {
+  out.clear();
+  Error job_error = Error::none();
+  const Error queued = impl_->enqueue([&] {
+    try {
+      impl_->get_value_job(id, out, job_error);
+    } catch (...) {
+      job_error = {Code::ExecutionFailed, "automation get_value failed"};
+    }
+  });
+  if (!queued.ok()) return queued;
+  return job_error;
+}
+
+Error UiaService::set_value(const std::uint64_t id, const std::string& text) {
+  Error job_error = Error::none();
+  const Error queued = impl_->enqueue([&] {
+    try {
+      impl_->set_value_job(id, text, job_error);
+    } catch (...) {
+      job_error = {Code::ExecutionFailed, "automation set_value failed"};
+    }
+  });
+  if (!queued.ok()) return queued;
+  return job_error;
+}
+
+Error UiaService::toggle(const std::uint64_t id) {
+  Error job_error = Error::none();
+  const Error queued = impl_->enqueue([&] {
+    try {
+      impl_->toggle_job(id, job_error);
+    } catch (...) {
+      job_error = {Code::ExecutionFailed, "automation toggle failed"};
+    }
+  });
+  if (!queued.ok()) return queued;
+  return job_error;
+}
+
+Error UiaService::get_toggle_state(const std::uint64_t id, int& out_state) {
+  out_state = 0;
+  Error job_error = Error::none();
+  const Error queued = impl_->enqueue([&] {
+    try {
+      impl_->get_toggle_state_job(id, out_state, job_error);
+    } catch (...) {
+      job_error = {Code::ExecutionFailed, "automation get_toggle_state failed"};
+    }
+  });
+  if (!queued.ok()) return queued;
+  return job_error;
+}
+
+Error UiaService::set_toggle_state(const std::uint64_t id, const int target_state,
+                                   bool& out_checked) {
+  out_checked = false;
+  Error job_error = Error::none();
+  const Error queued = impl_->enqueue([&] {
+    try {
+      impl_->set_toggle_state_job(id, target_state, out_checked, job_error);
+    } catch (...) {
+      job_error = {Code::ExecutionFailed, "automation set_toggle_state failed"};
+    }
+  });
+  if (!queued.ok()) return queued;
+  return job_error;
+}
+
+Error UiaService::set_focus(const std::uint64_t id) {
+  Error job_error = Error::none();
+  const Error queued = impl_->enqueue([&] {
+    try {
+      impl_->set_focus_job(id, job_error);
+    } catch (...) {
+      job_error = {Code::ExecutionFailed, "automation set_focus failed"};
+    }
+  });
+  if (!queued.ok()) return queued;
+  return job_error;
+}
+
+Error UiaService::element_from_hwnd(void* hwnd, ElementSnapshot& out) {
+  out = ElementSnapshot{};
+  Error job_error = Error::none();
+  const Error queued = impl_->enqueue([&] {
+    try {
+      impl_->element_from_hwnd_job(hwnd, out, job_error);
+    } catch (...) {
+      job_error = {Code::ExecutionFailed, "automation element_from_hwnd failed"};
     }
   });
   if (!queued.ok()) return queued;

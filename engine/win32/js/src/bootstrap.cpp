@@ -169,7 +169,8 @@ rime::core::Error Bootstrap::register_executors() {
       return error;
     }
   }
-  const auto control_executor = std::make_shared<ControlExecutor>(window_service_);
+  const auto control_executor =
+      std::make_shared<ControlExecutor>(window_service_, &automation_service_);
   for (const char* type : {"control.click", "control.focus", "control.settext",
                            "control.gettext", "control.sendtext", "control.list.add",
                            "control.list.delete", "control.list.choose", "control.list.find",
