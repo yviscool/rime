@@ -19,7 +19,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().interpreterPath",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_AhkVersion",
@@ -30,7 +31,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().ahkVersion",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_AllowMainWindow",
@@ -41,7 +43,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().tray.allowMainWindow",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_Args",
@@ -64,7 +67,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "settings.storage.fileEncoding",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_IconFile",
@@ -75,7 +79,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().tray.iconFile",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_IconHidden",
@@ -86,7 +91,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().tray.iconHidden",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_IconNumber",
@@ -97,7 +103,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().tray.iconNumber",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_IconTip",
@@ -108,7 +115,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().tray.iconTip",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_InitialWorkingDir",
@@ -119,7 +127,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().initialWorkingDir",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_IsCompiled",
@@ -130,7 +139,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().compiled",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LineFile",
@@ -141,7 +151,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "EventContext.sourceLocation.file",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LineNumber",
@@ -152,7 +163,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "EventContext.sourceLocation.line",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_ScriptDir",
@@ -163,7 +175,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().scriptDir",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_ScriptFullPath",
@@ -174,7 +187,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().scriptPath",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_ScriptName",
@@ -185,7 +199,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().scriptName",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_TempDir",
@@ -208,7 +223,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "EventContext.sourceLocation.function",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_TrayMenu",
@@ -219,7 +235,8 @@
         "lane": "ui",
         "capability": "runtime",
         "tsReplacement": "tray.menu()",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_WorkingDir",
@@ -230,7 +247,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().workingDir",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "tests/js/runtime_smoke.cpp",
+        "status": "implemented"
       }
     ],
     "time": [
@@ -243,7 +261,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().date.dayPadded",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_DDD",
@@ -254,7 +273,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().date.weekdayShort",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_DDDD",
@@ -265,7 +285,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().date.weekdayLong",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Hour",
@@ -276,7 +297,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "new Date(context.snapshot().timestamp).getHours()",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_MDay",
@@ -287,7 +309,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "new Date(context.snapshot().timestamp).getDate()",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_MM",
@@ -298,7 +321,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().date.monthPadded",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_MMM",
@@ -309,7 +333,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().date.monthShort",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_MMMM",
@@ -320,7 +345,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().date.monthLong",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_MSec",
@@ -331,7 +357,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "new Date(context.snapshot().timestamp).getMilliseconds()",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Min",
@@ -342,7 +369,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "new Date(context.snapshot().timestamp).getMinutes()",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Mon",
@@ -353,7 +381,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "new Date(context.snapshot().timestamp).getMonth() + 1",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Now",
@@ -364,7 +393,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().timestamp",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_NowUTC",
@@ -375,7 +405,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().timestampUtc",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Sec",
@@ -386,7 +417,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "new Date(context.snapshot().timestamp).getSeconds()",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_TickCount",
@@ -397,7 +429,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().uptimeMs",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_WDay",
@@ -408,7 +441,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "new Date(context.snapshot().timestamp).getDay()",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_YDay",
@@ -419,7 +453,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().timestamp (day-of-year via Date)",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_YWeek",
@@ -430,7 +465,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().timestamp (ISO week via Date)",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_YYYY",
@@ -441,7 +477,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().date.year",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Year",
@@ -452,7 +489,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "new Date(context.snapshot().timestamp).getFullYear()",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       }
     ],
     "system": [
@@ -465,7 +503,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().appData",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_AppDataCommon",
@@ -476,7 +515,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().paths.appDataCommon",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_ComSpec",
@@ -487,7 +527,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().comSpec",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Computer",
@@ -510,7 +551,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().computerName",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Cursor",
@@ -521,7 +563,8 @@
         "lane": "ui",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().cursor.shape",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_Desktop",
@@ -532,7 +575,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().paths.desktop",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_DesktopCommon",
@@ -543,7 +587,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().paths.desktopCommon",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Is64bitOS",
@@ -554,7 +599,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().os64",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_IsAdmin",
@@ -565,7 +611,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().isAdmin",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Language",
@@ -576,7 +623,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().language",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_MyDocuments",
@@ -587,7 +635,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().myDocuments",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_OSVersion",
@@ -598,7 +647,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().osVersion",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_ProgramFiles",
@@ -609,7 +659,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().programFiles",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Programs",
@@ -620,7 +671,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().paths.programs",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_ProgramsCommon",
@@ -631,7 +683,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().paths.programsCommon",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_PtrSize",
@@ -642,7 +695,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().pointerSize",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_ScreenDPI",
@@ -653,7 +707,8 @@
         "lane": "ui",
         "capability": "screen.capture",
         "tsReplacement": "displays.primary().dpi",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "tests/native/screen_tests.cpp",
+        "status": "implemented"
       },
       {
         "name": "A_ScreenHeight",
@@ -664,7 +719,8 @@
         "lane": "ui",
         "capability": "screen.capture",
         "tsReplacement": "displays.primary().height",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "tests/native/screen_tests.cpp",
+        "status": "implemented"
       },
       {
         "name": "A_ScreenWidth",
@@ -675,7 +731,8 @@
         "lane": "ui",
         "capability": "screen.capture",
         "tsReplacement": "displays.primary().width",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "tests/native/screen_tests.cpp",
+        "status": "implemented"
       },
       {
         "name": "A_StartMenu",
@@ -686,7 +743,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().paths.startMenu",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_StartMenuCommon",
@@ -697,7 +755,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().paths.startMenuCommon",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Startup",
@@ -708,7 +767,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().paths.startup",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_StartupCommon",
@@ -719,7 +779,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().paths.startupCommon",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Temp",
@@ -730,7 +791,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().tempDir",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_UserName",
@@ -741,7 +803,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "runtime.info().userName",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_WinDir",
@@ -752,7 +815,8 @@
         "lane": "worker",
         "capability": "runtime",
         "tsReplacement": "runtime.info().paths.windows",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       }
     ],
     "window_input": [
@@ -801,7 +865,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "EventContext.payload.endChar",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_EventInfo",
@@ -812,7 +877,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "EventContext.payload.eventInfo",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Gui",
@@ -847,7 +913,8 @@
         "lane": "js",
         "capability": "windows.hook.global",
         "tsReplacement": "hooks.keyboard.installed",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LastError",
@@ -858,7 +925,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().lastError",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_MouseHookInstalled",
@@ -869,7 +937,8 @@
         "lane": "js",
         "capability": "windows.hook.global",
         "tsReplacement": "hooks.mouse.installed",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_PriorHotkey",
@@ -880,7 +949,8 @@
         "lane": "js",
         "capability": "windows.hook.global",
         "tsReplacement": "EventContext.payload.priorHotkey",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_PriorKey",
@@ -891,7 +961,8 @@
         "lane": "js",
         "capability": "windows.hook.global",
         "tsReplacement": "hotkeys.priorKey",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_ScriptHwnd",
@@ -902,7 +973,8 @@
         "lane": "ui",
         "capability": "windows.window.read",
         "tsReplacement": "windows.list() (runtime-owned window id; raw HWND not exposed)",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_Space",
@@ -913,7 +985,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "\" \"",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Tab",
@@ -924,7 +997,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "\"\\t\"",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_ThisHotkey",
@@ -935,7 +1009,8 @@
         "lane": "js",
         "capability": "windows.hook.global",
         "tsReplacement": "EventContext.payload.hotkey",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_TimeSincePriorHotkey",
@@ -946,7 +1021,8 @@
         "lane": "js",
         "capability": "windows.hook.global",
         "tsReplacement": "EventContext.payload.msSincePriorHotkey",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_TimeSinceThisHotkey",
@@ -957,7 +1033,8 @@
         "lane": "js",
         "capability": "windows.hook.global",
         "tsReplacement": "hotkeys.timeSinceCurrentMs",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       }
     ],
     "loop": [
@@ -970,7 +1047,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "LoopContext.index",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopField",
@@ -981,7 +1059,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "LoopContext.field",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFileAttrib",
@@ -992,7 +1071,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "loopContext.file.attrib",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFileDir",
@@ -1003,7 +1083,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "loopContext.file.dir",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFileExt",
@@ -1014,7 +1095,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "loopContext.file.ext",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFileFullPath",
@@ -1025,7 +1107,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "loopContext.file.fullPath",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFileLongPath",
@@ -1048,7 +1131,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "loopContext.file.fileName",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFilePath",
@@ -1059,7 +1143,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "for (const entry of fs.list(...)) entry.path",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFileShortName",
@@ -1070,7 +1155,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "loopContext.file.shortName",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFileShortPath",
@@ -1081,7 +1167,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "for (const entry of fs.list(...)) entry.shortPath",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFileSize",
@@ -1092,7 +1179,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "for (const entry of fs.list(...)) entry.size",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFileSizeKB",
@@ -1103,7 +1191,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "loopContext.file.sizeKb",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFileSizeMB",
@@ -1114,7 +1203,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "loopContext.file.sizeMb",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFileTime",
@@ -1137,7 +1227,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "loopContext.file.timeAccessed",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFileTimeCreated",
@@ -1148,7 +1239,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "loopContext.file.timeCreated",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopFileTimeModified",
@@ -1159,7 +1251,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "loopContext.file.timeModified",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopReadLine",
@@ -1170,7 +1263,8 @@
         "lane": "worker",
         "capability": "filesystem.read/write",
         "tsReplacement": "loopContext.line",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopRegKey",
@@ -1181,7 +1275,8 @@
         "lane": "worker",
         "capability": "registry.read",
         "tsReplacement": "loopContext.registry.key",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopRegName",
@@ -1192,7 +1287,8 @@
         "lane": "worker",
         "capability": "registry.read",
         "tsReplacement": "loopContext.registry.name",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopRegTimeModified",
@@ -1203,7 +1299,8 @@
         "lane": "worker",
         "capability": "registry.read",
         "tsReplacement": "loopContext.registry.timeModified",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_LoopRegType",
@@ -1214,7 +1311,8 @@
         "lane": "worker",
         "capability": "registry.read",
         "tsReplacement": "loopContext.registry.type",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       }
     ],
     "runtime_state": [
@@ -1227,7 +1325,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "0 (no delay knob exists: SetControlDelay is js-native, operations are deadline-driven)",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_CoordMode",
@@ -1250,7 +1349,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.coord.caret",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_CoordModeMenu",
@@ -1261,7 +1361,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.coord.menu",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_CoordModeMouse",
@@ -1272,7 +1373,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.coord.mouse",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_CoordModePixel",
@@ -1283,7 +1385,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.coord.pixel",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_CoordModeToolTip",
@@ -1294,7 +1397,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.coord.toolTip",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_DefaultMouseSpeed",
@@ -1305,7 +1409,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.input.defaultMouseSpeed",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_DetectHiddenText",
@@ -1340,7 +1445,8 @@
         "lane": "js",
         "capability": "windows.hook.global",
         "tsReplacement": "hotkeys.currentCriterion()",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_HotkeyInterval",
@@ -1351,7 +1457,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "scheduler.state().hotkeyInterval",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_HotkeyModifierTimeout",
@@ -1362,7 +1469,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "scheduler.state().hotkeyModifierTimeout",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_IsCritical",
@@ -1373,7 +1481,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "scheduler.state().criticalInterval",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_IsPaused",
@@ -1384,7 +1493,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "scheduler.state().paused",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_IsSuspended",
@@ -1395,7 +1505,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "scheduler.state().suspended",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "tests/js/events_slice.cpp",
+        "status": "implemented"
       },
       {
         "name": "A_KeyDelay",
@@ -1406,7 +1517,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.input.keyDelay",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_KeyDelayPlay",
@@ -1417,7 +1529,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.input.keyDelayPlay",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_KeyDuration",
@@ -1428,7 +1541,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.input.keyDuration",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_KeyDurationPlay",
@@ -1439,7 +1553,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.input.keyDurationPlay",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_ListLines",
@@ -1450,7 +1565,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "scheduler.state().listLines",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_MaxHotkeysPerInterval",
@@ -1461,7 +1577,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "scheduler.state().maxHotkeysPerInterval",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_MenuMaskKey",
@@ -1472,7 +1589,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.input.menuMaskKey",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_MouseDelay",
@@ -1483,7 +1601,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.input.mouseDelay",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_MouseDelayPlay",
@@ -1494,7 +1613,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.input.mouseDelayPlay",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_Paused",
@@ -1517,7 +1637,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "context.snapshot().regView",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "tests/native/registry_tests.cpp",
+        "status": "implemented"
       },
       {
         "name": "A_SendLevel",
@@ -1528,7 +1649,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.input.sendLevel",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "tests/native/input_tests.cpp",
+        "status": "implemented"
       },
       {
         "name": "A_SendMode",
@@ -1539,7 +1661,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.input.sendMode",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_StoreCapsLockMode",
@@ -1550,7 +1673,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "settings.input.storeCapsLockMode",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       },
       {
         "name": "A_TimeIdle",
@@ -1561,7 +1685,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "input.state().idleMs",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_TimeIdleKeyboard",
@@ -1572,7 +1697,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "input.state().idleKeyboardMs",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_TimeIdleMouse",
@@ -1583,7 +1709,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "input.state().idleMouseMs",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_TimeIdlePhysical",
@@ -1594,7 +1721,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "input.state().idlePhysicalMs",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "unsupported-by-policy"
       },
       {
         "name": "A_TitleMatchMode",
@@ -1629,7 +1757,8 @@
         "lane": "js",
         "capability": "runtime",
         "tsReplacement": "0 (no delay knob exists: SetWinDelay is js-native, window ops use deadline + round-trip)",
-        "compatibilityTest": "missing"
+        "compatibilityTest": "missing",
+        "status": "js-native"
       }
     ]
   },
