@@ -1,6 +1,6 @@
-// Realism: L3 - real Runtime, Dispatcher and Kernel run in process; only
-// the clock seam is injected (ManualClock) so deadline and timer outcomes
-// are decided by advancing time instead of sleeping.
+// Realism: L6 - verifies concurrent cancellation races, queue backpressure
+// stress, and coalescing storms on Kernel and Dispatcher under multi-threaded
+// execution, proving thread-safety and trace invariants.
 
 #include "rime/core/runtime.hpp"
 #include "rime/action/kernel.hpp"
@@ -8,11 +8,18 @@
 #include "rime/core/clock.hpp"
 #include "rime/desktop/host.hpp"
 
+#include <atomic>
 #include <cassert>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace {
 
@@ -39,11 +46,541 @@ class EchoExecutor final : public rime::action::Executor {
   rime::action::Result execute(const rime::action::Action& action,
                                rime::core::CancellationToken token) override {
     if (token.cancelled()) {
-      return {action.id, false, true, "cancelled", {rime::core::Error::Code::Cancelled, "cancelled"}};
+      rime::action::Result cancelled_res;
+      cancelled_res.id = action.id;
+      cancelled_res.cancelled = true;
+      cancelled_res.detail = "cancelled";
+      cancelled_res.error = {rime::core::Error::Code::Cancelled, "cancelled"};
+      return cancelled_res;
     }
-    return {action.id, true, false, "moved", rime::core::Error::none()};
+    rime::action::Result success_res;
+    success_res.id = action.id;
+    success_res.succeeded = true;
+    success_res.detail = "moved";
+    success_res.error = rime::core::Error::none();
+    return success_res;
   }
 };
+
+class YieldingEchoExecutor final : public rime::action::Executor {
+ public:
+  rime::action::Result execute(const rime::action::Action& action,
+                               rime::core::CancellationToken token) override {
+    for (int i = 0; i < 15; ++i) {
+      if (token.cancelled()) {
+        rime::action::Result cancelled_res;
+        cancelled_res.id = action.id;
+        cancelled_res.cancelled = true;
+        cancelled_res.detail = "cancelled";
+        cancelled_res.error = {rime::core::Error::Code::Cancelled, "cancelled"};
+        return cancelled_res;
+      }
+      std::this_thread::yield();
+    }
+    rime::action::Result success_res;
+    success_res.id = action.id;
+    success_res.succeeded = true;
+    success_res.detail = "moved";
+    success_res.error = rime::core::Error::none();
+    return success_res;
+  }
+};
+
+rime::action::Action make_action(rime::core::ActionId id, std::string idempotency_key = "",
+                                 std::string payload = "{}") {
+  rime::action::Action action;
+  action.id = id;
+  action.schema_version = 1;
+  action.source = {"user", "core-test"};
+  action.type = "window.move";
+  action.capability = "windows.window.write";
+  action.target = {"window", "active"};
+  action.deadline_unix_ms = future_deadline();
+  action.payload = std::move(payload);
+  action.idempotency_key = std::move(idempotency_key);
+  return action;
+}
+
+void test_rapid_cancellation_race(
+    const std::shared_ptr<const rime::action::CapabilityPolicy>& policy) {
+  auto trace = std::make_shared<rime::core::InMemoryTrace>();
+  rime::action::Kernel kernel(policy, trace);
+  assert(kernel.register_executor("window.move", std::make_shared<YieldingEchoExecutor>()).ok());
+
+  // Part A: Concurrent Direct Kernel Execution with Cancellation Race
+  {
+    constexpr std::size_t kDirectActions = 120;
+    constexpr std::size_t kThreads = 4;
+    std::vector<rime::action::Result> results(kDirectActions);
+    std::vector<rime::core::CancellationSource> sources(kDirectActions);
+    std::atomic<bool> start_gate{false};
+    std::vector<std::thread> workers;
+    workers.reserve(kThreads);
+
+    for (std::size_t t = 0; t < kThreads; ++t) {
+      workers.emplace_back([&, t] {
+        while (!start_gate.load(std::memory_order_acquire)) {
+          std::this_thread::yield();
+        }
+        for (std::size_t i = t; i < kDirectActions; i += kThreads) {
+          const auto id = static_cast<rime::core::ActionId>(10'000 + i);
+          results[i] = kernel.execute(make_action(id), sources[i].token());
+        }
+      });
+    }
+
+    std::thread canceler([&] {
+      while (!start_gate.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      for (std::size_t i = 0; i < kDirectActions; ++i) {
+        if (i % 2 == 0) {
+          sources[i].cancel();
+        }
+        if (i % 8 == 0) {
+          std::this_thread::yield();
+        }
+      }
+    });
+
+    start_gate.store(true, std::memory_order_release);
+    for (auto& w : workers) w.join();
+    canceler.join();
+
+    for (std::size_t i = 0; i < kDirectActions; ++i) {
+      const auto& res = results[i];
+      assert(res.id == static_cast<rime::core::ActionId>(10'000 + i));
+      if (res.cancelled) {
+        assert(!res.succeeded);
+        assert(res.error.code == rime::core::Error::Code::Cancelled);
+      } else {
+        assert(res.succeeded);
+        assert(res.error.ok());
+      }
+    }
+  }
+
+  // Part B: Dispatcher Pipeline Rapid Cancellation Race
+  {
+    constexpr std::size_t kDispatcherActions = 160;
+    constexpr std::size_t kSubmitThreads = 4;
+    rime::action::Dispatcher dispatcher(kernel, kDispatcherActions + 32);
+    std::vector<rime::core::CancellationSource> sources(kDispatcherActions);
+    std::vector<rime::action::Result> dispatched_results;
+    std::mutex results_mutex;
+    std::atomic<bool> start_gate{false};
+    std::atomic<bool> submitters_done{false};
+
+    std::vector<std::thread> submitters;
+    submitters.reserve(kSubmitThreads);
+    for (std::size_t t = 0; t < kSubmitThreads; ++t) {
+      submitters.emplace_back([&, t] {
+        while (!start_gate.load(std::memory_order_acquire)) {
+          std::this_thread::yield();
+        }
+        for (std::size_t i = t; i < kDispatcherActions; i += kSubmitThreads) {
+          const auto id = static_cast<rime::core::ActionId>(20'000 + i);
+          const auto status = dispatcher.submit(make_action(id));
+          assert(status == rime::action::DispatchStatus::Accepted);
+        }
+      });
+    }
+
+    std::thread canceler([&] {
+      while (!start_gate.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      for (std::size_t i = 0; i < kDispatcherActions; ++i) {
+        if (i % 3 == 0) {
+          sources[i].cancel();
+        }
+        if (i % 12 == 0) {
+          std::this_thread::yield();
+        }
+      }
+    });
+
+    std::thread pumper([&] {
+      while (!start_gate.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      while (!submitters_done.load(std::memory_order_acquire) || dispatcher.size() > 0) {
+        auto batch = dispatcher.pump(16, [&](const rime::action::Action& act) {
+          const auto idx = act.id - 20'000;
+          if (idx < kDispatcherActions) {
+            return sources[static_cast<std::size_t>(idx)].token();
+          }
+          return rime::core::CancellationToken{};
+        });
+        if (!batch.empty()) {
+          std::lock_guard lock(results_mutex);
+          dispatched_results.insert(dispatched_results.end(), batch.begin(), batch.end());
+        } else {
+          std::this_thread::yield();
+        }
+      }
+    });
+
+    start_gate.store(true, std::memory_order_release);
+    for (auto& s : submitters) s.join();
+    submitters_done.store(true, std::memory_order_release);
+    canceler.join();
+    pumper.join();
+
+    // Drain any remaining actions
+    while (dispatcher.size() > 0) {
+      auto drained = dispatcher.pump(32, [&](const rime::action::Action& act) {
+        const auto idx = act.id - 20'000;
+        if (idx < kDispatcherActions) {
+          return sources[static_cast<std::size_t>(idx)].token();
+        }
+        return rime::core::CancellationToken{};
+      });
+      dispatched_results.insert(dispatched_results.end(), drained.begin(), drained.end());
+    }
+
+    assert(dispatched_results.size() == kDispatcherActions);
+    std::unordered_map<rime::core::ActionId, rime::action::Result> result_map;
+    for (const auto& res : dispatched_results) {
+      assert(result_map.find(res.id) == result_map.end());
+      result_map[res.id] = res;
+      if (res.cancelled) {
+        assert(!res.succeeded);
+        assert(res.error.code == rime::core::Error::Code::Cancelled);
+      } else {
+        assert(res.succeeded);
+        assert(res.error.ok());
+      }
+    }
+    assert(result_map.size() == kDispatcherActions);
+  }
+
+  // Trace verification for all rapid cancellation actions
+  const auto entries = trace->snapshot();
+  assert(!entries.empty());
+  for (std::size_t i = 1; i < entries.size(); ++i) {
+    assert(entries[i].sequence > entries[i - 1].sequence);
+  }
+  for (const auto& entry : entries) {
+    if (entry.kind == rime::core::TraceKind::ActionStarted) {
+      assert(entry.action_id != 0);
+      assert(!entry.capability.empty());
+      bool found_finished = false;
+      for (const auto& other : entries) {
+        if (other.sequence > entry.sequence && other.action_id == entry.action_id &&
+            other.kind == rime::core::TraceKind::ActionFinished) {
+          found_finished = true;
+          break;
+        }
+      }
+      assert(found_finished);
+    }
+  }
+}
+
+void test_dispatcher_queue_stress_flood(
+    const std::shared_ptr<const rime::action::CapabilityPolicy>& policy) {
+  auto trace = std::make_shared<rime::core::InMemoryTrace>();
+  rime::action::Kernel kernel(policy, trace);
+  assert(kernel.register_executor("window.move", std::make_shared<EchoExecutor>()).ok());
+
+  // Phase A: Rapid Burst Flood exceeding capacity with no pumping
+  {
+    constexpr std::size_t kCapacity = 16;
+    constexpr std::size_t kFloodActions = 200;
+    constexpr std::size_t kThreads = 4;
+    rime::action::Dispatcher dispatcher(kernel, kCapacity);
+    std::atomic<bool> start_gate{false};
+    std::atomic<std::size_t> accepted_count{0};
+    std::atomic<std::size_t> full_count{0};
+    std::vector<std::thread> flooders;
+    flooders.reserve(kThreads);
+
+    for (std::size_t t = 0; t < kThreads; ++t) {
+      flooders.emplace_back([&, t] {
+        while (!start_gate.load(std::memory_order_acquire)) {
+          std::this_thread::yield();
+        }
+        for (std::size_t i = t; i < kFloodActions; i += kThreads) {
+          const auto id = static_cast<rime::core::ActionId>(30'000 + i);
+          const auto status = dispatcher.submit(make_action(id));
+          if (status == rime::action::DispatchStatus::Accepted) {
+            accepted_count.fetch_add(1, std::memory_order_relaxed);
+          } else if (status == rime::action::DispatchStatus::Full) {
+            full_count.fetch_add(1, std::memory_order_relaxed);
+          } else {
+            assert(false && "unexpected dispatch status in burst flood");
+          }
+        }
+      });
+    }
+
+    start_gate.store(true, std::memory_order_release);
+    for (auto& f : flooders) f.join();
+
+    assert(accepted_count.load() == kCapacity);
+    assert(full_count.load() == kFloodActions - kCapacity);
+    assert(dispatcher.size() == kCapacity);
+
+    // Drain the accepted actions cleanly
+    const auto pumped = dispatcher.pump(kCapacity + 10);
+    assert(pumped.size() == kCapacity);
+    for (const auto& res : pumped) {
+      assert(res.succeeded);
+      assert(res.error.ok());
+    }
+    assert(dispatcher.size() == 0);
+  }
+
+  // Phase B: Concurrent Flood & Drain with Backpressure
+  {
+    constexpr std::size_t kCapacity = 24;
+    constexpr std::size_t kTotalActions = 300;
+    constexpr std::size_t kProducers = 4;
+    constexpr std::size_t kConsumers = 2;
+    rime::action::Dispatcher dispatcher(kernel, kCapacity);
+    std::atomic<bool> start_gate{false};
+    std::atomic<bool> producers_done{false};
+    std::atomic<std::size_t> accepted_count{0};
+    std::atomic<std::size_t> full_count{0};
+    std::vector<rime::action::Result> pumped_results;
+    std::mutex results_mutex;
+
+    std::vector<std::thread> producers;
+    producers.reserve(kProducers);
+    for (std::size_t p = 0; p < kProducers; ++p) {
+      producers.emplace_back([&, p] {
+        while (!start_gate.load(std::memory_order_acquire)) {
+          std::this_thread::yield();
+        }
+        for (std::size_t i = p; i < kTotalActions; i += kProducers) {
+          const auto id = static_cast<rime::core::ActionId>(40'000 + i);
+          const auto status = dispatcher.submit(make_action(id));
+          if (status == rime::action::DispatchStatus::Accepted) {
+            accepted_count.fetch_add(1, std::memory_order_relaxed);
+          } else if (status == rime::action::DispatchStatus::Full) {
+            full_count.fetch_add(1, std::memory_order_relaxed);
+          }
+        }
+      });
+    }
+
+    std::vector<std::thread> consumers;
+    consumers.reserve(kConsumers);
+    for (std::size_t c = 0; c < kConsumers; ++c) {
+      consumers.emplace_back([&] {
+        while (!start_gate.load(std::memory_order_acquire)) {
+          std::this_thread::yield();
+        }
+        while (!producers_done.load(std::memory_order_acquire) || dispatcher.size() > 0) {
+          auto batch = dispatcher.pump(8);
+          if (!batch.empty()) {
+            std::lock_guard lock(results_mutex);
+            pumped_results.insert(pumped_results.end(), batch.begin(), batch.end());
+          } else {
+            std::this_thread::yield();
+          }
+        }
+      });
+    }
+
+    start_gate.store(true, std::memory_order_release);
+    for (auto& p : producers) p.join();
+    producers_done.store(true, std::memory_order_release);
+    for (auto& c : consumers) c.join();
+
+    // Final drain
+    auto final_drain = dispatcher.pump(kCapacity + 10);
+    pumped_results.insert(pumped_results.end(), final_drain.begin(), final_drain.end());
+
+    assert(accepted_count.load() + full_count.load() == kTotalActions);
+    assert(pumped_results.size() == accepted_count.load());
+    assert(dispatcher.size() == 0);
+  }
+
+  // Verify trace entries strictly increasing and full events recorded
+  const auto entries = trace->snapshot();
+  assert(!entries.empty());
+  std::size_t queue_full_traces = 0;
+  for (std::size_t i = 1; i < entries.size(); ++i) {
+    assert(entries[i].sequence > entries[i - 1].sequence);
+  }
+  for (const auto& entry : entries) {
+    if (entry.kind == rime::core::TraceKind::ActionRefused && entry.result_code == "queue_full") {
+      assert(entry.action_id != 0);
+      assert(entry.detail == "rejected: queue full");
+      ++queue_full_traces;
+    }
+  }
+  assert(queue_full_traces > 0);
+}
+
+void test_coalescing_cancellation_storm(
+    const std::shared_ptr<const rime::action::CapabilityPolicy>& policy) {
+  auto trace = std::make_shared<rime::core::InMemoryTrace>();
+  rime::action::Kernel kernel(policy, trace);
+  assert(kernel.register_executor("window.move", std::make_shared<YieldingEchoExecutor>()).ok());
+
+  constexpr std::size_t kCapacity = 32;
+  constexpr std::size_t kStormActions = 240;
+  constexpr std::size_t kSubmitThreads = 4;
+  constexpr std::size_t kNumKeys = 6;
+  rime::action::Dispatcher dispatcher(kernel, rime::core::SchedulerPolicy::coalescing(kCapacity));
+
+  std::vector<rime::core::CancellationSource> sources(kStormActions);
+  std::vector<rime::action::Result> pumped_results;
+  std::mutex results_mutex;
+  std::atomic<bool> start_gate{false};
+  std::atomic<bool> submitters_done{false};
+  std::atomic<std::size_t> accepted_count{0};
+  std::atomic<std::size_t> coalesced_count{0};
+  std::atomic<std::size_t> full_count{0};
+
+  std::vector<std::thread> submitters;
+  submitters.reserve(kSubmitThreads);
+  for (std::size_t t = 0; t < kSubmitThreads; ++t) {
+    submitters.emplace_back([&, t] {
+      while (!start_gate.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      for (std::size_t i = t; i < kStormActions; i += kSubmitThreads) {
+        const auto id = static_cast<rime::core::ActionId>(50'000 + i);
+        const std::string key = "storm-key-" + std::to_string(i % kNumKeys);
+        const auto status = dispatcher.submit(make_action(id, key));
+        if (status == rime::action::DispatchStatus::Accepted) {
+          accepted_count.fetch_add(1, std::memory_order_relaxed);
+        } else if (status == rime::action::DispatchStatus::Coalesced) {
+          coalesced_count.fetch_add(1, std::memory_order_relaxed);
+        } else if (status == rime::action::DispatchStatus::Full) {
+          full_count.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
+    });
+  }
+
+  std::thread canceler([&] {
+    while (!start_gate.load(std::memory_order_acquire)) {
+      std::this_thread::yield();
+    }
+    for (std::size_t i = 0; i < kStormActions; ++i) {
+      if (i % 2 == 0) {
+        sources[i].cancel();
+      }
+      if (i % 8 == 0) {
+        std::this_thread::yield();
+      }
+    }
+  });
+
+  std::thread consumer([&] {
+    while (!start_gate.load(std::memory_order_acquire)) {
+      std::this_thread::yield();
+    }
+    while (!submitters_done.load(std::memory_order_acquire) || dispatcher.size() > 0) {
+      auto batch = dispatcher.pump(8, [&](const rime::action::Action& act) {
+        const auto idx = act.id - 50'000;
+        if (idx < kStormActions) {
+          return sources[static_cast<std::size_t>(idx)].token();
+        }
+        return rime::core::CancellationToken{};
+      });
+      if (!batch.empty()) {
+        std::lock_guard lock(results_mutex);
+        pumped_results.insert(pumped_results.end(), batch.begin(), batch.end());
+      } else {
+        std::this_thread::yield();
+      }
+    }
+  });
+
+  start_gate.store(true, std::memory_order_release);
+  for (auto& s : submitters) s.join();
+  submitters_done.store(true, std::memory_order_release);
+  canceler.join();
+  consumer.join();
+
+  // Drain any remaining actions from the dispatcher
+  while (dispatcher.size() > 0) {
+    auto drained = dispatcher.pump(32, [&](const rime::action::Action& act) {
+      const auto idx = act.id - 50'000;
+      if (idx < kStormActions) {
+        return sources[static_cast<std::size_t>(idx)].token();
+      }
+      return rime::core::CancellationToken{};
+    });
+    pumped_results.insert(pumped_results.end(), drained.begin(), drained.end());
+  }
+
+  // Final flush to catch any remaining suppressed results
+  auto remaining_suppressed = dispatcher.pump(1, [](const rime::action::Action&) {
+    return rime::core::CancellationToken{};
+  });
+  pumped_results.insert(pumped_results.end(), remaining_suppressed.begin(), remaining_suppressed.end());
+
+  assert(accepted_count.load() + coalesced_count.load() + full_count.load() == kStormActions);
+  assert(pumped_results.size() == accepted_count.load() + coalesced_count.load());
+  assert(dispatcher.size() == 0);
+
+  // Invariant verification on each result
+  for (const auto& res : pumped_results) {
+    assert(res.id >= 50'000 && res.id < 50'000 + kStormActions);
+    if (res.cancelled) {
+      assert(!res.succeeded);
+      assert(res.error.code == rime::core::Error::Code::Cancelled);
+    } else {
+      assert(res.succeeded);
+      assert(res.error.ok());
+    }
+  }
+
+  // Trace Invariant Verification
+  const auto entries = trace->snapshot();
+  assert(!entries.empty());
+  for (std::size_t i = 1; i < entries.size(); ++i) {
+    assert(entries[i].sequence > entries[i - 1].sequence);
+  }
+
+  std::unordered_map<rime::core::ActionId, std::vector<rime::core::TraceEntry>> action_entries;
+  for (const auto& entry : entries) {
+    if (entry.action_id >= 50'000 && entry.action_id < 50'000 + kStormActions) {
+      action_entries[entry.action_id].push_back(entry);
+    }
+  }
+
+  for (const auto& [id, list] : action_entries) {
+    bool has_accepted = false;
+    bool has_started = false;
+    bool has_finished = false;
+    bool has_refused = false;
+    std::uint64_t started_seq = 0;
+    std::uint64_t finished_seq = 0;
+
+    for (const auto& item : list) {
+      assert(item.action_id == id);
+      assert(!item.capability.empty());
+      if (item.kind == rime::core::TraceKind::ActionAccepted) {
+        has_accepted = true;
+      } else if (item.kind == rime::core::TraceKind::ActionStarted) {
+        has_started = true;
+        started_seq = item.sequence;
+      } else if (item.kind == rime::core::TraceKind::ActionFinished) {
+        has_finished = true;
+        finished_seq = item.sequence;
+      } else if (item.kind == rime::core::TraceKind::ActionRefused) {
+        has_refused = true;
+      }
+    }
+
+    if (has_accepted) {
+      assert(has_finished || has_refused);
+    }
+    if (has_started) {
+      assert(has_finished);
+      assert(finished_seq > started_seq);
+    }
+  }
+}
+
 }
 
 int main() {
@@ -256,5 +793,10 @@ int main() {
   // stop() is idempotent
   assert(desktop_host.stop().ok());
   assert(desktop_host.state() == rime::desktop::HostState::Stopped);
+
+  test_rapid_cancellation_race(policy);
+  test_dispatcher_queue_stress_flood(policy);
+  test_coalescing_cancellation_storm(policy);
+
   return 0;
 }

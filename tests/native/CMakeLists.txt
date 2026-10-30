@@ -3,6 +3,9 @@ target_include_directories(rime_core_tests PRIVATE ${CMAKE_SOURCE_DIR}/hosts/des
 target_sources(rime_core_tests PRIVATE ${CMAKE_SOURCE_DIR}/hosts/desktop/src/host.cpp)
 target_link_libraries(rime_core_tests PRIVATE rime_action rime_core rime_test_support)
 target_compile_features(rime_core_tests PRIVATE cxx_std_20)
+if (MINGW)
+  target_link_options(rime_core_tests PRIVATE -static-libstdc++ -static-libgcc)
+endif()
 add_test(NAME rime_core_contracts COMMAND rime_core_tests)
 
 add_executable(rime_contract_tests contract_tests.cpp)

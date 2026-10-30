@@ -127,7 +127,7 @@ int main() {
   WindowInfo resized;
   assert(service.info(id, resized).ok());
   assert(resized.rect == target);
-  assert(service.move_rect(id, RectMove{.x = 75}).ok());
+  assert(service.move_rect(id, RectMove{.x = 75, .y = std::nullopt, .w = std::nullopt, .h = std::nullopt}).ok());
   WindowInfo partial_resized;
   assert(service.info(id, partial_resized).ok());
   assert(partial_resized.rect == (Rect{75, 60, 475, 360}));

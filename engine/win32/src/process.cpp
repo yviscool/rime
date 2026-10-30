@@ -293,7 +293,7 @@ Error hibernate_system() {
   }
   using SetSuspendStateFn = BOOLEAN(WINAPI*)(BOOLEAN, BOOLEAN, BOOLEAN);
   auto* set_suspend_state =
-      reinterpret_cast<SetSuspendStateFn>(GetProcAddress(powrprof, "SetSuspendState"));
+      reinterpret_cast<SetSuspendStateFn>(reinterpret_cast<void(*)()>(GetProcAddress(powrprof, "SetSuspendState")));
   if (!set_suspend_state) {
     const DWORD failure = GetLastError();
     FreeLibrary(powrprof);

@@ -255,6 +255,11 @@ export class Control {
     readonly strategy: ControlStrategy = "auto",
   ) {}
 
+  /** Returns a control handle wrapping the same control with an overridden strategy. */
+  withStrategy(strategy: ControlStrategy): Control {
+    return new Control(this.windowId, this.snapshot, strategy);
+  }
+
   /** Resolve a spec against a window. */
   static async resolve(
     windowId: number,
@@ -645,9 +650,354 @@ export class Control {
     return controlBridgeSync().rect(this.id);
   }
 
+  /** Screen-space rect. Synchronous method form. */
+  rect(): ControlRect {
+    return this.bounds;
+  }
+
+  /** IsWindowVisible. Synchronous method form. */
+  isVisible(): boolean {
+    return this.visible;
+  }
+
+  /** IsWindowEnabled. Synchronous method form. */
+  isEnabled(): boolean {
+    return this.enabled;
+  }
+
   /** Liveness probe. Synchronous. */
   dispose(): boolean {
     return controlBridgeSync().dispose(this.id);
+  }
+
+  /** Returns a ListViewControl facade over this control. */
+  asListView(strategy?: ControlStrategy): ListViewControl {
+    return new ListViewControl(strategy ? this.withStrategy(strategy) : this);
+  }
+
+  /** ListViewControl facade over this control. */
+  get listView(): ListViewControl {
+    return this.asListView();
+  }
+
+  /** Returns a StatusBarControl facade over this control. */
+  asStatusBar(strategy?: ControlStrategy): StatusBarControl {
+    return new StatusBarControl(strategy ? this.withStrategy(strategy) : this);
+  }
+
+  /** StatusBarControl facade over this control. */
+  get statusBar(): StatusBarControl {
+    return this.asStatusBar();
+  }
+
+  /** Returns an EditControl facade over this control. */
+  asEdit(strategy?: ControlStrategy): EditControl {
+    return new EditControl(strategy ? this.withStrategy(strategy) : this);
+  }
+
+  /** EditControl facade over this control. */
+  get edit(): EditControl {
+    return this.asEdit();
+  }
+
+  /** Returns a ComboBoxControl facade over this control. */
+  asComboBox(strategy?: ControlStrategy): ComboBoxControl {
+    return new ComboBoxControl(strategy ? this.withStrategy(strategy) : this);
+  }
+
+  /** ComboBoxControl facade over this control. */
+  get comboBox(): ComboBoxControl {
+    return this.asComboBox();
+  }
+
+  /** Returns a ButtonControl facade over this control. */
+  asButton(strategy?: ControlStrategy): ButtonControl {
+    return new ButtonControl(strategy ? this.withStrategy(strategy) : this);
+  }
+
+  /** ButtonControl facade over this control. */
+  get button(): ButtonControl {
+    return this.asButton();
+  }
+}
+
+/** Dedicated facade for a Win32 SysListView32 control. */
+export class ListViewControl {
+  constructor(readonly control: Control) {}
+
+  get id(): ControlId {
+    return this.control.id;
+  }
+
+  get windowId(): number {
+    return this.control.windowId;
+  }
+
+  get snapshot(): ControlSnapshot {
+    return this.control.snapshot;
+  }
+
+  get strategy(): ControlStrategy {
+    return this.control.strategy;
+  }
+
+  /** Returns a facade with an overridden strategy. */
+  withStrategy(strategy: ControlStrategy): ListViewControl {
+    return new ListViewControl(this.control.withStrategy(strategy));
+  }
+
+  /** ListView row count. */
+  count(options?: ActionOptions): Promise<{ rows: number }> {
+    return this.control.listviewCount(options);
+  }
+
+  /** ListView cell text, 0-based row and col. */
+  text(row: number, col: number, options?: ActionOptions): Promise<{ text: string }> {
+    return this.control.listviewText(row, col, options);
+  }
+
+  /** Whole ListView content up to `limit` rows (each row: {c1, c2, ...}). */
+  items(
+    limit?: number,
+    options?: ActionOptions,
+  ): Promise<{ items: Array<Record<string, string>> }> {
+    return this.control.listviewItems(limit, options);
+  }
+}
+
+/** Dedicated facade for a Win32 msctls_statusbar32 control. */
+export class StatusBarControl {
+  constructor(readonly control: Control) {}
+
+  get id(): ControlId {
+    return this.control.id;
+  }
+
+  get windowId(): number {
+    return this.control.windowId;
+  }
+
+  get snapshot(): ControlSnapshot {
+    return this.control.snapshot;
+  }
+
+  get strategy(): ControlStrategy {
+    return this.control.strategy;
+  }
+
+  /** Returns a facade with an overridden strategy. */
+  withStrategy(strategy: ControlStrategy): StatusBarControl {
+    return new StatusBarControl(this.control.withStrategy(strategy));
+  }
+
+  /** StatusBar part text (0-based part, default 0). */
+  getText(part = 0, options?: ActionOptions): Promise<{ text: string }> {
+    return this.control.statusbarText(part, options);
+  }
+
+  /** Waits until a part contains text (0-based part, default 0). */
+  wait(
+    text: string,
+    part = 0,
+    options?: ActionOptions,
+  ): Promise<{ waited: true }> {
+    return this.control.statusbarWait(text, part, options);
+  }
+}
+
+/** Dedicated facade for a Win32 Edit control. */
+export class EditControl {
+  constructor(readonly control: Control) {}
+
+  get id(): ControlId {
+    return this.control.id;
+  }
+
+  get windowId(): number {
+    return this.control.windowId;
+  }
+
+  get snapshot(): ControlSnapshot {
+    return this.control.snapshot;
+  }
+
+  get strategy(): ControlStrategy {
+    return this.control.strategy;
+  }
+
+  /** Returns a facade with an overridden strategy. */
+  withStrategy(strategy: ControlStrategy): EditControl {
+    return new EditControl(this.control.withStrategy(strategy));
+  }
+
+  /** Edit line count. */
+  lineCount(options?: ActionOptions): Promise<{ lines: number }> {
+    return this.control.editCount(options);
+  }
+
+  /** Caret position, 0-based { line, col }. */
+  caret(options?: ActionOptions): Promise<{ line: number; col: number }> {
+    return this.control.editCaret(options);
+  }
+
+  /** Line text, 0-based lineIndex. */
+  line(lineIndex: number, options?: ActionOptions): Promise<{ text: string }> {
+    return this.control.editLine(lineIndex, options);
+  }
+
+  /** Currently selected text (empty when nothing is selected). */
+  selected(options?: ActionOptions): Promise<{ text: string }> {
+    return this.control.editSelected(options);
+  }
+
+  /** EM_REPLACESEL paste. */
+  paste(text: string, options?: ActionOptions): Promise<{ text: string }> {
+    return this.control.editPaste(text, options);
+  }
+
+  /** Sets text via WM_SETTEXT or UIA ValuePattern; preserves strategy. */
+  setText(text: string, options?: ControlActionOptions): Promise<{ text: string }> {
+    return this.control.setText(text, options);
+  }
+
+  /** Gets text via WM_GETTEXT or UIA ValuePattern; preserves strategy. */
+  getText(options?: ControlActionOptions): Promise<{ text: string }> {
+    return this.control.getText(options);
+  }
+}
+
+/** Selection target for ComboBoxControl.choose. */
+export type ComboBoxSelection =
+  | { index: number | null }
+  | { text: string }
+  | number
+  | string
+  | null;
+
+/** Dedicated facade for a Win32 ComboBox control. */
+export class ComboBoxControl {
+  constructor(readonly control: Control) {}
+
+  get id(): ControlId {
+    return this.control.id;
+  }
+
+  get windowId(): number {
+    return this.control.windowId;
+  }
+
+  get snapshot(): ControlSnapshot {
+    return this.control.snapshot;
+  }
+
+  get strategy(): ControlStrategy {
+    return this.control.strategy;
+  }
+
+  /** Returns a facade with an overridden strategy. */
+  withStrategy(strategy: ControlStrategy): ComboBoxControl {
+    return new ComboBoxControl(this.control.withStrategy(strategy));
+  }
+
+  /** Shows the ComboBox drop-down list. */
+  showDropdown(options?: ActionOptions): Promise<{ dropped: true }> {
+    return this.control.showDropdown(options);
+  }
+
+  /** Hides the ComboBox drop-down list. */
+  hideDropdown(options?: ActionOptions): Promise<{ dropped: false }> {
+    return this.control.hideDropdown(options);
+  }
+
+  /** Adds an item to the list; resolves the 0-based index. */
+  add(text: string, options?: ActionOptions): Promise<{ index: number }> {
+    return this.control.listAdd(text, options);
+  }
+
+  /** Deletes the item at 0-based index. */
+  delete(index: number, options?: ActionOptions): Promise<{ deleted: true }> {
+    return this.control.listDelete(index, options);
+  }
+
+  /**
+   * Selects an item by 0-based index (`null` clears) or exact text;
+   * notifies the parent window by default.
+   */
+  choose(
+    sel: ComboBoxSelection,
+    notifyParent?: boolean,
+    options?: ActionOptions,
+  ): Promise<{ chosen: true }> {
+    const target =
+      typeof sel === "number" || sel === null
+        ? { index: sel }
+        : typeof sel === "string"
+          ? { text: sel }
+          : sel;
+    return this.control.listChoose(target, notifyParent, options);
+  }
+
+  /** Current selection, 0-based, or `null` when nothing is selected. */
+  selectedIndex(options?: ActionOptions): Promise<{ index: number | null }> {
+    return this.control.listIndex(options);
+  }
+
+  /** Text of an item at 0-based index (omitted reads the currently selected item). */
+  choice(index?: number, options?: ActionOptions): Promise<{ text: string }> {
+    return this.control.listChoice(index, options);
+  }
+
+  /** All items up to `limit` (default 100, max 10000). */
+  items(limit?: number, options?: ActionOptions): Promise<{ items: string[] }> {
+    return this.control.listItems(limit, options);
+  }
+}
+
+/** Dedicated facade for a Win32 Button / CheckBox / RadioButton control. */
+export class ButtonControl {
+  constructor(readonly control: Control) {}
+
+  get id(): ControlId {
+    return this.control.id;
+  }
+
+  get windowId(): number {
+    return this.control.windowId;
+  }
+
+  get snapshot(): ControlSnapshot {
+    return this.control.snapshot;
+  }
+
+  get strategy(): ControlStrategy {
+    return this.control.strategy;
+  }
+
+  /** Returns a facade with an overridden strategy. */
+  withStrategy(strategy: ControlStrategy): ButtonControl {
+    return new ButtonControl(this.control.withStrategy(strategy));
+  }
+
+  /** Posts click message(s) or triggers UIA/visual click; resolves `{ clicks }`. */
+  click(
+    opts?: ControlClickOptions,
+    options?: ControlActionOptions,
+  ): Promise<{ clicks: number }> {
+    return this.control.click(opts, options);
+  }
+
+  /** Checkbox set; `"toggle"` flips the current state. */
+  setChecked(
+    checked: boolean | "toggle",
+    ensureActive?: boolean,
+    options?: ControlActionOptions,
+  ): Promise<{ checked: boolean }> {
+    return this.control.setChecked(checked, ensureActive, options);
+  }
+
+  /** Checkbox / radio state query. */
+  isChecked(options?: ControlActionOptions): Promise<{ checked: boolean }> {
+    return this.control.isChecked(options);
   }
 }
 

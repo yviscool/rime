@@ -6,7 +6,11 @@
     "strict": true,
     "noEmit": true,
     "allowJs": false,
-    "types": ["bun"]
+    "types": ["bun"],
+    "paths": {
+      "@rime/sdk": ["./sdk/src/index.ts"],
+      "@rime/sdk/*": ["./sdk/src/*"]
+    }
   },
   "include": [
     "sdk/**/*.ts",
@@ -14,6 +18,7 @@
     "apps/**/*.ts",
     "plugins/**/*.ts",
     "tests/**/*.ts",
+    "examples/**/*.ts",
     "contracts/generated/**/*.ts"
   ]
 }

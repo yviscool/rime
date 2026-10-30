@@ -26,6 +26,7 @@
     "native:test:dev": "bun tools/native-test.ts --preset=dev",
     "ts:build": "bun tools/ts-build.ts",
     "ts:quickjs": "bun tools/ts-quickjs.ts",
+    "rime": "bun tools/run.ts",
     "doctor": "bun tools/doctor.ts"
   },
   "devDependencies": {

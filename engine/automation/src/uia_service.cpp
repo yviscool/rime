@@ -706,8 +706,8 @@ struct UiaService::Impl final {
       return;
     }
 
-    ToggleState state = ToggleState_Off;
-    const HRESULT hr = pattern->get_CurrentToggleState(&state);
+    ToggleState toggle_state = ToggleState_Off;
+    const HRESULT hr = pattern->get_CurrentToggleState(&toggle_state);
     if (FAILED(hr)) {
       if (is_gone(hr)) {
         drop_element(id);
@@ -717,7 +717,7 @@ struct UiaService::Impl final {
       }
       return;
     }
-    out_state = static_cast<int>(state);
+    out_state = static_cast<int>(toggle_state);
   }
 
   void set_toggle_state_job(std::uint64_t id, int target_state, bool& out_checked, Error& error) {

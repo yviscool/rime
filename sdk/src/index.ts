@@ -103,6 +103,14 @@ export * from "./screen";
 export * from "./sound";
 export * from "./automation";
 export * from "./control";
+export type { ComboBoxSelection } from "./control";
+export {
+  ButtonControl,
+  ComboBoxControl,
+  EditControl,
+  ListViewControl,
+  StatusBarControl,
+} from "./control";
 export * from "./storage";
 export * from "./registry";
 export * from "./ui";
