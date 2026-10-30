@@ -27,6 +27,8 @@ struct ActionOptions {
   std::uint64_t cancellation_id{0};
   std::uint64_t parent_action_id{0};
   std::string idempotency_key;
+  bool wait_idle{false};
+  std::uint32_t wait_idle_ms{50};
 };
 
 // Strict JS number -> int64 conversion shared by id/cancellation parsing.
@@ -129,6 +131,30 @@ inline bool parse_action_options(JSContext* context, JSValueConst value, ActionO
     JS_FreeCString(context, text);
   }
   JS_FreeValue(context, key);
+
+  JSValue wait_idle = JS_GetPropertyStr(context, value, "waitIdle");
+  if (JS_IsException(wait_idle)) return false;
+  if (!JS_IsUndefined(wait_idle) && !JS_IsNull(wait_idle)) {
+    if (!JS_IsBool(wait_idle)) {
+      JS_FreeValue(context, wait_idle);
+      JS_ThrowTypeError(context, "options.waitIdle must be a boolean");
+      return false;
+    }
+    out.wait_idle = JS_ToBool(context, wait_idle) > 0;
+  }
+  JS_FreeValue(context, wait_idle);
+
+  JSValue wait_idle_ms = JS_GetPropertyStr(context, value, "waitIdleMs");
+  if (JS_IsException(wait_idle_ms)) return false;
+  if (!JS_IsUndefined(wait_idle_ms) && !JS_IsNull(wait_idle_ms)) {
+    std::uint64_t ms = 0;
+    if (!optional_u64(context, value, "waitIdleMs", ms)) {
+      JS_FreeValue(context, wait_idle_ms);
+      return false;
+    }
+    out.wait_idle_ms = static_cast<std::uint32_t>(ms);
+  }
+  JS_FreeValue(context, wait_idle_ms);
   return true;
 }
 
@@ -266,6 +292,8 @@ inline rime::action::Action make_action(std::atomic<std::uint64_t>& next_action_
   action.payload = std::move(payload);
   action.parent_action_id = options.parent_action_id;
   action.idempotency_key = options.idempotency_key;
+  action.wait_idle = options.wait_idle;
+  action.wait_idle_ms = options.wait_idle_ms;
   const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                           std::chrono::system_clock::now().time_since_epoch())
                           .count();

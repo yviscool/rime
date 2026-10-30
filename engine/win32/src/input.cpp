@@ -75,6 +75,41 @@ int mouse_coord_to_abs(const int coord, const int extent) {
   return static_cast<int>(scaled) + (coord < 0 ? -1 : 1);
 }
 
+void wait_for_input_idle(const std::uint32_t wait_idle_ms) {
+  if (wait_idle_ms == 0) return;
+  const HWND fg = GetForegroundWindow();
+  if (fg) {
+    DWORD pid = 0;
+    GetWindowThreadProcessId(fg, &pid);
+    if (pid != 0) {
+      HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+      if (!process) {
+        process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_INFORMATION, FALSE, pid);
+      }
+      if (process) {
+        const DWORD res = WaitForInputIdle(process, wait_idle_ms);
+        CloseHandle(process);
+        if (res == 0 || res == WAIT_TIMEOUT) {
+          return;
+        }
+      }
+    }
+  }
+  const DWORD start = GetTickCount();
+  while (true) {
+    const DWORD elapsed = GetTickCount() - start;
+    if (elapsed >= wait_idle_ms) break;
+    const DWORD remaining = wait_idle_ms - elapsed;
+    const DWORD wait_time = (remaining < 10) ? remaining : 10;
+    const DWORD status = GetQueueStatus(QS_ALLINPUT);
+    if (HIWORD(status) == 0) {
+      MsgWaitForMultipleObjectsEx(0, nullptr, wait_time, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+      break;
+    }
+    MsgWaitForMultipleObjectsEx(0, nullptr, wait_time, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+  }
+}
+
 }  // namespace
 
 namespace input_seam {
@@ -735,7 +770,8 @@ bool InputService::mouse_hook_installed() const {
   return impl_->mouse_installed.load(std::memory_order_acquire);
 }
 
-rime::core::Error InputService::send(const std::vector<SendKeyEvent>& keys) {
+rime::core::Error InputService::send(const std::vector<SendKeyEvent>& keys, const bool wait_idle,
+                                     const std::uint32_t wait_idle_ms) {
   rime::win32::input_probe::internal::on_send_entry();
   if (keys.empty()) {
     return {rime::core::Error::Code::InvalidContract, "send requires at least one key step"};
@@ -796,10 +832,15 @@ rime::core::Error InputService::send(const std::vector<SendKeyEvent>& keys) {
             "SendInput injected " + std::to_string(sent) + " of " +
                 std::to_string(inputs.size()) + " key steps"};
   }
+  if (wait_idle) {
+    wait_for_input_idle(wait_idle_ms);
+  }
   return rime::core::Error::none();
 }
 
-rime::core::Error InputService::send_mouse(const std::vector<SendMouseStep>& steps) {
+rime::core::Error InputService::send_mouse(const std::vector<SendMouseStep>& steps,
+                                           const bool wait_idle,
+                                           const std::uint32_t wait_idle_ms) {
   if (steps.empty()) {
     return {rime::core::Error::Code::InvalidContract, "send_mouse requires at least one step"};
   }
@@ -876,6 +917,9 @@ rime::core::Error InputService::send_mouse(const std::vector<SendMouseStep>& ste
     return {rime::core::Error::Code::ExecutionFailed,
             "SendInput injected " + std::to_string(sent) + " of " +
                 std::to_string(inputs.size()) + " mouse steps"};
+  }
+  if (wait_idle) {
+    wait_for_input_idle(wait_idle_ms);
   }
   return rime::core::Error::none();
 }

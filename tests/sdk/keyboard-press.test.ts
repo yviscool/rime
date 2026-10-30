@@ -1,4 +1,5 @@
 import { beforeEach, expect, mock, test } from "bun:test";
+import type { NativeActionOptions } from "../../sdk/src/action";
 import type { SendKeyStep } from "../../sdk/src/send";
 
 // keyboard.press builds structured chords into SendInput batches without
@@ -6,6 +7,7 @@ import type { SendKeyStep } from "../../sdk/src/send";
 // scripted rime:input mock (same pattern as keyboard-lock.test.ts).
 
 let sentSteps: SendKeyStep[][] = [];
+let sentOptions: (NativeActionOptions | undefined)[] = [];
 
 const idleModifiers = {
   lcontrol: false,
@@ -21,8 +23,9 @@ const idleModifiers = {
 mock.module("rime:input", () => ({
   input: {
     modifiers: () => ({ ...idleModifiers }),
-    send: (steps: SendKeyStep[]): Promise<{ sent: number }> => {
+    send: (steps: SendKeyStep[], options?: NativeActionOptions): Promise<{ sent: number }> => {
       sentSteps.push(steps.map((step) => ({ ...step })));
+      sentOptions.push(options);
       return Promise.resolve({ sent: steps.length });
     },
   },
@@ -32,6 +35,7 @@ const { keyboard } = await import("../../sdk/src/input");
 
 beforeEach(() => {
   sentSteps = [];
+  sentOptions = [];
 });
 
 const VK_C = 0x43;
@@ -85,4 +89,10 @@ test("unknown keys reject before the bridge runs; empty input sends nothing", ()
 test("an empty chord list resolves zero without touching the device", async () => {
   await expect(keyboard.press([])).resolves.toStrictEqual({ sent: 0 });
   expect(sentSteps).toStrictEqual([]);
+});
+
+test("waitIdle and waitIdleMs are forwarded to native options", async () => {
+  await keyboard.press("c", { waitIdle: true, waitIdleMs: 60 });
+  expect(sentOptions[0]?.waitIdle).toBe(true);
+  expect(sentOptions[0]?.waitIdleMs).toBe(60);
 });

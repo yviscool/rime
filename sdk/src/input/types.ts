@@ -91,6 +91,10 @@ export interface MousePayload {
    * at `script_autoit.cpp:1862` only runs in SM_EVENT).
    */
   speed?: number;
+  /** Wait for the foreground input queue to become idle after SendInput. */
+  waitIdle?: boolean;
+  /** Maximum milliseconds to wait for idle (default 50). */
+  waitIdleMs?: number;
 }
 
 /** Cursor position plus the window/control under it (`MouseGetPos`). */
@@ -115,6 +119,10 @@ export interface KeyboardSendOptions extends ActionOptions {
    * approximations). Default `input`.
    */
   mode?: KeyboardSendMode;
+  /** Wait for the foreground input queue to become idle after SendInput. */
+  waitIdle?: boolean;
+  /** Maximum milliseconds to wait for idle (default 50). */
+  waitIdleMs?: number;
 }
 
 /**
@@ -144,8 +152,16 @@ export interface MouseCoordOptions {
   window?: WindowsListOptions;
 }
 
+/** Mouse Action options: pipeline action options plus wait-for-idle controls. */
+export interface MouseActionOptions extends ActionOptions {
+  /** Wait for the foreground input queue to become idle after SendInput. */
+  waitIdle?: boolean;
+  /** Maximum milliseconds to wait for idle (default 50). */
+  waitIdleMs?: number;
+}
+
 /** Options for `mouse.click` (AHK MouseClick's WhichButton/X/Y/Count/Speed). */
-export interface MouseClickOptions extends MouseCoordOptions {
+export interface MouseClickOptions extends MouseCoordOptions, MouseActionOptions {
   /** Default 1 (left). */
   button?: MouseButton;
   /** Click point; both `x` and `y` or neither (partial throws TypeError). */
@@ -158,7 +174,7 @@ export interface MouseClickOptions extends MouseCoordOptions {
 }
 
 /** Options for `mouse.drag` (AHK MouseClickDrag's WhichButton/X1/Y1/X2/Y2/Speed). */
-export interface MouseDragOptions extends MouseCoordOptions {
+export interface MouseDragOptions extends MouseCoordOptions, MouseActionOptions {
   /** Default 1 (left). */
   button?: MouseButton;
   /** Optional drag start; both `x` and `y` or neither (partial throws TypeError; omitted = current cursor). */
@@ -171,7 +187,7 @@ export interface MouseDragOptions extends MouseCoordOptions {
 }
 
 /** Options for `mouse.move` (AHK MouseMove's Speed). */
-export interface MouseMoveOptions extends MouseCoordOptions {
+export interface MouseMoveOptions extends MouseCoordOptions, MouseActionOptions {
   /** 0..100 integer; validated then ignored at injection (see {@link MousePayload.speed}). */
   speed?: number;
 }

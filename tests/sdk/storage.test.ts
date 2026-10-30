@@ -31,6 +31,9 @@ const codedError = ({ code, message }: CodedRejection) =>
 let sessionEncoding = "utf-8";
 let textFiles = new Map<string, string>();
 let binFiles = new Map<string, number[]>();
+let fileMtimes = new Map<string, number>();
+let dirPaths = new Set<string>();
+let dirEntries = new Map<string, DirEntry[]>();
 let handles = new Map<number, { data: number[]; pos: number }>();
 let nextHandle = 1;
 
@@ -55,6 +58,9 @@ function reset(): void {
   sessionEncoding = "utf-8";
   textFiles = new Map();
   binFiles = new Map();
+  fileMtimes = new Map();
+  dirPaths = new Set();
+  dirEntries = new Map();
   handles = new Map();
   nextHandle = 1;
   readCalls = [];
@@ -92,14 +98,17 @@ const bridge: StorageBridge = {
   async stat(path, options): Promise<FileInfo> {
     statCalls.push([path, options]);
     failIfSet(readRejection);
+    if (dirPaths.has(path)) {
+      return { size: 0, mtimeMs: fileMtimes.get(path) ?? 1700000000000, attrib: "D", isDir: true };
+    }
     const data = binFiles.get(path);
     if (!data) throw codedError({ code: "execution_failed", message: `file not found: ${path}` });
-    return { size: data.length, mtimeMs: 1700000000000, attrib: "A", isDir: false };
+    return { size: data.length, mtimeMs: fileMtimes.get(path) ?? 1700000000000, attrib: "A", isDir: false };
   },
   async list(path, options): Promise<{ entries: DirEntry[] }> {
     readCalls.push([path, options]);
     failIfSet(readRejection);
-    return { entries: [{ name: "child.txt", isDir: false }] };
+    return { entries: dirEntries.get(path) ?? [{ name: "child.txt", isDir: false }] };
   },
   async envGet(name, options) {
     readCalls.push([name, options]);
@@ -236,7 +245,7 @@ const bridge: StorageBridge = {
 
 mock.module("rime:storage", () => ({ storage: bridge }));
 
-const { storage: facade } = await import("../../sdk/src/storage");
+const { storage: facade, fs, watch } = await import("../../sdk/src/storage");
 
 beforeEach(reset);
 
@@ -720,4 +729,120 @@ test("exists is true exactly when stat succeeds", async () => {
   seed("C:/here.txt", [1]);
   await expect(facade.exists("C:/here.txt")).resolves.toBe(true);
   await expect(facade.exists("C:/gone.txt")).resolves.toBe(false);
+});
+
+test("storage.watch reacts to file modifications and renames", async () => {
+  seed("C:/watch_file.txt", [1, 2, 3]);
+  const events: Array<{ event: string; filename: string | null }> = [];
+  const sub = facade.watch("C:/watch_file.txt", (ev) => events.push(ev), { pollIntervalMs: 10 });
+  await new Promise((r) => setTimeout(r, 25));
+
+  // Modify file (content/size change)
+  seed("C:/watch_file.txt", [1, 2, 3, 4, 5]);
+  await new Promise((r) => setTimeout(r, 35));
+
+  expect(events.length).toBe(1);
+  expect(events[0]).toStrictEqual({ event: "change", filename: "watch_file.txt" });
+
+  // Delete file (stat fails)
+  binFiles.delete("C:/watch_file.txt");
+  await new Promise((r) => setTimeout(r, 35));
+
+  expect(events.length).toBe(2);
+  expect(events[1]).toStrictEqual({ event: "rename", filename: "watch_file.txt" });
+
+  sub.close();
+});
+
+test("storage.watch respects debounce parameter", async () => {
+  seed("C:/debounce_file.txt", [1]);
+  const events: Array<{ event: string; filename: string | null }> = [];
+  const sub = facade.watch("C:/debounce_file.txt", (ev) => events.push(ev), {
+    pollIntervalMs: 10,
+    debounceMs: 50,
+  });
+  await new Promise((r) => setTimeout(r, 25));
+
+  // Rapidly write 3 times with 15ms interval (well within 50ms debounce)
+  seed("C:/debounce_file.txt", [1, 2]);
+  await new Promise((r) => setTimeout(r, 15));
+  seed("C:/debounce_file.txt", [1, 2, 3]);
+  await new Promise((r) => setTimeout(r, 15));
+  seed("C:/debounce_file.txt", [1, 2, 3, 4]);
+  await new Promise((r) => setTimeout(r, 15));
+
+  // Not yet emitted due to debounce reset
+  expect(events.length).toBe(0);
+
+  // Wait for quiet period of 50ms to elapse
+  await new Promise((r) => setTimeout(r, 70));
+
+  expect(events.length).toBe(1);
+  expect(events[0]).toStrictEqual({ event: "change", filename: "debounce_file.txt" });
+
+  sub.close();
+});
+
+test("storage.watch .close() cleanly stops watching", async () => {
+  seed("C:/close_file.txt", [1]);
+  const events: Array<{ event: string; filename: string | null }> = [];
+  const sub = facade.watch("C:/close_file.txt", (ev) => events.push(ev), { pollIntervalMs: 10 });
+  await new Promise((r) => setTimeout(r, 25));
+
+  seed("C:/close_file.txt", [1, 2]);
+  await new Promise((r) => setTimeout(r, 30));
+  expect(events.length).toBe(1);
+
+  // Clean close
+  sub.close();
+
+  // Subsequent writes must not trigger callbacks
+  seed("C:/close_file.txt", [1, 2, 3]);
+  await new Promise((r) => setTimeout(r, 40));
+  expect(events.length).toBe(1);
+});
+
+test("fs.watch mirrors storage.watch with identical behaviour and .close()", async () => {
+  seed("C:/fs_file.txt", [10, 20]);
+  const events: Array<{ event: string; filename: string | null }> = [];
+  const sub = fs.watch("C:/fs_file.txt", (ev: any) => events.push(ev), { pollIntervalMs: 10 });
+  await new Promise((r) => setTimeout(r, 25));
+
+  seed("C:/fs_file.txt", [10, 20, 30]);
+  await new Promise((r) => setTimeout(r, 30));
+  expect(events.length).toBe(1);
+  expect(events[0]).toStrictEqual({ event: "change", filename: "fs_file.txt" });
+
+  sub.close();
+  seed("C:/fs_file.txt", [10, 20, 30, 40]);
+  await new Promise((r) => setTimeout(r, 30));
+  expect(events.length).toBe(1);
+});
+
+test("storage.watch handles directory creation, modification and deletion of files", async () => {
+  dirPaths.add("C:/watch_dir");
+  dirEntries.set("C:/watch_dir", [{ name: "f1.txt", isDir: false }]);
+  seed("C:/watch_dir/f1.txt", [1, 1]);
+
+  const events: Array<{ event: string; filename: string | null }> = [];
+  const sub = facade.watch("C:/watch_dir", (ev) => events.push(ev), { pollIntervalMs: 10 });
+  await new Promise((r) => setTimeout(r, 25));
+
+  // Add a file
+  dirEntries.set("C:/watch_dir", [
+    { name: "f1.txt", isDir: false },
+    { name: "f2.txt", isDir: false },
+  ]);
+  seed("C:/watch_dir/f2.txt", [2, 2]);
+  await new Promise((r) => setTimeout(r, 35));
+
+  expect(events.some((e) => e.event === "rename" && e.filename === "f2.txt")).toBe(true);
+
+  // Modify f1
+  seed("C:/watch_dir/f1.txt", [1, 1, 1]);
+  await new Promise((r) => setTimeout(r, 35));
+
+  expect(events.some((e) => e.event === "change" && e.filename === "f1.txt")).toBe(true);
+
+  sub.close();
 });

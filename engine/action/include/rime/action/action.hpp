@@ -39,6 +39,8 @@ struct Action {
   rime::core::ActionId parent_action_id{0};
   std::string payload;
   std::string idempotency_key;
+  bool wait_idle{false};
+  std::uint32_t wait_idle_ms{50};
   // Internal diagnostics field. NOT part of the wire contract: the wall-clock
   // ms (system_clock) at which the Dispatcher accepted this action into its
   // queue, stamped by Dispatcher::submit when it is 0; the Kernel turns the

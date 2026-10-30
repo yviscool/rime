@@ -1,14 +1,15 @@
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
 const rawArgs = process.argv.slice(2);
 
-const trace = rawArgs.includes("--trace");
-const scriptArgs = rawArgs.filter((arg) => arg !== "--trace");
+const report = rawArgs.includes("--report");
+const trace = report || rawArgs.includes("--trace");
+const scriptArgs = rawArgs.filter((arg) => arg !== "--trace" && arg !== "--report");
 
 if (scriptArgs.length === 0) {
-  console.error("Usage: bun tools/run.ts <script.ts> [--trace]");
+  console.error("Usage: bun tools/run.ts <script.ts> [--trace] [--report]");
   process.exit(1);
 }
 
@@ -119,6 +120,84 @@ const hostArgs = isJsBundleRunner
 const env = { ...process.env };
 if (trace) {
   env.RIME_TRACE = "1";
+}
+
+if (report) {
+  const proc = Bun.spawn(hostArgs, {
+    cwd: root,
+    env,
+    stdout: "inherit",
+    stderr: "pipe",
+  });
+
+  const traceLines: string[] = [];
+  const reader = proc.stderr.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const readPromise = (async () => {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (
+              parsed &&
+              typeof parsed === "object" &&
+              ("kind" in parsed || "sequence" in parsed)
+            ) {
+              traceLines.push(trimmed);
+              continue;
+            }
+          } catch {}
+        }
+        process.stderr.write(line + "\n");
+      }
+    }
+    if (buffer.trim()) {
+      const trimmed = buffer.trim();
+      if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            ("kind" in parsed || "sequence" in parsed)
+          ) {
+            traceLines.push(trimmed);
+            return;
+          }
+        } catch {}
+      }
+      process.stderr.write(buffer + "\n");
+    }
+  })();
+
+  const exitCode = await proc.exited;
+  await readPromise;
+
+  if (exitCode === 0) {
+    console.log(`[Rime Runner] Script "${inputPath}" completed successfully (exit code 0).\n`);
+  } else {
+    console.error(`[Rime Runner] Script "${inputPath}" exited with code ${exitCode}.\n`);
+  }
+
+  const traceFilePath = resolve(runsDir, `${scriptBaseName}.trace.jsonl`);
+  if (traceLines.length > 0) {
+    writeFileSync(traceFilePath, traceLines.join("\n") + "\n", "utf-8");
+  }
+
+  const { runReport } = await import("./trace-report");
+  runReport(traceLines.join("\n"));
+
+  process.exit(exitCode);
 }
 
 const proc = Bun.spawn(hostArgs, {

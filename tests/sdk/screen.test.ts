@@ -62,6 +62,7 @@ const bridge = {
       name: "\\\\.\\DISPLAY1",
       bounds: { left: 0, top: 0, right: 1920, bottom: 1080 },
       work: { left: 0, top: 0, right: 1920, bottom: 1040 },
+      dpi: { x: 96, y: 96, scale: 1.0 },
     };
   },
   async pixel(x: number, y: number, options?: NativeActionOptions) {
@@ -158,10 +159,15 @@ test("the facade unwraps the pixel colour and the monitor count", async () => {
 test("monitor translates 0-based indexes and null means primary", async () => {
   const second = await screen.monitor(2, { deadlineMs: 250 });
   expect(second.index).toBe(2);
+  expect(second.dpi?.x).toBeGreaterThan(0);
+  expect(second.dpi?.y).toBeGreaterThan(0);
+  expect(second.dpi?.scale).toBeGreaterThan(0);
   expect(monitorCalls.at(-1)).toEqual([3, { deadlineMs: 250 }]);
 
   const primary = await screen.monitor();
   expect(primary.primary).toBe(true);
+  expect(primary.dpi?.x).toBe(96);
+  expect(primary.dpi?.scale).toBe(1.0);
   expect(monitorCalls.at(-1)).toEqual([undefined, undefined]);
 
   expect(() => screen.monitor(-1)).toThrow(TypeError);

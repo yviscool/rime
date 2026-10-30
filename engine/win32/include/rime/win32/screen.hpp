@@ -35,6 +35,9 @@ class ScreenService final {
     int work_right{0};
     int work_bottom{0};
     std::string name;  // device name, e.g. \\.\DISPLAY1
+    int dpi_x{96};
+    int dpi_y{96};
+    double scale{1.0};
   };
 
   rime::core::Error monitor_count(int& out) const;

@@ -136,6 +136,10 @@ int main() {
     // A monitor rectangle always has a positive area.
     assert(monitor.right > monitor.left);
     assert(monitor.bottom > monitor.top);
+    // Dynamic DPI sensing must populate positive DPI values and scale.
+    assert(monitor.dpi_x > 0);
+    assert(monitor.dpi_y > 0);
+    assert(monitor.scale > 0.0);
   }
 
   ScreenService::Monitor past_end;
@@ -178,6 +182,12 @@ int main() {
   assert(primary_by_number.work_left == primary.work_left);
   assert(primary_by_number.work_right == primary.work_right);
   assert(primary_by_number.name == primary.name);
+  assert(primary.dpi_x > 0);
+  assert(primary.dpi_y > 0);
+  assert(primary.scale > 0.0);
+  assert(primary_by_number.dpi_x == primary.dpi_x);
+  assert(primary_by_number.dpi_y == primary.dpi_y);
+  assert(primary_by_number.scale == primary.scale);
 
   // ---- Pixel scan rules, on a hand-built framebuffer --------------------
   std::vector<std::uint8_t> frame_bytes(4 * 3 * 4u, 0);

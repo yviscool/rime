@@ -52,7 +52,9 @@ export const mouse = {
     if (coords === undefined || coords === "screen") {
       const payload: MousePayload = { steps: [{ action: "move", x, y }] };
       if (speed !== undefined) payload.speed = speed;
-      return runMouse(payload);
+      if (options?.waitIdle !== undefined) payload.waitIdle = options.waitIdle;
+      if (options?.waitIdleMs !== undefined) payload.waitIdleMs = options.waitIdleMs;
+      return runMouse(payload, options);
     }
     return coordOrigin(coords, options?.window, "mouse.move").then((origin) => {
       if (!origin) throw new Error("mouse.move: unresolved coordinate origin");
@@ -66,7 +68,9 @@ export const mouse = {
         ],
       };
       if (speed !== undefined) payload.speed = speed;
-      return runMouse(payload);
+      if (options?.waitIdle !== undefined) payload.waitIdle = options.waitIdle;
+      if (options?.waitIdleMs !== undefined) payload.waitIdleMs = options.waitIdleMs;
+      return runMouse(payload, options);
     });
   },
   /**
@@ -103,14 +107,18 @@ export const mouse = {
           }),
         };
         if (speed !== undefined) payload.speed = speed;
-        return runMouse(payload);
+        if (options?.waitIdle !== undefined) payload.waitIdle = options.waitIdle;
+        if (options?.waitIdleMs !== undefined) payload.waitIdleMs = options.waitIdleMs;
+        return runMouse(payload, options);
       });
     }
     const payload: MousePayload = {
       steps: buildSteps(px !== undefined && py !== undefined ? { x: px, y: py } : undefined),
     };
     if (speed !== undefined) payload.speed = speed;
-    return runMouse(payload);
+    if (options?.waitIdle !== undefined) payload.waitIdle = options.waitIdle;
+    if (options?.waitIdleMs !== undefined) payload.waitIdleMs = options.waitIdleMs;
+    return runMouse(payload, options);
   },
   /**
    * AHK `MouseClickDrag WhichButton, X1, Y1, X2, Y2, Speed`: optional move to
@@ -158,7 +166,9 @@ export const mouse = {
           ),
         };
         if (speed !== undefined) payload.speed = speed;
-        return runMouse(payload);
+        if (options.waitIdle !== undefined) payload.waitIdle = options.waitIdle;
+        if (options.waitIdleMs !== undefined) payload.waitIdleMs = options.waitIdleMs;
+        return runMouse(payload, options);
       });
     }
     const payload: MousePayload = {
@@ -168,7 +178,9 @@ export const mouse = {
       ),
     };
     if (speed !== undefined) payload.speed = speed;
-    return runMouse(payload);
+    if (options.waitIdle !== undefined) payload.waitIdle = options.waitIdle;
+    if (options.waitIdleMs !== undefined) payload.waitIdleMs = options.waitIdleMs;
+    return runMouse(payload, options);
   },
   /**
    * AHK `MouseGetPos`: cursor position plus the window and child control

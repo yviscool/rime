@@ -305,7 +305,7 @@ export class Gui {
 
   destroy(options?: ActionOptions): Promise<void> {
     return runAction(options, (native) =>
-      this.native.Destroy(native).then(() => undefined),
+      (native ? this.native.Destroy(native) : this.native.Destroy()).then(() => undefined),
     );
   }
   show(options?: string, action?: ActionOptions): Promise<void> {
@@ -617,7 +617,7 @@ export class Menu {
   add(name?: string, callbackOrSubmenu?: ((item: Menu, name: string) => void) | Menu, options?: ActionOptions): Promise<number> {
     const second = callbackOrSubmenu instanceof Menu ? callbackOrSubmenu.inner : callbackOrSubmenu;
     return runAction(options, (native) =>
-      this.native.Add(name, second, native).then(Number),
+      this.native.Add(name, second, native ?? {}).then(Number),
     );
   }
   /** Insert before a name or 0-based position. */
@@ -629,57 +629,57 @@ export class Menu {
   ): Promise<number> {
     const third = callbackOrSubmenu instanceof Menu ? callbackOrSubmenu.inner : callbackOrSubmenu;
     return runAction(options, (native) =>
-      this.native.Insert(before, name, third, native).then(Number),
+      this.native.Insert(before, name, third, native ?? {}).then(Number),
     );
   }
   /** Remove one item (name or 0-based position) or clear all. Resolves the removed name. */
   delete(item?: string | number, options?: ActionOptions): Promise<string> {
     return runAction(options, (native) =>
-      this.native.Delete(item, native).then(String),
+      this.native.Delete(item, native ?? {}).then(String),
     );
   }
   /** Rename an item (empty new name turns it into a separator). Resolves the old name. */
   rename(item: string | number, newName?: string, options?: ActionOptions): Promise<string> {
     return runAction(options, (native) =>
-      this.native.Rename(item, newName, native).then(String),
+      this.native.Rename(item, newName, native ?? {}).then(String),
     );
   }
   check(item: string | number, options?: ActionOptions): Promise<void> {
     return runAction(options, (native) =>
-      this.native.Check(item, native).then(() => undefined),
+      this.native.Check(item, native ?? {}).then(() => undefined),
     );
   }
   uncheck(item: string | number, options?: ActionOptions): Promise<void> {
     return runAction(options, (native) =>
-      this.native.Uncheck(item, native).then(() => undefined),
+      this.native.Uncheck(item, native ?? {}).then(() => undefined),
     );
   }
   enable(item: string | number, options?: ActionOptions): Promise<void> {
     return runAction(options, (native) =>
-      this.native.Enable(item, native).then(() => undefined),
+      this.native.Enable(item, native ?? {}).then(() => undefined),
     );
   }
   disable(item: string | number, options?: ActionOptions): Promise<void> {
     return runAction(options, (native) =>
-      this.native.Disable(item, native).then(() => undefined),
+      this.native.Disable(item, native ?? {}).then(() => undefined),
     );
   }
   /** Returns the checked state after the flip. */
   toggleCheck(item: string | number, options?: ActionOptions): Promise<boolean> {
     return runAction(options, (native) =>
-      this.native.ToggleCheck(item, native).then((v) => v === true),
+      this.native.ToggleCheck(item, native ?? {}).then((v) => v === true),
     );
   }
   /** Returns the enabled state after the flip. */
   toggleEnable(item: string | number, options?: ActionOptions): Promise<boolean> {
     return runAction(options, (native) =>
-      this.native.ToggleEnable(item, native).then((v) => v === true),
+      this.native.ToggleEnable(item, native ?? {}).then((v) => v === true),
     );
   }
   /** Background color (`#RRGGBB`/number; omitted resets). Submenus included by default. */
   setColor(color?: string | number, applyToSubmenus?: boolean, options?: ActionOptions): Promise<void> {
     return runAction(options, (native) =>
-      this.native.SetColor(color, applyToSubmenus, native).then(() => undefined),
+      this.native.SetColor(color, applyToSubmenus, native ?? {}).then(() => undefined),
     );
   }
   /** Item icon from a .ico file or dll/exe index (empty file removes it). */
@@ -691,18 +691,18 @@ export class Menu {
     options?: ActionOptions,
   ): Promise<void> {
     return runAction(options, (native) =>
-      this.native.SetIcon(item, file, iconIndex, width, native).then(() => undefined),
+      this.native.SetIcon(item, file, iconIndex, width, native ?? {}).then(() => undefined),
     );
   }
   /** Modal popup at x/y (cursor when omitted). Resolves the picked name, null on dismiss. */
   show(x?: number, y?: number, options?: ActionOptions): Promise<string | null> {
     return runAction(options, (native) =>
-      this.native.Show(x, y, native).then((v) => (v === null ? null : String(v))),
+      this.native.Show(x, y, native ?? {}).then((v) => (v === null ? null : String(v))),
     );
   }
   destroy(options?: ActionOptions): Promise<void> {
     return runAction(options, (native) =>
-      this.native.Destroy(native).then(() => undefined),
+      this.native.Destroy(native ?? {}).then(() => undefined),
     );
   }
   /** 1 or 2 (AHK range; tray-reserved, documented). */
@@ -734,10 +734,11 @@ export class Menu {
 async function createMenuBridge(): Promise<{
   createMenu(): Promise<MenuNative>;
 }> {
-  const module = await import("rime:ui");
-  return module as unknown as {
-    createMenu(): Promise<MenuNative>;
+  const module = ((await import("rime:ui")) as unknown) as {
+    ui?: { createMenu(): Promise<MenuNative> };
+    createMenu?: () => Promise<MenuNative>;
   };
+  return (module.ui ?? module) as { createMenu(): Promise<MenuNative> };
 }
 
 /** Reverse lookup: the Gui owning an automation window id, null when foreign. */
@@ -807,7 +808,7 @@ export class ImageList {
   }
   destroy(options?: ActionOptions): Promise<void> {
     return runAction(options, (native) =>
-      this.native.Destroy(native).then(() => undefined),
+      (native ? this.native.Destroy(native) : this.native.Destroy()).then(() => undefined),
     );
   }
 }
@@ -815,8 +816,11 @@ export class ImageList {
 async function createImageListBridge(): Promise<{
   createImageList(width: number, height: number, initial?: number, grow?: number): Promise<ImageListNative>;
 }> {
-  const module = await import("rime:ui");
-  return module as unknown as {
+  const module = ((await import("rime:ui")) as unknown) as {
+    ui?: { createImageList(width: number, height: number, initial?: number, grow?: number): Promise<ImageListNative> };
+    createImageList?: (width: number, height: number, initial?: number, grow?: number) => Promise<ImageListNative>;
+  };
+  return (module.ui ?? module) as {
     createImageList(width: number, height: number, initial?: number, grow?: number): Promise<ImageListNative>;
   };
 }

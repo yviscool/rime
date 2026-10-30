@@ -279,7 +279,10 @@ bool is_action_object(JSContext* context, JSValueConst value) {
 // none). Everything before `end` is a feature argument.
 int split_action(JSContext* context, int argc, JSValueConst* argv, int& end) {
   end = argc;
-  if (end > 0 && is_action_object(context, argv[end - 1])) return end - 1;
+  if (end > 0 && is_action_object(context, argv[end - 1])) {
+    --end;
+    return end;
+  }
   return -1;
 }
 

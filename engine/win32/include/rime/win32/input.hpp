@@ -217,14 +217,16 @@ class InputService final {
   // step list: non-unicode steps require vk 1..254, unicode steps a UTF-16
   // code unit 0..65535. Batches serialize against each other; the hook
   // thread only queues, so injection never blocks low-level input delivery.
-  rime::core::Error send(const std::vector<SendKeyEvent>& keys);
+  rime::core::Error send(const std::vector<SendKeyEvent>& keys, bool wait_idle = false,
+                         std::uint32_t wait_idle_ms = 50);
 
   // Injects one ordered mouse batch through SendInput under the same marker,
   // serialization and running-state contract as send(). Absolute moves use
   // AHK's MOUSE_COORD_TO_ABS conversion against the primary screen; logical
   // buttons translate through SM_SWAPBUTTON like AHK v2. Refuses with
   // InvalidContract for an empty batch or buttons outside 1..3.
-  rime::core::Error send_mouse(const std::vector<SendMouseStep>& steps);
+  rime::core::Error send_mouse(const std::vector<SendMouseStep>& steps, bool wait_idle = false,
+                               std::uint32_t wait_idle_ms = 50);
 
   // Hook-maintained physical down snapshot (AHK g_PhysicalKeyState): seeded
   // from GetAsyncKeyState at hook install, then updated by every key and

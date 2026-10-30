@@ -46,6 +46,11 @@ json::Value monitor_value(const ScreenService::Monitor& monitor) {
   value.set("bounds", rect_value(monitor.left, monitor.top, monitor.right, monitor.bottom));
   value.set("work",
             rect_value(monitor.work_left, monitor.work_top, monitor.work_right, monitor.work_bottom));
+  json::Value dpi = json::Value::object();
+  dpi.set("x", json::Value::number(monitor.dpi_x));
+  dpi.set("y", json::Value::number(monitor.dpi_y));
+  dpi.set("scale", json::Value::number(monitor.scale));
+  value.set("dpi", std::move(dpi));
   return value;
 }
 

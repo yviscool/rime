@@ -20,6 +20,12 @@ export interface ScreenMonitor {
   bounds: ScreenRect;
   /** The monitor minus the taskbar and other auto-hiding app bars. */
   work: ScreenRect;
+  /** Monitor DPI and scale factor (96 DPI = 1.0 scale). */
+  dpi?: {
+    x: number;
+    y: number;
+    scale: number;
+  };
 }
 
 /** Result of a pixel search: a miss carries no coordinate on purpose. */
@@ -103,8 +109,8 @@ export const screen = {
     return runAction(options, (bridgeOptions) =>
       screenBridge().then((bridge) =>
         (index === undefined || index === null
-          ? bridge.monitor(bridgeOptions)
-          : bridge.monitor(index + 1, bridgeOptions)
+          ? bridge.monitor(bridgeOptions ?? {})
+          : bridge.monitor(index + 1, bridgeOptions ?? {})
         ).then((monitor) => ({ ...monitor, index: monitor.index - 1 })),
       ),
     );

@@ -20,6 +20,10 @@ export interface NativeActionOptions {
   parentActionId?: number;
   /** Deduplicates retries of the same logical Action. */
   idempotencyKey?: string;
+  /** Wait for the foreground input queue to become idle after SendInput. */
+  waitIdle?: boolean;
+  /** Maximum milliseconds to wait for idle (default 50). */
+  waitIdleMs?: number;
 }
 
 /**
@@ -81,6 +85,8 @@ export async function bindActionOptions(options?: ActionOptions): Promise<BoundA
   if (options.deadlineMs !== undefined) native.deadlineMs = options.deadlineMs;
   if (options.parentActionId !== undefined) native.parentActionId = options.parentActionId;
   if (options.idempotencyKey !== undefined) native.idempotencyKey = options.idempotencyKey;
+  if (options.waitIdle !== undefined) native.waitIdle = options.waitIdle;
+  if (options.waitIdleMs !== undefined) native.waitIdleMs = options.waitIdleMs;
   if (sig) {
     if (sig.aborted) {
       return { aborted: true, reason: sig.reason, release() {} };

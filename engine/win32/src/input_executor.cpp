@@ -68,7 +68,7 @@ Result execute_send(InputService& service, const rime::action::Action& action,
   }
   if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
 
-  const auto sent = service.send(keys);
+  const auto sent = service.send(keys, action.wait_idle, action.wait_idle_ms);
   if (!sent.ok()) return fail(action, sent.code, sent.message);
 
   rime::core::json::Value value = rime::core::json::Value::object();
@@ -157,7 +157,18 @@ Result execute_mouse(InputService& service, const rime::action::Action& action,
   }
   if (const auto bad = contract::cancel_before(action, cancellation)) return *bad;
 
-  const auto sent = service.send_mouse(mouse_steps);
+  bool wait_idle = action.wait_idle;
+  std::uint32_t wait_idle_ms = action.wait_idle_ms;
+  if (const rime::core::json::Value* wi = payload.value->find("waitIdle"); wi) {
+    if (wi->is_bool()) wait_idle = wi->as_bool();
+  }
+  if (const rime::core::json::Value* wims = payload.value->find("waitIdleMs"); wims) {
+    if (wims->is_number() && is_int32(wims->as_number()) && wims->as_number() >= 0.0) {
+      wait_idle_ms = static_cast<std::uint32_t>(wims->as_number());
+    }
+  }
+
+  const auto sent = service.send_mouse(mouse_steps, wait_idle, wait_idle_ms);
   if (!sent.ok()) return fail(action, sent.code, sent.message);
 
   rime::core::json::Value value = rime::core::json::Value::object();

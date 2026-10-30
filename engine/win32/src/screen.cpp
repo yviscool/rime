@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 namespace rime::win32 {
 namespace {
@@ -22,11 +23,26 @@ namespace {
 using Error = rime::core::Error;
 using Code = rime::core::Error::Code;
 
+using GetDpiForMonitorFn = HRESULT(WINAPI*)(HMONITOR, int, UINT*, UINT*);
+
+GetDpiForMonitorFn resolve_get_dpi_for_monitor() {
+  static const auto fn = []() -> GetDpiForMonitorFn {
+    HMODULE shcore = LoadLibraryW(L"Shcore.dll");
+    if (!shcore) return nullptr;
+    FARPROC proc = GetProcAddress(shcore, "GetDpiForMonitor");
+    if (!proc) return nullptr;
+    GetDpiForMonitorFn out = nullptr;
+    std::memcpy(&out, &proc, sizeof(out));
+    return out;
+  }();
+  return fn;
+}
+
 // Fills `out` from MONITORINFOEX. A failed GetMonitorInfo skips that monitor
 // instead of aborting the enumeration: losing one display must not hide the
 // others (AHK gives up on the specific monitor it was looking for, which for a
 // full collection would mean an incomplete answer reported as complete).
-BOOL CALLBACK collect_monitor(HMONITOR handle, HDC, LPRECT, LPARAM param) {
+BOOL CALLBACK collect_monitor(HMONITOR handle, HDC hdc, LPRECT, LPARAM param) {
   auto* out = reinterpret_cast<std::vector<ScreenService::Monitor>*>(param);
   MONITORINFOEXW info{};
   info.cbSize = sizeof(info);
@@ -44,6 +60,33 @@ BOOL CALLBACK collect_monitor(HMONITOR handle, HDC, LPRECT, LPARAM param) {
   monitor.work_right = info.rcWork.right;
   monitor.work_bottom = info.rcWork.bottom;
   monitor.name = to_utf8(std::wstring(info.szDevice));
+
+  int dpi_x = 96;
+  int dpi_y = 96;
+  bool dpi_resolved = false;
+  if (const auto get_dpi = resolve_get_dpi_for_monitor(); get_dpi != nullptr) {
+    UINT dx = 0;
+    UINT dy = 0;
+    if (SUCCEEDED(get_dpi(handle, 0, &dx, &dy)) && dx > 0 && dy > 0) {
+      dpi_x = static_cast<int>(dx);
+      dpi_y = static_cast<int>(dy);
+      dpi_resolved = true;
+    }
+  }
+  if (!dpi_resolved) {
+    HDC screen_dc = hdc ? hdc : GetDC(nullptr);
+    if (screen_dc) {
+      int dx = GetDeviceCaps(screen_dc, LOGPIXELSX);
+      int dy = GetDeviceCaps(screen_dc, LOGPIXELSY);
+      if (!hdc) ReleaseDC(nullptr, screen_dc);
+      if (dx > 0) dpi_x = dx;
+      if (dy > 0) dpi_y = dy;
+    }
+  }
+  monitor.dpi_x = dpi_x;
+  monitor.dpi_y = dpi_y;
+  monitor.scale = static_cast<double>(dpi_x) / 96.0;
+
   out->push_back(std::move(monitor));
   return TRUE;
 }

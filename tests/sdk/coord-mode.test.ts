@@ -169,3 +169,9 @@ test("malformed coords spaces throw synchronously", () => {
   );
   expect(mouseCalls).toHaveLength(0);
 });
+
+test("mouse operations forward waitIdle and waitIdleMs in payload", async () => {
+  await mouse.move(10, 20, { waitIdle: true, waitIdleMs: 80 });
+  expect(mouseCalls[0].waitIdle).toBe(true);
+  expect(mouseCalls[0].waitIdleMs).toBe(80);
+});

@@ -120,6 +120,24 @@ export interface FileOpenOptions extends ActionOptions {
   encoding?: FileEncoding;
 }
 
+/** Options accepted by `storage.watch` and `fs.watch`. */
+export interface WatchOptions {
+  recursive?: boolean;
+  debounceMs?: number;
+  pollIntervalMs?: number;
+}
+
+/** Event emitted by `storage.watch` and `fs.watch`. */
+export interface FileWatchEvent {
+  event: "change" | "rename";
+  filename: string | null;
+}
+
+/** Cancellable subscription returned by `storage.watch` and `fs.watch`. */
+export interface Subscription {
+  close(): void;
+}
+
 /**
  * Bridge of the `rime:storage` module - the exact shape the native module
  * exports as `storage`. `write` is an Action (queued, traced, capability
@@ -1413,4 +1431,291 @@ export const storage = {
       }),
     );
   },
+
+  /** Watches a file or directory for modifications and renames. */
+  watch(
+    path: string,
+    optionsOrCallback?: WatchOptions | ((event: FileWatchEvent) => void),
+    callbackOrOptions?: ((event: FileWatchEvent) => void) | WatchOptions,
+  ): Subscription {
+    return watch(path, optionsOrCallback as any, callbackOrOptions as any);
+  },
+};
+
+function getBasename(filePath: string): string {
+  const norm = filePath.replace(/[\\/]+$/, "");
+  const idx = Math.max(norm.lastIndexOf("/"), norm.lastIndexOf("\\"));
+  return idx >= 0 ? norm.slice(idx + 1) : norm;
+}
+
+function getRelativePath(rootPath: string, fullPath: string): string {
+  const r = rootPath.replace(/\\/g, "/").replace(/\/+$/, "");
+  const f = fullPath.replace(/\\/g, "/");
+  if (f === r) return getBasename(fullPath);
+  if (f.startsWith(r + "/")) {
+    return f.slice(r.length + 1);
+  }
+  return getBasename(fullPath);
+}
+
+function scheduleTimer(fn: () => void, ms: number): { cancel: () => void } {
+  if (typeof setTimeout === "function") {
+    const handle = setTimeout(fn, ms);
+    return {
+      cancel() {
+        if (typeof clearTimeout === "function") {
+          clearTimeout(handle);
+        }
+      },
+    };
+  }
+  let cancelled = false;
+  let cancelId: number | undefined;
+  (async () => {
+    try {
+      const rtMod = await import("rime:runtime");
+      if (cancelled) return;
+      cancelId = rtMod.runtime.cancellation();
+      await rtMod.runtime.delay(ms, undefined, cancelId);
+      if (!cancelled) {
+        fn();
+      }
+    } catch {
+      // cancelled or rejected
+    } finally {
+      if (cancelId !== undefined) {
+        try {
+          const rtMod = await import("rime:runtime");
+          rtMod.runtime.releaseCancellation(cancelId);
+        } catch {}
+      }
+    }
+  })();
+  return {
+    cancel() {
+      cancelled = true;
+      if (cancelId !== undefined) {
+        import("rime:runtime").then((m) => m.runtime.cancel(cancelId!)).catch(() => {});
+      }
+    },
+  };
+}
+
+async function scanDirectory(
+  dirPath: string,
+  rootPath: string,
+  recursive: boolean,
+  entries: Map<string, { mtimeMs: number; size: number }>,
+): Promise<void> {
+  let list: DirEntry[] = [];
+  try {
+    list = await storage.readdir(dirPath);
+  } catch {
+    return;
+  }
+  for (const item of list) {
+    const fullChild = `${dirPath.replace(/[\\/]+$/, "")}/${item.name}`;
+    const relChild = getRelativePath(rootPath, fullChild);
+    if (item.isDir) {
+      if (recursive) {
+        await scanDirectory(fullChild, rootPath, recursive, entries);
+      }
+    } else {
+      try {
+        const s = await storage.stat(fullChild);
+        entries.set(relChild, { mtimeMs: s.mtimeMs, size: s.size });
+      } catch {
+        // Ignored if file unreadable or removed
+      }
+    }
+  }
+}
+
+/**
+ * Non-blocking file system watcher with debounce, cancellation and recursive directory support.
+ */
+export function watch(
+  path: string,
+  callback: (event: FileWatchEvent) => void,
+  options?: WatchOptions,
+): Subscription;
+export function watch(
+  path: string,
+  options: WatchOptions,
+  callback: (event: FileWatchEvent) => void,
+): Subscription;
+export function watch(
+  path: string,
+  optionsOrCallback?: WatchOptions | ((event: FileWatchEvent) => void),
+  callbackOrOptions?: ((event: FileWatchEvent) => void) | WatchOptions,
+): Subscription {
+  if (typeof path !== "string" || path.length === 0) {
+    throw new TypeError("watch path must be a non-empty string");
+  }
+
+  let options: WatchOptions = {};
+  let callback: (event: FileWatchEvent) => void;
+
+  if (typeof optionsOrCallback === "function") {
+    callback = optionsOrCallback;
+    if (typeof callbackOrOptions === "object" && callbackOrOptions !== null) {
+      options = callbackOrOptions;
+    }
+  } else if (typeof callbackOrOptions === "function") {
+    callback = callbackOrOptions;
+    if (typeof optionsOrCallback === "object" && optionsOrCallback !== null) {
+      options = optionsOrCallback;
+    }
+  } else {
+    throw new TypeError("watch requires a callback function");
+  }
+
+  const recursive = options.recursive === true;
+  const debounceMs = Math.max(0, options.debounceMs ?? 0);
+  const pollIntervalMs = Math.max(5, options.pollIntervalMs ?? 20);
+
+  let closed = false;
+  let isDir = false;
+  let prevEntries = new Map<string, { mtimeMs: number; size: number }>();
+  let pollHandle: { cancel: () => void } | null = null;
+  const debounceHandles = new Map<string, { cancel: () => void }>();
+
+  function emit(event: FileWatchEvent) {
+    if (closed) return;
+    const key = event.filename ?? "";
+    if (debounceMs <= 0) {
+      callback(event);
+      return;
+    }
+    const existing = debounceHandles.get(key);
+    if (existing) {
+      existing.cancel();
+    }
+    const handle = scheduleTimer(() => {
+      debounceHandles.delete(key);
+      if (!closed) {
+        callback(event);
+      }
+    }, debounceMs);
+    debounceHandles.set(key, handle);
+  }
+
+  async function poll() {
+    if (closed) return;
+    const baseName = getBasename(path);
+    let currentStat: FileInfo | null = null;
+    try {
+      currentStat = await storage.stat(path);
+    } catch {
+      currentStat = null;
+    }
+
+    if (closed) return;
+
+    if (currentStat === null) {
+      // Path does not exist
+      if (prevEntries.size > 0) {
+        if (isDir) {
+          for (const filename of prevEntries.keys()) {
+            emit({ event: "rename", filename });
+          }
+        } else {
+          emit({ event: "rename", filename: baseName });
+        }
+        prevEntries.clear();
+      }
+      return;
+    }
+
+    if (currentStat.isDir) {
+      isDir = true;
+      const newEntries = new Map<string, { mtimeMs: number; size: number }>();
+      await scanDirectory(path, path, recursive, newEntries);
+      if (closed) return;
+
+      // Check deleted
+      for (const [filename] of prevEntries) {
+        if (!newEntries.has(filename)) {
+          emit({ event: "rename", filename });
+        }
+      }
+      // Check created or modified
+      for (const [filename, newInfo] of newEntries) {
+        const oldInfo = prevEntries.get(filename);
+        if (!oldInfo) {
+          emit({ event: "rename", filename });
+        } else if (oldInfo.mtimeMs !== newInfo.mtimeMs || oldInfo.size !== newInfo.size) {
+          emit({ event: "change", filename });
+        }
+      }
+      prevEntries = newEntries;
+    } else {
+      isDir = false;
+      const oldInfo = prevEntries.get(baseName);
+      if (!oldInfo) {
+        emit({ event: "rename", filename: baseName });
+      } else if (oldInfo.mtimeMs !== currentStat.mtimeMs || oldInfo.size !== currentStat.size) {
+        emit({ event: "change", filename: baseName });
+      }
+      prevEntries.set(baseName, { mtimeMs: currentStat.mtimeMs, size: currentStat.size });
+    }
+  }
+
+  function scheduleNextPoll() {
+    if (closed) return;
+    pollHandle = scheduleTimer(async () => {
+      if (closed) return;
+      try {
+        await poll();
+      } catch {
+        // Suppress unexpected polling errors
+      } finally {
+        if (!closed) {
+          scheduleNextPoll();
+        }
+      }
+    }, pollIntervalMs);
+  }
+
+  // Initial snapshot before scheduling polls
+  (async () => {
+    try {
+      const initStat = await storage.stat(path);
+      if (closed) return;
+      isDir = initStat.isDir;
+      if (isDir) {
+        await scanDirectory(path, path, recursive, prevEntries);
+      } else {
+        prevEntries.set(getBasename(path), { mtimeMs: initStat.mtimeMs, size: initStat.size });
+      }
+    } catch {
+      // Path does not exist yet
+      isDir = false;
+    } finally {
+      if (!closed) {
+        scheduleNextPoll();
+      }
+    }
+  })();
+
+  return {
+    close() {
+      if (closed) return;
+      closed = true;
+      if (pollHandle) {
+        pollHandle.cancel();
+        pollHandle = null;
+      }
+      for (const handle of debounceHandles.values()) {
+        handle.cancel();
+      }
+      debounceHandles.clear();
+      prevEntries.clear();
+    },
+  };
+}
+
+export const fs = {
+  ...storage,
+  watch,
 };
