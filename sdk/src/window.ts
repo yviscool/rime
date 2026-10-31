@@ -1,6 +1,7 @@
 import { ActionError, runAction, type ActionOptions, type NativeActionOptions } from "./action";
 import type { ProcessId } from "./process";
 import { Control, focusedControl, type ControlClickOptions, type ControlSpec } from "./control";
+import type { FindTextOptions, ScreenRect, TextMatch } from "./screen";
 
 export type Brand<K, T> = K & { readonly __brand: T };
 
@@ -815,5 +816,21 @@ export class Window {
   focusedControl(): number | null {
     const id = focusedControl(this.id);
     return id === 0 ? null : id;
+  }
+  /**
+   * Searches for text visually within this window's client bounds.
+   */
+  findText(text: string, options?: FindTextOptions): Promise<TextMatch | null> {
+    const clientRect = this.current.clientRect;
+    const windowArea: ScreenRect = {
+      left: clientRect.left,
+      top: clientRect.top,
+      right: clientRect.right,
+      bottom: clientRect.bottom,
+    };
+    const area: ScreenRect = options?.area ?? windowArea;
+    return import("./screen").then(({ screen }) =>
+      screen.findText(text, { ...options, area }),
+    );
   }
 }

@@ -2,6 +2,7 @@
 
 #include "rime/win32/input_probe.hpp"
 #include "rime/win32/input_seam.hpp"
+#include "utf.hpp"
 
 #include <windows.h>
 
@@ -12,7 +13,9 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -134,6 +137,14 @@ struct InputService::Impl {
     std::condition_variable idle;
   };
 
+  struct RawEntry {
+    std::uint64_t id{0};
+    RawInputCallback callback;
+    bool closed{false};
+    int in_flight{0};
+    std::condition_variable idle;
+  };
+
   // Shared state; the mutex also orders subscribe/unsubscribe against
   // delivery in-flight counters.
   std::mutex mutex;
@@ -150,6 +161,12 @@ struct InputService::Impl {
   std::uint64_t next_sequence{1};
   std::uint64_t next_id{1};
   std::uint64_t dropped{0};
+
+  std::vector<std::shared_ptr<RawEntry>> raw_entries;
+  std::vector<RawKeyEvent> pending_raw;
+  std::uint64_t next_raw_id{1};
+  HWND raw_hwnd{nullptr};
+  std::unordered_map<HANDLE, std::string> device_name_cache;
 
   // Physical down snapshot (one atomic per vk): the hook thread writes it,
   // any thread reads it. Seeded from GetAsyncKeyState in thread_main right
@@ -340,6 +357,96 @@ struct InputService::Impl {
     }
   }
 
+  std::string get_device_name(HANDLE hDevice) {
+    if (!hDevice) return {};
+    auto it = device_name_cache.find(hDevice);
+    if (it != device_name_cache.end()) return it->second;
+
+    UINT size = 0;
+    if (GetRawInputDeviceInfoW(hDevice, RIDI_DEVICENAME, nullptr, &size) == static_cast<UINT>(-1) ||
+        size == 0) {
+      return {};
+    }
+    std::wstring name(size, L'\0');
+    if (GetRawInputDeviceInfoW(hDevice, RIDI_DEVICENAME, name.data(), &size) ==
+        static_cast<UINT>(-1)) {
+      return {};
+    }
+    while (!name.empty() && name.back() == L'\0') {
+      name.pop_back();
+    }
+    std::string utf8_name = to_utf8(name);
+    device_name_cache[hDevice] = utf8_name;
+    return utf8_name;
+  }
+
+  void handle_raw_input(HRAWINPUT hRawInput) {
+    if (!hRawInput) return;
+    UINT size = 0;
+    if (GetRawInputData(hRawInput, RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER)) != 0 ||
+        size == 0) {
+      return;
+    }
+    std::vector<std::uint8_t> buffer(size);
+    if (GetRawInputData(hRawInput, RID_INPUT, buffer.data(), &size, sizeof(RAWINPUTHEADER)) !=
+        size) {
+      return;
+    }
+    const auto* raw = reinterpret_cast<const RAWINPUT*>(buffer.data());
+    if (raw->header.dwType != RIM_TYPEKEYBOARD) {
+      return;
+    }
+
+    RawKeyEvent event;
+    event.device_id = get_device_name(raw->header.hDevice);
+    event.vk = raw->data.keyboard.VKey;
+    event.scan_code = raw->data.keyboard.MakeCode;
+    event.flags = raw->data.keyboard.Flags;
+    event.down = (raw->data.keyboard.Flags & RI_KEY_BREAK) == 0;
+
+    enqueue_raw(std::move(event));
+  }
+
+  void enqueue_raw(RawKeyEvent event) {
+    std::lock_guard lock(mutex);
+    if (raw_entries.empty()) return;
+    pending_raw.push_back(std::move(event));
+  }
+
+  void deliver_raw_events() {
+    std::vector<RawKeyEvent> batch;
+    std::vector<std::shared_ptr<RawEntry>> targets;
+    {
+      std::lock_guard lock(mutex);
+      if (pending_raw.empty()) return;
+      batch.swap(pending_raw);
+      targets.assign(raw_entries.begin(), raw_entries.end());
+    }
+    for (const auto& event : batch) {
+      for (const auto& entry : targets) {
+        bool run = false;
+        {
+          std::lock_guard lock(mutex);
+          if (!entry->closed) {
+            entry->in_flight++;
+            run = true;
+          }
+        }
+        if (!run) continue;
+        try {
+          entry->callback(event);
+        } catch (...) {
+          // Subscribers must not throw across the hook boundary.
+        }
+        {
+          std::lock_guard lock(mutex);
+          entry->in_flight--;
+          entry->idle.notify_all();
+        }
+      }
+    }
+  }
+
   void cleanup_hooks() {
     if (mouse_hook) {
       UnhookWindowsHookEx(mouse_hook);
@@ -363,6 +470,30 @@ void InputService::Impl::thread_main() {
     std::lock_guard lock(mutex);
     thread_id = GetCurrentThreadId();
   }
+
+  const wchar_t* const kRawInputClassName = L"RimeRawInputSink";
+  WNDCLASSEXW wc{};
+  wc.cbSize = sizeof(wc);
+  wc.lpfnWndProc = DefWindowProcW;
+  wc.hInstance = GetModuleHandleW(nullptr);
+  wc.lpszClassName = kRawInputClassName;
+  RegisterClassExW(&wc);
+
+  raw_hwnd = CreateWindowExW(0, kRawInputClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
+                             wc.hInstance, nullptr);
+  if (!raw_hwnd) {
+    raw_hwnd = CreateWindowExW(0, kRawInputClassName, L"", 0, 0, 0, 0, 0, nullptr, nullptr,
+                               wc.hInstance, nullptr);
+  }
+  if (raw_hwnd) {
+    RAWINPUTDEVICE rid{};
+    rid.usUsagePage = 0x01;  // HID_USAGE_PAGE_GENERIC
+    rid.usUsage = 0x06;      // HID_USAGE_GENERIC_KEYBOARD
+    rid.dwFlags = RIDEV_INPUTSINK;
+    rid.hwndTarget = raw_hwnd;
+    RegisterRawInputDevices(&rid, 1, sizeof(RAWINPUTDEVICE));
+  }
+
   apply_hooks();
   const bool installed = keyboard_hook != nullptr && mouse_hook != nullptr;
   {
@@ -372,6 +503,17 @@ void InputService::Impl::thread_main() {
   }
   condition.notify_all();
   if (!installed) {
+    if (raw_hwnd) {
+      RAWINPUTDEVICE rid_remove{};
+      rid_remove.usUsagePage = 0x01;
+      rid_remove.usUsage = 0x06;
+      rid_remove.dwFlags = RIDEV_REMOVE;
+      rid_remove.hwndTarget = nullptr;
+      RegisterRawInputDevices(&rid_remove, 1, sizeof(RAWINPUTDEVICE));
+      DestroyWindow(raw_hwnd);
+      raw_hwnd = nullptr;
+    }
+    UnregisterClassW(kRawInputClassName, wc.hInstance);
     cleanup_hooks();
     Impl* expected = this;
     owner.compare_exchange_strong(expected, nullptr);
@@ -397,10 +539,29 @@ void InputService::Impl::thread_main() {
       finish_hook_controls();
       continue;
     }
+    if (message.message == WM_INPUT) {
+      handle_raw_input(reinterpret_cast<HRAWINPUT>(message.lParam));
+      deliver_raw_events();
+      DefWindowProcW(message.hwnd, message.message, message.wParam, message.lParam);
+      continue;
+    }
+    deliver_raw_events();
     deliver_events();
     TranslateMessage(&message);
     DispatchMessageW(&message);
   }
+
+  if (raw_hwnd) {
+    RAWINPUTDEVICE rid_remove{};
+    rid_remove.usUsagePage = 0x01;
+    rid_remove.usUsage = 0x06;
+    rid_remove.dwFlags = RIDEV_REMOVE;
+    rid_remove.hwndTarget = nullptr;
+    RegisterRawInputDevices(&rid_remove, 1, sizeof(RAWINPUTDEVICE));
+    DestroyWindow(raw_hwnd);
+    raw_hwnd = nullptr;
+  }
+  UnregisterClassW(kRawInputClassName, wc.hInstance);
 
   cleanup_hooks();
   keyboard_installed.store(false, std::memory_order_release);
@@ -412,6 +573,9 @@ void InputService::Impl::thread_main() {
     for (auto& entry : entries) entry->closed = true;
     entries.clear();
     pending.clear();
+    for (auto& entry : raw_entries) entry->closed = true;
+    raw_entries.clear();
+    pending_raw.clear();
   }
   Impl* expected = this;
   owner.compare_exchange_strong(expected, nullptr);
@@ -707,6 +871,49 @@ std::size_t InputService::subscription_count() const {
 std::uint64_t InputService::dropped_events() const {
   std::lock_guard lock(impl_->mutex);
   return impl_->dropped;
+}
+
+std::uint64_t InputService::subscribe_raw_input(RawInputCallback callback) {
+  if (!callback) return 0;
+  std::lock_guard lock(impl_->mutex);
+  if (impl_->state != InputServiceState::Running || impl_->stopping) return 0;
+  auto entry = std::make_shared<Impl::RawEntry>();
+  entry->id = impl_->next_raw_id++;
+  entry->callback = std::move(callback);
+  impl_->raw_entries.push_back(entry);
+  return entry->id;
+}
+
+bool InputService::unsubscribe_raw_input(const std::uint64_t id) {
+  std::unique_lock lock(impl_->mutex);
+  auto found = impl_->raw_entries.end();
+  for (auto it = impl_->raw_entries.begin(); it != impl_->raw_entries.end(); ++it) {
+    if ((*it)->id == id) {
+      found = it;
+      break;
+    }
+  }
+  if (found == impl_->raw_entries.end()) return false;
+  const auto entry = *found;
+  entry->closed = true;
+  const bool called_on_hook_thread =
+      impl_->thread_id != 0 && impl_->thread_id == GetCurrentThreadId();
+  if (entry->in_flight > 0 && !called_on_hook_thread) {
+    constexpr auto kDrainTimeout = std::chrono::seconds(5);
+    const bool drained = entry->idle.wait_for(
+        lock, kDrainTimeout, [&entry] { return entry->in_flight == 0; });
+    if (!drained) {
+      impl_->raw_entries.erase(found);
+      return false;
+    }
+  }
+  impl_->raw_entries.erase(found);
+  return true;
+}
+
+std::size_t InputService::raw_subscription_count() const {
+  std::lock_guard lock(impl_->mutex);
+  return impl_->raw_entries.size();
 }
 
 bool InputService::control_hook(const bool keyboard, const bool install, const bool force) {

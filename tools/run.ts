@@ -4,6 +4,14 @@ import { basename, resolve } from "node:path";
 const root = resolve(import.meta.dir, "..");
 const rawArgs = process.argv.slice(2);
 
+if (rawArgs[0] === "pack") {
+  const packScript = resolve(import.meta.dir, "pack.ts");
+  const proc = Bun.spawnSync([process.execPath, packScript, ...rawArgs.slice(1)], {
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+  process.exit(proc.exitCode ?? 1);
+}
+
 const report = rawArgs.includes("--report");
 const trace = report || rawArgs.includes("--trace");
 const scriptArgs = rawArgs.filter((arg) => arg !== "--trace" && arg !== "--report");

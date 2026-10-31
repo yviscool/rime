@@ -203,6 +203,115 @@ JSValue input_unsubscribe(JSContext* context, JSValueConst, int argc, JSValueCon
   return JS_NewBool(context, removed ? 1 : 0);
 }
 
+JSValue input_subscribe_raw(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                            void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  auto* host = host_of(context);
+  if (!host || !binding || !binding->service || !binding->kernel) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc < 1 || !JS_IsFunction(context, argv[0])) {
+    return JS_ThrowTypeError(context, "subscribeRaw(handler)");
+  }
+  if (!binding->kernel->allows("windows.hook.global") &&
+      !binding->kernel->allows("windows.input.read")) {
+    return throw_capability_error(context, "windows.input.read");
+  }
+
+  const auto queue = host->event_queue();
+  auto callback_id = std::make_shared<std::atomic<std::uint64_t>>(0);
+  const std::uint64_t subscription_id = binding->service->subscribe_raw_input(
+      [queue, callback_id](const RawKeyEvent& event) {
+        const std::uint64_t id = callback_id->load(std::memory_order_acquire);
+        if (id != 0) (void)queue->push(id, raw_event_json(event));
+      });
+  if (subscription_id == 0) {
+    return JS_ThrowInternalError(context, "input service is not running");
+  }
+
+  std::uint64_t host_callback_id = 0;
+  if (const auto error = host->add_callback(JS_DupValue(context, argv[0]), host_callback_id);
+      !error.ok()) {
+    (void)binding->service->unsubscribe_raw_input(subscription_id);
+    return JS_ThrowInternalError(context, "%s", error.message.c_str());
+  }
+  callback_id->store(host_callback_id, std::memory_order_release);
+  binding->raw_callbacks[subscription_id] = host_callback_id;
+  return JS_NewInt64(context, static_cast<std::int64_t>(subscription_id));
+}
+
+JSValue input_unsubscribe_raw(JSContext* context, JSValueConst, int argc, JSValueConst* argv, int,
+                              void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  auto* host = host_of(context);
+  if (!host || !binding || !binding->service) {
+    return JS_ThrowInternalError(context, "rime:input is not wired");
+  }
+  if (argc < 1) return JS_ThrowTypeError(context, "unsubscribeRaw(subscriptionId)");
+  std::int64_t raw_id = 0;
+  if (!strict_int64(context, argv[0], raw_id, "unsubscribeRaw(subscriptionId)")) return JS_EXCEPTION;
+  if (raw_id <= 0) return JS_NewBool(context, 0);
+  const std::uint64_t subscription_id = static_cast<std::uint64_t>(raw_id);
+
+  bool removed = binding->service->unsubscribe_raw_input(subscription_id);
+  const auto found = binding->raw_callbacks.find(subscription_id);
+  if (found != binding->raw_callbacks.end()) {
+    (void)host->remove_callback(found->second);
+    binding->raw_callbacks.erase(found);
+    removed = true;
+  }
+  return JS_NewBool(context, removed ? 1 : 0);
+}
+
+JSValue input_raw_subscription_close(JSContext* context, JSValueConst this_val, int,
+                                     JSValueConst*, int, void* opaque) {
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  auto* host = host_of(context);
+  if (!host || !binding || !binding->service) return JS_NewBool(context, 0);
+
+  JSValue id_value = JS_GetPropertyStr(context, this_val, "id");
+  if (JS_IsException(id_value)) return id_value;
+  std::int64_t raw_id = 0;
+  bool ok = strict_int64(context, id_value, raw_id, "subscription.close()");
+  JS_FreeValue(context, id_value);
+  if (!ok || raw_id <= 0) return JS_NewBool(context, 0);
+
+  const std::uint64_t subscription_id = static_cast<std::uint64_t>(raw_id);
+  bool removed = binding->service->unsubscribe_raw_input(subscription_id);
+  const auto found = binding->raw_callbacks.find(subscription_id);
+  if (found != binding->raw_callbacks.end()) {
+    (void)host->remove_callback(found->second);
+    binding->raw_callbacks.erase(found);
+    removed = true;
+  }
+  return JS_NewBool(context, removed ? 1 : 0);
+}
+
+JSValue input_on_raw_key(JSContext* context, JSValueConst this_val, int argc, JSValueConst* argv,
+                         int magic, void* opaque) {
+  JSValue sub_id = input_subscribe_raw(context, this_val, argc, argv, magic, opaque);
+  if (JS_IsException(sub_id)) return sub_id;
+  std::int64_t id = 0;
+  if (JS_ToInt64(context, &id, sub_id) != 0) {
+    JS_FreeValue(context, sub_id);
+    return JS_ThrowInternalError(context, "failed to get subscription id");
+  }
+  JS_FreeValue(context, sub_id);
+
+  auto* binding = static_cast<InputModuleBinding*>(opaque);
+  JSValue object = JS_NewObject(context);
+  if (JS_IsException(object)) return object;
+  JS_SetPropertyStr(context, object, "id", JS_NewInt64(context, id));
+  JSValue close =
+      JS_NewCClosure(context, input_raw_subscription_close, "close", nullptr, 0, 0, binding);
+  if (JS_IsException(close)) {
+    JS_FreeValue(context, object);
+    return close;
+  }
+  JS_SetPropertyStr(context, object, "close", close);
+  return object;
+}
+
 // Host event-queue entry for one chord binding: the drain loop invokes it on
 // the JS thread with the parsed InputEvent object. A matching key-down builds
 // a fresh Action from the template and submits it to the shared queue; a 0ms
@@ -1298,7 +1407,11 @@ int input_module_init(JSContext* context, JSModuleDef* module) {
       !add("keyWait", input_key_wait, 2) ||
        !add("blockInput", input_block_input, 2) ||
        !add("setLockForce", input_set_lock_force, 2) || !add("keyHistory", input_key_history, 1) ||
-       !add("sendLevel", input_send_level, 1)) {
+       !add("sendLevel", input_send_level, 1) ||
+       !add("subscribeRaw", input_subscribe_raw, 1) ||
+       !add("unsubscribeRaw", input_unsubscribe_raw, 1) ||
+       !add("onRawKey", input_on_raw_key, 1) ||
+       !add("onRawInput", input_on_raw_key, 1)) {
     return -1;
   }
   // M2-C event exports (hotkey/hotstring/hotIf/setTimer/onMessage/...) share

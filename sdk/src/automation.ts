@@ -1,5 +1,8 @@
 import { automation as nativeAutomation } from "rime:automation";
 import type { NativeActionOptions } from "./action";
+import type { FindTextOptions, TextMatch } from "./screen";
+
+export type { FindTextOptions, TextMatch };
 
 /** One element from `find`/`read`: a stable id plus a value snapshot. */
 export interface AutomationElement {
@@ -50,6 +53,12 @@ export interface AutomationBridge {
   invoke(elementId: number, options?: NativeActionOptions): Promise<{ invoked: true }>;
   /** Drops our element reference. False for unknown ids or a stopped service. */
   release(elementId: number): boolean;
+  /** Semantic text finder in the Visual tier. */
+  findText(text: string, options?: FindTextOptions): Promise<TextMatch | null>;
+  /** Visual tier namespace. */
+  visual: {
+    findText(text: string, options?: FindTextOptions): Promise<TextMatch | null>;
+  };
 }
 
 /**
@@ -84,6 +93,14 @@ export const automation: AutomationBridge = {
   },
   release(elementId: number): boolean {
     return nativeAutomation.release(elementId);
+  },
+  findText(text: string, options?: FindTextOptions): Promise<TextMatch | null> {
+    return import("./screen").then(({ screen }) => screen.findText(text, options));
+  },
+  visual: {
+    findText(text: string, options?: FindTextOptions): Promise<TextMatch | null> {
+      return import("./screen").then(({ screen }) => screen.findText(text, options));
+    },
   },
 };
 

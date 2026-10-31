@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_set>
+#include <vector>
 
 namespace rime::js {
 class Runtime;
@@ -113,5 +114,16 @@ std::unordered_set<std::string> production_capabilities();
 // process exit code (0 ok, 1 failure, 2 usage/IO) and reports diagnostics
 // on stderr.
 int run_bundle_file(const std::string& path, std::unordered_set<std::string> capabilities);
+int run_bundle_file(const std::string& path, std::unordered_set<std::string> capabilities,
+                    std::vector<std::string> args);
+
+// Evaluates in-memory `source` using `virtual_path` through the full production
+// lifecycle. An optional `args` list is exposed to the script via
+// `globalThis.A_Args` and `globalThis.process.argv`.
+int run_bundle_source(const std::string& source, const std::string& virtual_path,
+                      std::unordered_set<std::string> capabilities);
+int run_bundle_source(const std::string& source, const std::string& virtual_path,
+                      std::unordered_set<std::string> capabilities,
+                      std::vector<std::string> args);
 
 }  // namespace rime::win32

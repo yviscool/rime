@@ -19,6 +19,7 @@
 #include <memory>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace rime::win32 {
 
@@ -321,7 +322,12 @@ std::unordered_set<std::string> production_capabilities() {
 // then fails with a clear diagnostic on stderr instead of looping.
 constexpr int k_reload_limit = 8;
 
-int run_bundle_file(const std::string& path, std::unordered_set<std::string> capabilities) {
+namespace {
+
+template <typename SourceGetter>
+int run_bundle_lifecycle(SourceGetter&& get_source, const std::string& virtual_path,
+                         std::unordered_set<std::string> capabilities,
+                         const std::vector<std::string>& args) {
   // Declaration order matters: every runtime below is scoped to one pass and
   // destroyed before the bootstrap, so no module callback runs against a
   // dead binding, and the bootstrap's destructor stops any service an error
@@ -333,22 +339,15 @@ int run_bundle_file(const std::string& path, std::unordered_set<std::string> cap
   int reloads = 0;
 
   for (;;) {
-    // Re-read on every pass: like AHK Reload the file may have changed (or
-    // disappeared) since the previous run. The handle is released before the
-    // script runs, so a writer can replace the file while this pass is live.
     std::string source;
-    {
-      std::ifstream input(path, std::ios::binary);
-      if (!input) {
-        std::cerr << "cannot open script: " << path << '\n';
-        if (bootstrap_started) {
-          if (const auto stopped = bootstrap.stop(); !stopped.ok()) {
-            std::cerr << "rime: bootstrap stop failed: " << stopped.message << '\n';
-          }
+    const int source_error = get_source(source);
+    if (source_error != 0) {
+      if (bootstrap_started) {
+        if (const auto stopped = bootstrap.stop(); !stopped.ok()) {
+          std::cerr << "rime: bootstrap stop failed: " << stopped.message << '\n';
         }
-        return 2;
       }
-      source.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+      return source_error;
     }
 
     rime::js::Runtime runtime;
@@ -372,7 +371,29 @@ int run_bundle_file(const std::string& path, std::unordered_set<std::string> cap
       std::cerr << "QuickJS runtime failed to start: " << error.message << '\n';
       return 1;
     }
-    const auto evaluation = runtime.evaluate_module(source, path).get();
+
+    if (!args.empty() || virtual_path == "<embedded>") {
+      std::string args_prelude = "globalThis.A_Args = [";
+      for (std::size_t i = 0; i < args.size(); ++i) {
+        if (i > 0) args_prelude += ", ";
+        args_prelude += rime::core::json::stringify(rime::core::json::Value::string(args[i]));
+      }
+      args_prelude += "];\nif (!globalThis.process) globalThis.process = {};\nglobalThis.process.argv = [";
+      args_prelude += rime::core::json::stringify(rime::core::json::Value::string(virtual_path));
+      for (std::size_t i = 0; i < args.size(); ++i) {
+        args_prelude += ", ";
+        args_prelude += rime::core::json::stringify(rime::core::json::Value::string(args[i]));
+      }
+      args_prelude += "];\n";
+      const auto args_eval = runtime.evaluate_module(args_prelude, "<args-init>").get();
+      if (!args_eval.ok()) {
+        std::cerr << "rime: args initialization failed: " << args_eval.message << '\n';
+        (void)runtime.stop();
+        return 1;
+      }
+    }
+
+    const auto evaluation = runtime.evaluate_module(source, virtual_path).get();
     // runtime.exit(code) and runtime.reload() both unwind the script with an
     // exception; treat either as a deliberate outcome, not a failure: no
     // settle, no __rim_failure check. Deviation from the async-failure
@@ -476,14 +497,14 @@ int run_bundle_file(const std::string& path, std::unordered_set<std::string> cap
     if (runtime.reload_requested()) {
       if (reloads >= k_reload_limit) {
         std::cerr << "rime: reload limit exceeded (" << k_reload_limit
-                  << " reloads): " << path << '\n';
+                  << " reloads): " << virtual_path << '\n';
         if (const auto stopped = bootstrap.stop(); !stopped.ok()) {
           std::cerr << "rime: bootstrap stop failed: " << stopped.message << '\n';
         }
         return 1;
       }
       ++reloads;
-      continue;  // re-read the file and run it in a fresh runtime
+      continue;  // re-read the source and run it in a fresh runtime
     }
     // Unreachable in practice: the block above only leaves on exit/reload or
     // returns. Kept so an unexpected state still stops the bootstrap cleanly.
@@ -492,6 +513,43 @@ int run_bundle_file(const std::string& path, std::unordered_set<std::string> cap
     }
     return 0;
   }
+}
+
+}  // namespace
+
+int run_bundle_file(const std::string& path, std::unordered_set<std::string> capabilities) {
+  return run_bundle_file(path, std::move(capabilities), {});
+}
+
+int run_bundle_file(const std::string& path, std::unordered_set<std::string> capabilities,
+                    std::vector<std::string> args) {
+  return run_bundle_lifecycle(
+      [&path](std::string& out) -> int {
+        std::ifstream input(path, std::ios::binary);
+        if (!input) {
+          std::cerr << "cannot open script: " << path << '\n';
+          return 2;
+        }
+        out.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+        return 0;
+      },
+      path, std::move(capabilities), args);
+}
+
+int run_bundle_source(const std::string& source, const std::string& virtual_path,
+                      std::unordered_set<std::string> capabilities) {
+  return run_bundle_source(source, virtual_path, std::move(capabilities), {});
+}
+
+int run_bundle_source(const std::string& source, const std::string& virtual_path,
+                      std::unordered_set<std::string> capabilities,
+                      std::vector<std::string> args) {
+  return run_bundle_lifecycle(
+      [&source](std::string& out) -> int {
+        out = source;
+        return 0;
+      },
+      virtual_path, std::move(capabilities), args);
 }
 
 }  // namespace rime::win32

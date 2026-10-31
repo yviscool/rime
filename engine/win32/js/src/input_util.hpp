@@ -94,6 +94,18 @@ inline std::string event_json(const InputEvent& event) {
   return json::stringify(value);
 }
 
+// Wire shape of one RawKeyEvent as delivered through the host event queue.
+inline std::string raw_event_json(const RawKeyEvent& event) {
+  namespace json = rime::core::json;
+  json::Value value = json::Value::object();
+  value.set("deviceId", json::Value::string(event.device_id));
+  value.set("vk", json::Value::number(static_cast<double>(event.vk)));
+  value.set("scanCode", json::Value::number(static_cast<double>(event.scan_code)));
+  value.set("down", json::Value::boolean(event.down));
+  value.set("flags", json::Value::number(static_cast<double>(event.flags)));
+  return json::stringify(value);
+}
+
 // Installing or binding a global hook is a privileged operation; the same
 // policy the kernel enforces denies it here (registration returns
 // synchronously, so the denial is a thrown Error naming the capability).

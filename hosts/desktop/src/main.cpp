@@ -4,6 +4,18 @@
 
 #ifdef RIME_DESKTOP_HAS_SCRIPT
 #include "rime/win32/bootstrap.hpp"
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
+#include <cstring>
+#include <fstream>
+#include <vector>
 #endif
 
 #include <cstdlib>
@@ -95,10 +107,69 @@ struct TraceDumpOnExit {
   ~TraceDumpOnExit() { dump_trace(trace); }
 };
 
+#ifdef RIME_DESKTOP_HAS_SCRIPT
+constexpr std::size_t k_magic_size = 24;
+constexpr std::size_t k_trailer_size = 8 + k_magic_size;
+constexpr char k_magic[k_magic_size] = {'R', 'I', 'M', 'E', '_', 'B', 'U', 'N', 'D', 'L', 'E', '_',
+                                       'P', 'A', 'Y', 'L', 'O', 'A', 'D', '_', 'V', '1', '\0', '\0'};
+
+bool read_embedded_payload(std::string& out_source) {
+  std::vector<wchar_t> path_buf(MAX_PATH);
+  DWORD len = 0;
+  while (true) {
+    len = GetModuleFileNameW(nullptr, path_buf.data(), static_cast<DWORD>(path_buf.size()));
+    if (len == 0) return false;
+    if (len < path_buf.size() - 1) break;
+    path_buf.resize(path_buf.size() * 2);
+  }
+
+  std::ifstream file(path_buf.data(), std::ios::binary | std::ios::ate);
+  if (!file.is_open()) return false;
+
+  const auto file_size = file.tellg();
+  if (file_size < static_cast<std::streampos>(k_trailer_size)) return false;
+
+  // Check magic string at (file_size - 24)
+  file.seekg(-static_cast<std::streamoff>(k_magic_size), std::ios::end);
+  char magic_buf[k_magic_size] = {};
+  if (!file.read(magic_buf, k_magic_size)) return false;
+  if (std::memcmp(magic_buf, k_magic, k_magic_size) != 0) return false;
+
+  // Read bundle length (uint64_t) at (file_size - 32)
+  file.seekg(-static_cast<std::streamoff>(k_trailer_size), std::ios::end);
+  std::uint64_t bundle_length = 0;
+  if (!file.read(reinterpret_cast<char*>(&bundle_length), sizeof(bundle_length))) return false;
+
+  if (bundle_length == 0 || file_size < static_cast<std::streampos>(k_trailer_size + bundle_length)) {
+    return false;
+  }
+
+  // Read embedded bundle bytes
+  file.seekg(-static_cast<std::streamoff>(k_trailer_size + bundle_length), std::ios::end);
+  out_source.resize(bundle_length);
+  if (!file.read(out_source.data(), static_cast<std::streamsize>(bundle_length))) {
+    return false;
+  }
+
+  return true;
+}
+#endif
+
 }  // namespace
 
 int main(int argc, char** argv) {
 #ifdef RIME_DESKTOP_HAS_SCRIPT
+  std::string embedded_source;
+  if (read_embedded_payload(embedded_source)) {
+    std::vector<std::string> args;
+    for (int i = 1; i < argc; ++i) {
+      args.emplace_back(argv[i]);
+    }
+    return rime::win32::run_bundle_source(embedded_source, "<embedded>",
+                                          rime::win32::production_capabilities(),
+                                          std::move(args));
+  }
+
   // Script mode: the production host runs one script on the full wiring
   // (services, kernel policy, executors, JS modules) with the production
   // capability grant. This is the same Bootstrap the bundle harness runs.

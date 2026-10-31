@@ -112,6 +112,7 @@ export {
   StatusBarControl,
 } from "./control";
 export * from "./storage";
+export type { Subscription } from "./storage";
 export * from "./registry";
 export * from "./ui";
 export * from "./gui";

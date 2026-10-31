@@ -41,6 +41,27 @@ const TRAY_TIP_ICONS: Record<TrayTipIcon, number> = {
   info: 0x40,
 };
 
+/** Action button in a modern interactive notification. */
+export interface NotifyAction {
+  id: string;
+  title: string;
+}
+
+/** Options for modern interactive notification. */
+export interface NotifyOptions extends ActionOptions {
+  title: string;
+  body: string;
+  icon?: string;
+  actions?: NotifyAction[];
+  timeoutMs?: number;
+}
+
+/** Outcome of an interactive notification. */
+export interface NotifyResult {
+  action?: string;
+  dismissed: boolean;
+}
+
 /** Options of {@link ui.msgBox}: dialog pieces plus the shared action options. */
 export interface UiMsgBoxOptions extends ActionOptions {
   /** Dialog title (empty when omitted). */
@@ -163,6 +184,9 @@ export interface UiBridge {
     text: string,
     options?: { title?: string; icon?: number; mute?: boolean } & NativeActionOptions,
   ): Promise<null>;
+  notify?(
+    options: NotifyOptions & NativeActionOptions,
+  ): Promise<NotifyResult>;
 }
 
 async function uiBridge(): Promise<UiBridge> {
@@ -319,5 +343,89 @@ export const ui = {
         }),
       ),
     ).then(() => undefined);
+  },
+  /**
+   * Shows a modern interactive notification or falls back to a non-blocking
+   * tray notification / tooltip. Resolves with user interaction or dismiss.
+   *
+   * Capability `ui.create`; no Action Trace.
+   */
+  async notify(options: NotifyOptions): Promise<NotifyResult> {
+    if (!options || typeof options !== "object") {
+      throw new TypeError("ui.notify: options must be an object");
+    }
+    if (typeof options.title !== "string") {
+      throw new TypeError("ui.notify: options.title must be a string");
+    }
+    if (typeof options.body !== "string") {
+      throw new TypeError("ui.notify: options.body must be a string");
+    }
+    if (
+      options.timeoutMs !== undefined &&
+      (!Number.isFinite(options.timeoutMs) || options.timeoutMs < 0)
+    ) {
+      throw new TypeError(
+        `ui.notify: timeoutMs must be a non-negative number, got ${String(options.timeoutMs)}`,
+      );
+    }
+    if (options.actions !== undefined) {
+      if (!Array.isArray(options.actions)) {
+        throw new TypeError("ui.notify: actions must be an array");
+      }
+      for (const act of options.actions) {
+        if (!act || typeof act.id !== "string" || typeof act.title !== "string") {
+          throw new TypeError("ui.notify: each action must have an id and title string");
+        }
+      }
+    }
+
+    const normalized: NotifyOptions = {
+      title: options.title,
+      body: options.body,
+      icon: options.icon ?? "info",
+      actions: options.actions ?? [],
+      timeoutMs: options.timeoutMs ?? 5000,
+    };
+
+    const bridge = await uiBridge();
+    if (typeof bridge.notify === "function") {
+      try {
+        const result = await bridge.notify(normalized);
+        if (result && typeof result === "object") {
+          return {
+            action: typeof result.action === "string" ? result.action : undefined,
+            dismissed: result.dismissed ?? (result.action === undefined),
+          };
+        }
+      } catch {
+        // Fall back to resilient delivery if system toast throws
+      }
+    }
+
+    // Resilient fallback: non-blocking tray notification / toolTip
+    let delivered = false;
+    try {
+      const rawIcon = normalized.icon ?? "info";
+      const trayIcon: TrayTipIcon =
+        rawIcon in TRAY_TIP_ICONS ? (rawIcon as TrayTipIcon) : "info";
+      await ui.trayTip(normalized.body, { title: normalized.title, icon: trayIcon });
+      delivered = true;
+    } catch {
+      // TrayTip failed or not available, try toolTip
+    }
+
+    if (!delivered) {
+      try {
+        const tipText = normalized.title
+          ? `${normalized.title}\n${normalized.body}`
+          : normalized.body;
+        await ui.toolTip(tipText);
+        delivered = true;
+      } catch {
+        // Resiliently swallow if all visual alerts fail
+      }
+    }
+
+    return { dismissed: true };
   },
 };

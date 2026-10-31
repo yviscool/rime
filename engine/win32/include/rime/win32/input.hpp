@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace rime::win32 {
@@ -99,6 +100,15 @@ struct InputEvent {
   std::int32_t wheel_delta{0};
 };
 
+// One raw keyboard input event from WM_INPUT.
+struct RawKeyEvent {
+  std::string device_id;
+  std::uint32_t vk{0};
+  std::uint32_t scan_code{0};
+  bool down{false};
+  std::uint32_t flags{0};
+};
+
 // One send() step: a key transition. vk is 1..254, down selects press or
 // release. Ordered batches are injected in a single SendInput call. When
 // unicode is set, vk carries a UTF-16 code unit (0..65535) injected with
@@ -176,6 +186,7 @@ enum class InputServiceState : std::uint8_t { Created, Running, Stopping, Stoppe
 class InputService final {
  public:
   using Callback = std::function<void(const InputEvent&)>;
+  using RawInputCallback = std::function<void(const RawKeyEvent&)>;
 
   InputService();
   ~InputService();
@@ -208,6 +219,11 @@ class InputService final {
   [[nodiscard]] std::size_t subscription_count() const;
   // Events dropped because the pending queue was full (diagnostics).
   [[nodiscard]] std::uint64_t dropped_events() const;
+
+  // Registers a raw keyboard input subscription while running. Returns 0 when not running.
+  [[nodiscard]] std::uint64_t subscribe_raw_input(RawInputCallback callback);
+  [[nodiscard]] bool unsubscribe_raw_input(std::uint64_t id);
+  [[nodiscard]] std::size_t raw_subscription_count() const;
 
   // Injects one ordered key batch through SendInput, tagged with
   // self_injected_marker_for(send_level()) so the hook reports it as self

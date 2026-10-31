@@ -10,7 +10,14 @@ import {
   type SendKeyStep,
   type SendMode,
 } from "../send";
-import type { KeyboardSendOptions, LockKeyName, LockStateWord, ModifiersSnapshot } from "./types";
+import type {
+  KeyboardSendOptions,
+  LockKeyName,
+  LockStateWord,
+  ModifiersSnapshot,
+  RawKeyEvent,
+  Subscription,
+} from "./types";
 import { modifierMaskOf } from "./helpers";
 import { input } from "rime:input";
 
@@ -224,5 +231,24 @@ export const keyboard = {
    */
   modifiers(): ModifiersSnapshot {
     return input.modifiers();
+  },
+  /**
+   * Registers a callback for low-level RawInput keyboard events.
+   * Differentiates physical keyboards and supports high-frequency polling.
+   */
+  onRawKey(handler: (event: RawKeyEvent) => void): Subscription {
+    if (typeof (input as any).onRawKey === "function") {
+      return (input as any).onRawKey(handler);
+    }
+    const id = input.subscribeRaw(handler);
+    let closed = false;
+    return {
+      close() {
+        if (!closed) {
+          closed = true;
+          input.unsubscribeRaw(id);
+        }
+      },
+    };
   },
 };

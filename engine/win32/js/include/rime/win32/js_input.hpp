@@ -73,6 +73,7 @@ struct InputModuleBinding {
   rime::action::Dispatcher* dispatcher{nullptr};
   std::atomic<std::uint64_t>* next_action_id{nullptr};
   std::unordered_map<std::uint64_t, std::uint64_t> callbacks;  // service id -> host callback id
+  std::unordered_map<std::uint64_t, std::uint64_t> raw_callbacks;  // raw service id -> host callback id
 
   // Chord bindings: binding id -> delivery chain plus the owned context.
   struct ChordRegistration {

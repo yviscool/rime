@@ -27,6 +27,7 @@
     "ts:build": "bun tools/ts-build.ts",
     "ts:quickjs": "bun tools/ts-quickjs.ts",
     "rime": "bun tools/run.ts",
+    "pack": "bun tools/pack.ts",
     "doctor": "bun tools/doctor.ts"
   },
   "devDependencies": {

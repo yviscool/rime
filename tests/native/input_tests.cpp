@@ -128,6 +128,15 @@ int main() {
   assert(!service.start().ok());  // start-once
   assert(service.state() == rime::win32::InputServiceState::Running);
 
+  // RawInput registration contract (subscribe_raw_input / unsubscribe_raw_input)
+  const auto raw_sub = service.subscribe_raw_input([](const rime::win32::RawKeyEvent&) {});
+  assert(raw_sub != 0);
+  assert(service.raw_subscription_count() == 1);
+  assert(service.subscribe_raw_input(nullptr) == 0);
+  assert(service.unsubscribe_raw_input(raw_sub));
+  assert(service.raw_subscription_count() == 0);
+  assert(!service.unsubscribe_raw_input(raw_sub));
+
   // read_modifier_state(): caps_lock mirrors the LED toggle bit and an
   // injected hold shows up on the correct side, then clears on release.
   assert(rime::win32::read_modifier_state().caps_lock ==

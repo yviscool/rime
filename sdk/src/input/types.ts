@@ -1,4 +1,5 @@
 import type { ActionOptions, NativeActionOptions } from "../action";
+import type { Subscription } from "../storage";
 import type { WindowControl, WindowSnapshot, WindowsListOptions } from "../window";
 import type { SendKeyStep } from "../send";
 import type {
@@ -51,6 +52,16 @@ export interface MouseEvent {
 }
 
 export type InputEvent = KeyEvent | MouseEvent;
+
+export interface RawKeyEvent {
+  deviceId: string;
+  vk: number;
+  scanCode: number;
+  down: boolean;
+  flags: number;
+}
+
+export type { Subscription };
 
 /**
  * Live per-side modifier state from `input.modifiers()`: one boolean per
@@ -260,6 +271,20 @@ export interface InputBridge {
   subscribe(handler: (event: InputEvent) => void): number;
   /** Closes a subscription. False for unknown or already-closed ids. */
   unsubscribe(subscriptionId: number): boolean;
+  /**
+   * Registers a callback for low-level RawInput keyboard events.
+   * Differentiates physical keyboards and supports high-frequency polling.
+   */
+  subscribeRaw(handler: (event: RawKeyEvent) => void): number;
+  /** Closes a RawInput subscription. False for unknown or already-closed ids. */
+  unsubscribeRaw(subscriptionId: number): boolean;
+  /**
+   * Registers a callback for low-level RawInput keyboard events.
+   * Returns a Subscription with an idempotent `.close()` method.
+   */
+  onRawKey(handler: (event: RawKeyEvent) => void): Subscription;
+  /** Alias for onRawKey */
+  onRawInput?(handler: (event: RawKeyEvent) => void): Subscription;
   /**
    * Binds an exact-match key chord to an action template and returns a
    * positive binding id. Chords are `key` plus optional modifiers joined by
